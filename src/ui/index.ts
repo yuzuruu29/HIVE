@@ -3,3 +3,4 @@ export * from "./terminal.js";
 export * from "./colors.js";
 export * from "./banner.js";
 export * from "./dashboard.js";
+export * from "./setup.js";

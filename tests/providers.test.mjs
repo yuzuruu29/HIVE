@@ -69,7 +69,52 @@ test('ProviderRegistry lifecycle', async (t) => {
       assert.equal(p?.kind, 'ollama');
       assert.equal(p?.authType, 'none');
     });
-    
+
+    await t.test('Missing environment variable fails safely', async () => {
+      await registry.add({
+        id: 'missing-env-test',
+        name: 'missing-env-test',
+        kind: 'openai',
+        authType: 'bearer',
+        apiKeyEnv: 'NON_EXISTENT_KEY_123',
+      });
+      delete process.env.NON_EXISTENT_KEY_123;
+
+      const res = await registry.test('missing-env-test');
+      assert.equal(res.ok, false);
+      assert.match(res.message, /Missing environment variable NON_EXISTENT_KEY_123/);
+    });
+
+    await t.test('Mocked health check passes', async (st) => {
+      await registry.add({
+        id: 'mock-test',
+        name: 'mock-test',
+        kind: 'openai',
+        authType: 'bearer',
+        apiKeyEnv: 'MOCK_TEST_KEY',
+      });
+      process.env.MOCK_TEST_KEY = 'secret-key';
+
+      // Mock global.fetch
+      const originalFetch = global.fetch;
+      global.fetch = async (url, options) => {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => 'mocked',
+          json: async () => ({})
+        }
+      };
+
+      try {
+        const res = await registry.test('mock-test');
+        assert.equal(res.ok, true);
+      } finally {
+        global.fetch = originalFetch;
+        delete process.env.MOCK_TEST_KEY;
+      }
+    });
+
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }

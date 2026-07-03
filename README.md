@@ -6,9 +6,17 @@
 
 ## Provider Setup
 
-HIVE supports multiple model providers (OpenAI, Anthropic, OpenRouter, Ollama, Google). Providers must be added and approved before they can be used. **Never store raw API keys directly in the CLI commands or configurations.** 
+HIVE supports multiple model providers (OpenAI, Anthropic, OpenRouter, Ollama, Google). Providers must be configured before they can be used. **Never store raw API keys directly in the CLI commands or configurations.** 
 
-### Add a Provider
+### Interactive Setup (Recommended)
+The easiest way to configure a provider is to use the interactive wizard, which will prompt you for the required details, test the connection, and approve the provider automatically:
+```bash
+hive providers setup
+```
+
+### Manual Setup
+For CI/CD or power-user configuration, you can add providers manually.
+
 Add an OpenAI-compatible custom provider:
 ```bash
 hive providers add --id my-custom-openai --kind openai-compatible --base-url https://api.custom.com/v1 --api-key-env CUSTOM_API_KEY --model my-model

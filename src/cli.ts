@@ -7,7 +7,7 @@ import { TaskStore } from "./store.js";
 import { ProviderRegistry } from "./providers/registry.js";
 import { ProviderRole, ProviderSnapshot } from "./types.js";
 import { ProviderKind } from "./providers/types.js";
-import { renderHiveBanner, renderHiveCompactHeader, renderDashboard, renderStatus } from "./ui/index.js";
+import { renderHiveBanner, renderHiveCompactHeader, renderDashboard, renderStatus, runProviderSetupWizard } from "./ui/index.js";
 import { ConfigStore, HiveMode } from "./config.js";
 
 export interface CoderCliOptions {
@@ -114,8 +114,8 @@ Usage:
   hive discard
   hive push --confirmed
   hive pr --confirmed
-  hive providers list
   hive providers setup
+  hive providers list
   hive sessions list
   hive mode
 
@@ -128,7 +128,7 @@ Safety:
   
   try {
     if (command === "providers") {
-      if (rest.length === 0) return { exitCode: 1, output: "Usage: hive providers <list|add|test|approve|remove|roles>" };
+      if (rest.length === 0) return { exitCode: 1, output: "Usage: hive providers <setup|list|add|test|approve|remove|roles>" };
       const [sub, ...subRest] = rest;
       
       if (sub === "list") {
@@ -137,6 +137,11 @@ Safety:
         const out = providers.map(p => `- ${p.id} (${p.kind}) [Approved: ${p.approved}]`).join("\n");
         return { exitCode: 0, output: out };
       }
+
+      if (sub === "setup") {
+        await runProviderSetupWizard(registry);
+        return { exitCode: 0, output: "" };
+      }
       
       if (sub === "--help" || sub === "help") {
         const header = renderHiveCompactHeader({ suffix: "Providers" });
@@ -144,6 +149,7 @@ Safety:
 ${header}
 
 Commands:
+  hive providers setup
   hive providers list
   hive providers add
   hive providers test <id>
