@@ -71,7 +71,7 @@ HIVE is inspired by the terminal-first workflow of modern coding agents, but foc
 HIVE is moving toward a terminal coding harness with provider routing, sessions, and workflow mode.
 
 ## Architecture
-User Task &rarr; Planner &rarr; Builder &rarr; Validator &rarr; Reviewer &rarr; Diff &rarr; Approval &rarr; Commit &rarr; Push/PR
+User Task -> Planner -> Builder -> Validator -> Reviewer -> Diff -> Approval -> Commit -> Push/PR
 
 ## Quickstart
 ```bash

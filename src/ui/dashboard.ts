@@ -1,5 +1,5 @@
-import { renderHiveWordmark } from "./branding.js";
-import { supportsColorOutput } from "./terminal.js";
+import { renderHiveCompactHeader } from "./banner.js";
+import { supportsColorOutput, getRenderMode } from "./terminal.js";
 
 export interface DashboardProps {
   providersApproved: number;
@@ -9,10 +9,11 @@ export interface DashboardProps {
 }
 
 export function renderDashboard(props: DashboardProps, options?: { color?: boolean }): string {
+  if (getRenderMode() === 'suppressed') return "";
   const useColor = options?.color ?? supportsColorOutput();
-  const title = `♛ ${renderHiveWordmark("HIVE", { color: useColor })} · Hyper Intelligence for Verified Engineering`;
+  const title = renderHiveCompactHeader({ color: useColor, suffix: "Agentic Engineering" });
   
-  const swarmDisplay = props.rolesAssigned.length > 0 ? props.rolesAssigned.join(" · ") : "None";
+  const swarmDisplay = props.rolesAssigned.length > 0 ? props.rolesAssigned.join(" - ") : "None";
 
   return `
 ${title}
@@ -49,8 +50,9 @@ export interface StatusProps {
 }
 
 export function renderStatus(props: StatusProps, options?: { color?: boolean }): string {
+  if (getRenderMode() === 'suppressed') return "";
   const useColor = options?.color ?? supportsColorOutput();
-  const title = `♛ ${renderHiveWordmark("HIVE", { color: useColor })} · Flight Status`;
+  const title = renderHiveCompactHeader({ color: useColor, suffix: "Flight Status" });
 
   return `
 ${title}

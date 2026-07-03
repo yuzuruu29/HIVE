@@ -1,0 +1,328 @@
+{
+  "brand": {
+    "name": "HIVE",
+    "full_name": "Hyper Intelligence for Verified Engineering",
+    "category": "CLI and IDE command cockpit",
+    "positioning": "A terminal-native orchestration workspace for verified agentic engineering.",
+    "personality": [
+      "retro-tech",
+      "precise",
+      "technical",
+      "focused",
+      "builder-first",
+      "agentic",
+      "verification-driven"
+    ]
+  },
+  "visual_identity": {
+    "core_motif": "queen bee command cockpit",
+    "secondary_motif": "hive cell geometry",
+    "style": "dark retro terminal with violet gradient lines, pixel title, scanlines, and ASCII-safe fallbacks",
+    "avoid": [
+      "orange Kimchi-like palette",
+      "yellow bee palette",
+      "cartoon bee style",
+      "emoji",
+      "Unicode-only branding",
+      "soft SaaS pastel look",
+      "generic starfield background",
+      "overly bright low-contrast panels"
+    ]
+  },
+  "colors": {
+    "background": {
+      "name": "Void Black",
+      "hex": "#08080B",
+      "usage": "Main CLI and IDE background"
+    },
+    "surface": {
+      "name": "Hive Surface",
+      "hex": "#0F0B1A",
+      "usage": "Panels, cards, framed terminal areas"
+    },
+    "surface_alt": {
+      "name": "Deep Terminal Violet",
+      "hex": "#140B24",
+      "usage": "Secondary panels and nested surfaces"
+    },
+    "primary": {
+      "name": "Deep Violet",
+      "hex": "#5B21B6",
+      "rgb": [91, 33, 182],
+      "usage": "Primary borders, status accents, low end of gradient"
+    },
+    "primary_bright": {
+      "name": "Vivid Violet",
+      "hex": "#7C3AED",
+      "rgb": [124, 58, 237],
+      "usage": "Main brand color, active command highlights"
+    },
+    "accent": {
+      "name": "Neon Line Violet",
+      "hex": "#8B5CF6",
+      "rgb": [139, 92, 246],
+      "usage": "Gradient lines, rail highlights, progress segments"
+    },
+    "accent_soft": {
+      "name": "Lavender",
+      "hex": "#A78BFA",
+      "rgb": [167, 139, 250],
+      "usage": "Large HIVE wordmark gradient and secondary emphasis"
+    },
+    "highlight": {
+      "name": "Pale Highlight",
+      "hex": "#DDD6FE",
+      "rgb": [221, 214, 254],
+      "usage": "Gradient highlight, selected text, title glow"
+    },
+    "text": {
+      "name": "Terminal Text",
+      "hex": "#E5E7EB",
+      "usage": "Primary readable text"
+    },
+    "text_muted": {
+      "name": "Muted Text",
+      "hex": "#9CA3AF",
+      "usage": "Metadata, inactive labels, secondary help"
+    },
+    "text_dim": {
+      "name": "Dim Text",
+      "hex": "#6B7280",
+      "usage": "Paths, version labels, inactive status"
+    },
+    "success": {
+      "name": "Verified Green",
+      "hex": "#22C55E",
+      "usage": "Verification passed, healthy providers"
+    },
+    "warning": {
+      "name": "Signal Amber",
+      "hex": "#F59E0B",
+      "usage": "Warnings only, not primary brand"
+    },
+    "error": {
+      "name": "Fault Red",
+      "hex": "#EF4444",
+      "usage": "Errors, failed checks, dangerous actions"
+    }
+  },
+  "gradients": {
+    "hive_wordmark": {
+      "type": "linear",
+      "direction": "left_to_right",
+      "stops": [
+        "#5B21B6",
+        "#7C3AED",
+        "#A78BFA",
+        "#DDD6FE"
+      ],
+      "usage": "Large pixelated HIVE title"
+    },
+    "terminal_line": {
+      "type": "linear",
+      "direction": "left_to_right",
+      "stops": [
+        "#5B21B6",
+        "#8B5CF6",
+        "#DDD6FE",
+        "#8B5CF6",
+        "#5B21B6"
+      ],
+      "usage": "Frame lines, scanlines, active divider rails"
+    },
+    "status_progress": {
+      "type": "segmented",
+      "stops": [
+        "#5B21B6",
+        "#7C3AED",
+        "#8B5CF6",
+        "#A78BFA"
+      ],
+      "usage": "Progress bars and context usage rail"
+    }
+  },
+  "typography": {
+    "display": {
+      "style": "pixel block bitmap",
+      "usage": "Large HIVE splash wordmark and hero title",
+      "terminal_fallback": "ASCII block letters using #, /, \\, _, |, and - only"
+    },
+    "interface": {
+      "style": "monospace",
+      "recommended_fonts": [
+        "JetBrains Mono",
+        "IBM Plex Mono",
+        "Geist Mono",
+        "Cascadia Code",
+        "Fira Code"
+      ],
+      "terminal_fallback": "system monospace"
+    },
+    "case_rules": {
+      "primary_headers": "uppercase",
+      "commands": "lowercase",
+      "status_labels": "lowercase",
+      "agent_labels": "uppercase bracket labels"
+    }
+  },
+  "ascii_assets": {
+    "queen_bee_full": [
+      "        /\\_/\\",
+      "     __/ o o \\__",
+      "   /__   *   __\\",
+      "      \\_|||_/",
+      "       /_|_\\"
+    ],
+    "queen_bee_compact": [
+      " /\\_/\\ ",
+      "/ o o \\",
+      "\\_|||_/",
+      " /_|_\\ "
+    ],
+    "hive_cell": [
+      "  ___   ___",
+      " /   \\ /   \\",
+      " \\___/ \\___/",
+      "   \\___/"
+    ],
+    "large_hive_ascii": [
+      "H   H  III  V   V  EEEEE",
+      "H   H   I   V   V  E",
+      "HHHHH   I   V   V  EEEE",
+      "H   H   I    V V   E",
+      "H   H  III    V    EEEEE"
+    ]
+  },
+  "layout": {
+    "tui_startup_frame": {
+      "name": "HIVE Command Cockpit",
+      "structure": [
+        "top framed header",
+        "left identity panel with large HIVE title and queen bee mark",
+        "right directive panel with commands and tip",
+        "input prompt row",
+        "bottom status rail"
+      ],
+      "recommended_widths": {
+        "full": "100 columns and above",
+        "compact": "70 to 99 columns",
+        "plain": "below 70 columns or non-interactive output"
+      }
+    },
+    "borders": {
+      "style": "ASCII only",
+      "characters": {
+        "corner": "+",
+        "horizontal": "-",
+        "vertical": "|",
+        "junction": "+"
+      }
+    },
+    "spacing": {
+      "outer_padding": 1,
+      "panel_padding": 2,
+      "minimum_readable_width": 70
+    }
+  },
+  "components": {
+    "startup_header": {
+      "contains": [
+        "large HIVE pixel wordmark",
+        "queen bee ASCII mark",
+        "tagline",
+        "version",
+        "current working directory"
+      ]
+    },
+    "directive_panel": {
+      "contains": [
+        "welcome message",
+        "primary commands",
+        "provider setup hint",
+        "tip box",
+        "ready message"
+      ]
+    },
+    "status_rail": {
+      "fields": [
+        "profile",
+        "provider",
+        "model",
+        "mode",
+        "agents",
+        "context_percent",
+        "command_hint"
+      ],
+      "truncate": true
+    },
+    "agent_labels": {
+      "planner": "[PLAN]",
+      "builder": "[BUILD]",
+      "validator": "[VALIDATE]",
+      "reviewer": "[REVIEW]",
+      "researcher": "[RESEARCH]"
+    }
+  },
+  "terminal_rules": {
+    "ascii_only": true,
+    "no_emoji": true,
+    "no_unicode_box_drawing": true,
+    "no_external_color_dependency": true,
+    "respect_no_color": true,
+    "respect_no_color_flag": true,
+    "respect_non_tty": true,
+    "respect_ci": true,
+    "suppress_branding_for_json": true,
+    "suppress_branding_for_machine_readable_output": true
+  },
+  "motion_and_effects": {
+    "allowed_for_ide": [
+      "subtle scanline background",
+      "low-opacity violet glow",
+      "gradient divider lines",
+      "soft panel focus pulse",
+      "segmented progress rail"
+    ],
+    "avoid": [
+      "busy animation",
+      "large blinking text",
+      "high-frequency flicker",
+      "low-contrast glow over text"
+    ]
+  },
+  "copy": {
+    "tagline": "Hyper Intelligence for Verified Engineering",
+    "short_description": "Terminal-native intelligence for verified agentic builds.",
+    "welcome": "Welcome to HIVE.",
+    "ready": "Ready when you are.",
+    "command_hint": "Type /help to explore commands.",
+    "provider_hint": "Run hive providers setup to configure models.",
+    "health_hint": "Run hive providers status to inspect provider health."
+  },
+  "accessibility": {
+    "minimum_contrast": "WCAG AA where applicable",
+    "plain_text_fallback": true,
+    "readable_without_color": true,
+    "avoid_color_only_state": true,
+    "avoid_blinking_required_information": true
+  },
+  "implementation_targets": {
+    "cli": {
+      "language": "TypeScript",
+      "runtime": "Node.js",
+      "preferred_modules": [
+        "src/ui/colors.ts",
+        "src/ui/terminal.ts",
+        "src/ui/banner.ts",
+        "src/ui/frame.ts",
+        "src/ui/status-rail.ts",
+        "src/ui/branding.ts"
+      ]
+    },
+    "ide": {
+      "style": "dark violet command cockpit",
+      "layout": "terminal panels with command rail and provider status",
+      "wordmark": "large pixelated HIVE with violet gradient scanlines"
+    }
+  }
+}

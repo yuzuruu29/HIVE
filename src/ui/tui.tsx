@@ -1,70 +1,150 @@
 import React, { useState, useEffect } from 'react';
 import { render } from 'ink';
 import { Box, Text, useInput, useApp } from 'ink';
+import TextInput from 'ink-text-input';
 import { TaskStore } from '../store.js';
 import { ProviderRegistry } from '../providers/registry.js';
 import { ConfigStore, HiveMode } from '../config.js';
 import { TaskRecord } from '../types.js';
 import { ProviderConfig, ProviderRoles } from '../providers/types.js';
+import path from 'node:path';
+import fs from 'node:fs/promises';
 
 interface TuiProps {
   cwd: string;
 }
 
 type Pane = 'dashboard' | 'transcripts' | 'diff';
+type ModalState = 'none' | 'run' | 'approve' | 'discard';
 
 export function TuiApp({ cwd }: TuiProps) {
   const { exit } = useApp();
   
   const [activePane, setActivePane] = useState<Pane>('dashboard');
+  const [modal, setModal] = useState<ModalState>('none');
+  const [inputText, setInputText] = useState('');
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [lastOutput, setLastOutput] = useState('');
+  const [fullPatch, setFullPatch] = useState<string | null>(null);
+
   const [mode, setMode] = useState<HiveMode>('guarded');
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [roles, setRoles] = useState<ProviderRoles>({});
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
-  // Load state on mount
-  useEffect(() => {
-    async function loadData() {
-      const store = new TaskStore(cwd);
-      const registry = new ProviderRegistry(cwd);
-      const configStore = new ConfigStore(cwd);
+  const loadData = async () => {
+    const store = new TaskStore(cwd);
+    const registry = new ProviderRegistry(cwd);
+    const configStore = new ConfigStore(cwd);
 
-      setMode(await configStore.getMode());
-      setProviders(await registry.list());
-      setRoles(await registry.getRoles());
-      setTasks(await store.list());
-      
-      try {
-        const fs = await import('node:fs/promises');
-        const path = await import('node:path');
-        const p = path.join(cwd, ".hivemind", "coder-tasks", "active-task.txt");
-        const id = await fs.readFile(p, "utf-8");
-        setActiveTaskId(id.trim());
-      } catch (e) {
-        // No active task
-      }
+    setMode(await configStore.getMode());
+    setProviders(await registry.list());
+    setRoles(await registry.getRoles());
+    setTasks(await store.list());
+    
+    let currentId = null;
+    try {
+      const p = path.join(cwd, ".hivemind", "coder-tasks", "active-task.txt");
+      const id = await fs.readFile(p, "utf-8");
+      currentId = id.trim();
+      setActiveTaskId(currentId);
+    } catch (e) {
+      setActiveTaskId(null);
     }
+
+    if (currentId) {
+      try {
+        const patchPath = path.join(cwd, ".hivemind", "coder-tasks", currentId, "diff.patch");
+        const diffStr = await fs.readFile(patchPath, "utf-8");
+        setFullPatch(diffStr);
+      } catch (e) {
+        setFullPatch(null);
+      }
+    } else {
+      setFullPatch(null);
+    }
+  };
+
+  useEffect(() => {
     loadData();
-    // In a real app we'd poll or use an event emitter. Polling lightly for live feel.
     const interval = setInterval(loadData, 2000);
     return () => clearInterval(interval);
   }, [cwd]);
 
+  const executeAction = async (args: string[]) => {
+    setIsExecuting(true);
+    setModal('none');
+    setLastOutput(`Executing: hive ${args.join(' ')}...`);
+    try {
+      const { runCoderCli } = await import('../cli.js');
+      const res = await runCoderCli(args, { cwd });
+      setLastOutput(res.output);
+    } catch (e: any) {
+      setLastOutput(`Error: ${e.message}`);
+    }
+    await loadData();
+    setIsExecuting(false);
+  };
+
   useInput((input, key) => {
-    if (key.escape || input === 'q') {
+    if (isExecuting) return; // Block inputs during execution
+    
+    // Global quit
+    if (modal === 'none' && (key.escape || input === 'q')) {
       exit();
+      return;
     }
-    if (input === 'd') {
-      setActivePane('diff');
+
+    if (key.escape) {
+      setModal('none');
+      setInputText('');
+      return;
     }
-    if (input === 't') {
-      setActivePane('transcripts');
+
+    if (modal === 'approve') {
+      if (input.toLowerCase() === 'y') executeAction(['approve']);
+      else if (input.toLowerCase() === 'n') setModal('none');
+      return;
     }
-    if (input === 's' || key.backspace) { // just map back to dashboard
-      setActivePane('dashboard');
+
+    if (modal === 'discard') {
+      if (input.toLowerCase() === 'y') executeAction(['discard']);
+      else if (input.toLowerCase() === 'n') setModal('none');
+      return;
     }
-    // r, p, a, x commands would trigger real logic in the future.
+
+    if (modal === 'run') {
+      // ink-text-input handles most keys. We only intercept Enter.
+      if (key.return) {
+        if (inputText.trim()) executeAction(['run', inputText.trim()]);
+        setModal('none');
+        setInputText('');
+      }
+      return;
+    }
+
+    if (input === 'd') setActivePane('diff');
+    if (input === 't') setActivePane('transcripts');
+    if (input === 's') setActivePane('dashboard');
+    if (input === 'p') setActivePane('dashboard');
+
+    if (input === 'r') {
+      setInputText('');
+      setModal('run');
+    }
+    if (input === 'a') {
+      const activeTask = tasks.find(t => t.taskId === activeTaskId);
+      if (activeTaskId && activeTask?.state === 'AWAITING_APPROVAL') {
+        setModal('approve');
+      } else {
+        setLastOutput("No task awaiting approval.");
+      }
+    }
+    if (input === 'x') {
+      if (activeTaskId) setModal('discard');
+      else setLastOutput("No active task to discard.");
+    }
   });
 
   const activeTask = tasks.find(t => t.taskId === activeTaskId);
@@ -72,11 +152,46 @@ export function TuiApp({ cwd }: TuiProps) {
   return (
     <Box flexDirection="column" width="100%" height="100%" minHeight={20}>
       <Box borderStyle="round" borderColor="magenta" paddingX={1} marginBottom={1} flexDirection="row">
-        <Text color="magenta" bold>♛ HIVE </Text>
-        <Text color="gray"> · </Text>
+        <Text color="magenta" bold>[HIVE] </Text>
+        <Text color="gray">- </Text>
         <Text color="magenta">Hyper Intelligence for Verified Engineering</Text>
       </Box>
 
+      {/* MODALS */}
+      {modal === 'run' && (
+        <Box borderStyle="single" borderColor="yellow" padding={1} marginBottom={1}>
+          <Text bold color="yellow">New Task Prompt: </Text>
+          <TextInput value={inputText} onChange={setInputText} />
+        </Box>
+      )}
+
+      {modal === 'approve' && (
+        <Box borderStyle="single" borderColor="green" padding={1} marginBottom={1}>
+          <Text bold color="green">Approve this patch for commit? </Text>
+          <Text color="white">[y/N]</Text>
+        </Box>
+      )}
+
+      {modal === 'discard' && (
+        <Box borderStyle="single" borderColor="red" padding={1} marginBottom={1}>
+          <Text bold color="red">Discard this cell and worktree? </Text>
+          <Text color="white">[y/N]</Text>
+        </Box>
+      )}
+
+      {isExecuting && (
+        <Box borderStyle="single" borderColor="cyan" padding={1} marginBottom={1}>
+          <Text bold color="cyan">Executing... Swarm is working.</Text>
+        </Box>
+      )}
+
+      {!isExecuting && lastOutput && modal === 'none' && (
+        <Box borderStyle="single" borderColor="gray" padding={1} marginBottom={1}>
+          <Text>{lastOutput}</Text>
+        </Box>
+      )}
+
+      {/* PANES */}
       {activePane === 'dashboard' && (
         <Box flexDirection="column" flexGrow={1}>
           <Box flexDirection="row" gap={1}>
@@ -95,9 +210,9 @@ export function TuiApp({ cwd }: TuiProps) {
               
               <Box marginTop={1} flexDirection="column">
                 <Text color="gray">Guardrails:</Text>
-                <Text color="green">✓ Worktree verified</Text>
-                <Text color="green">✓ Approval required before commit</Text>
-                <Text color="green">✓ No auto-push</Text>
+                <Text color="green">[OK] Worktree verified</Text>
+                <Text color="green">[OK] Approval required before commit</Text>
+                <Text color="green">[OK] No auto-push</Text>
               </Box>
             </Box>
 
@@ -116,10 +231,10 @@ export function TuiApp({ cwd }: TuiProps) {
                     <Text>Reviewer:</Text>
                   </Box>
                   <Box flexDirection="column">
-                    <Text>{roles.planner ? `${roles.planner.provider} · ${roles.planner.model}` : "Unassigned"}</Text>
-                    <Text>{roles.builder ? `${roles.builder.provider} · ${roles.builder.model}` : "Unassigned"}</Text>
-                    <Text>{roles.validator ? `${roles.validator.provider} · ${roles.validator.model}` : "Unassigned"}</Text>
-                    <Text>{roles.reviewer ? `${roles.reviewer.provider} · ${roles.reviewer.model}` : "Unassigned"}</Text>
+                    <Text>{roles.planner ? `${roles.planner.provider} / ${roles.planner.model}` : "Unassigned"}</Text>
+                    <Text>{roles.builder ? `${roles.builder.provider} / ${roles.builder.model}` : "Unassigned"}</Text>
+                    <Text>{roles.validator ? `${roles.validator.provider} / ${roles.validator.model}` : "Unassigned"}</Text>
+                    <Text>{roles.reviewer ? `${roles.reviewer.provider} / ${roles.reviewer.model}` : "Unassigned"}</Text>
                   </Box>
                 </Box>
               </Box>
@@ -143,9 +258,8 @@ export function TuiApp({ cwd }: TuiProps) {
                     {activeTask.state === 'FAILED' && (
                       <Box marginTop={1} flexDirection="column" marginLeft={2}>
                         <Text color="gray">Next:</Text>
-                        <Text color="gray">  hive status</Text>
-                        <Text color="gray">  hive diff</Text>
-                        <Text color="gray">  hive discard</Text>
+                        <Text color="gray">  Press [x] to discard</Text>
+                        <Text color="gray">  Press [r] to run new task</Text>
                       </Box>
                     )}
                   </Box>
@@ -169,10 +283,19 @@ export function TuiApp({ cwd }: TuiProps) {
       {activePane === 'transcripts' && (
         <Box borderStyle="single" borderColor="gray" padding={1} flexGrow={1} flexDirection="column">
           <Text bold color="white">Transcripts ({activeTaskId || "None"})</Text>
-          {!activeTaskId ? (
-            <Text color="gray">No active task to show transcripts for.</Text>
+          {!activeTaskId || !activeTask?.transcripts || Object.keys(activeTask.transcripts).length === 0 ? (
+            <Text color="gray">No swarm transcript available yet.</Text>
           ) : (
-            <Text color="gray">Transcripts will stream here in real-time...</Text>
+            <Box flexDirection="column" marginTop={1}>
+              {Object.entries(activeTask.transcripts).map(([role, logs]) => (
+                <Box key={role} flexDirection="column" marginBottom={1}>
+                  <Text bold color="cyan">{role}:</Text>
+                  {logs.map((log, idx) => (
+                    <Text key={idx} color="gray">  {log.substring(0, 150)}{log.length > 150 ? '...' : ''}</Text>
+                  ))}
+                </Box>
+              ))}
+            </Box>
           )}
         </Box>
       )}
@@ -180,10 +303,27 @@ export function TuiApp({ cwd }: TuiProps) {
       {activePane === 'diff' && (
         <Box borderStyle="single" borderColor="green" padding={1} flexGrow={1} flexDirection="column">
           <Text bold color="green">Patch Diff ({activeTaskId || "None"})</Text>
-          {!activeTaskId ? (
-            <Text color="gray">No active task to show diff for.</Text>
+          {!activeTaskId || !activeTask?.diffSummary ? (
+            <Text color="gray">No patch available for this cell yet.</Text>
           ) : (
-            <Text color="gray">Raw git diff will render here...</Text>
+            <Box flexDirection="column" marginTop={1}>
+              <Text bold color="white">Summary:</Text>
+              <Text color="gray">Files Changed: {activeTask.diffSummary.filesChanged.join(', ') || 'None'}</Text>
+              <Text color="green">Insertions: {activeTask.diffSummary.insertions}</Text>
+              <Text color="red">Deletions: {activeTask.diffSummary.deletions}</Text>
+              
+              <Box marginTop={1} flexDirection="column">
+                <Text bold color="white">Full Patch:</Text>
+                {fullPatch ? (
+                  <Text color="gray">
+                    {fullPatch.substring(0, 1000)}
+                    {fullPatch.length > 1000 ? '\n... (truncated)' : ''}
+                  </Text>
+                ) : (
+                  <Text color="gray">Loading or unavailable...</Text>
+                )}
+              </Box>
+            </Box>
           )}
         </Box>
       )}

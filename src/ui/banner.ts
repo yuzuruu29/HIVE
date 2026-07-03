@@ -1,23 +1,50 @@
-import { renderHiveWordmark } from "./branding.js";
-import { supportsColorOutput } from "./terminal.js";
+import { VIOLET_GRADIENT, gradientText, stripAnsi } from "./colors.js";
 
-export function renderHiveBanner(options?: { color?: boolean; compact?: boolean; width?: number }): string {
-  const useColor = options?.color ?? supportsColorOutput();
-  const wordmark = renderHiveWordmark("HIVE", { color: useColor });
-
-  return `
-        /\\_/\\
-     __/ o o \\__
-   /__   *   __\\      ${wordmark}
-      \\_|||_/         Hyper Intelligence for Verified Engineering
-       /_|_\\
-`.replace(/^\n/, ""); // Trim the very first newline but preserve the rest
+export function getLargeHiveTitle(color: boolean = true): string[] {
+  const lines = [
+    "H   H  III  V   V  EEEEE",
+    "H   H   I   V   V  E",
+    "HHHHH   I   V   V  EEEE",
+    "H   H   I    V V   E",
+    "H   H  III    V    EEEEE"
+  ];
+  if (!color) return lines;
+  return lines.map(line => gradientText(line, VIOLET_GRADIENT));
 }
 
-export function renderHiveCompactHeader(options?: { color?: boolean; suffix?: string }): string {
-  const useColor = options?.color ?? supportsColorOutput();
-  const wordmark = renderHiveWordmark("HIVE", { color: useColor });
-  const suffix = options?.suffix ?? "Verified Agentic Coding";
+export function getQueenBeeAscii(color: boolean = true): string[] {
+  const lines = [
+    "        /\\_/\\",
+    "     __/ o o \\__",
+    "   /__   *   __\\",
+    "      \\_|||_/",
+    "       /_|_\\"
+  ];
+  if (!color) return lines;
+  return lines.map(line => gradientText(line, VIOLET_GRADIENT));
+}
 
-  return `${wordmark} - ${suffix}`;
+export function getCompactQueenBeeAscii(color: boolean = true): string[] {
+  const lines = [
+    " /\\_/\\ ",
+    "/ o o \\",
+    "\\_|||_/",
+    " /_|_\\ "
+  ];
+  if (!color) return lines;
+  return lines.map(line => gradientText(line, VIOLET_GRADIENT));
+}
+
+export function getHiveTextBanner(color: boolean = true): string {
+  const text = "HIVE - Verified Agentic Coding";
+  if (!color) return text;
+  return gradientText(text, VIOLET_GRADIENT);
+}
+
+export function renderHiveCompactHeader(options?: { color?: boolean, suffix?: string }): string {
+  const useColor = options?.color ?? true;
+  const suffix = options?.suffix ? ` - ${options.suffix}` : "";
+  const text = `HIVE${suffix} - Verified Agentic Coding`;
+  if (!useColor) return text;
+  return gradientText(text, VIOLET_GRADIENT);
 }

@@ -1,21 +1,59 @@
-import { VIOLET_GRADIENT } from "./colors.js";
-import { supportsColorOutput } from "./terminal.js";
+import { getRenderMode, safeWidth } from "./terminal.js";
+import { renderStartupFrame, renderCompactStartupFrame, renderPlainStartupText, renderHelpFrame } from "./frame.js";
+import { renderStatusRail, StatusRailOptions } from "./status-rail.js";
+import { renderHiveCompactHeader } from "./banner.js";
+import { gradientText, VIOLET_GRADIENT } from "./colors.js";
 
-export function renderHiveWordmark(text: string = "HIVE", options?: { color?: boolean }): string {
-  const useColor = options?.color ?? supportsColorOutput();
-  if (!useColor) {
-    return text;
-  }
+export const HIVE_BRAND = "HIVE";
+export const HIVE_TAGLINE = "Hyper Intelligence for Verified Engineering";
 
-  let result = "";
-  for (let i = 0; i < text.length; i++) {
-    const colorIndex = Math.min(
-      Math.floor((i / Math.max(1, text.length - 1)) * (VIOLET_GRADIENT.length - 1)),
-      VIOLET_GRADIENT.length - 1
-    );
-    const { r, g, b } = VIOLET_GRADIENT[colorIndex];
-    result += `\x1b[38;2;${r};${g};${b}m${text[i]}`;
+export function getHiveStartup(): string {
+  const mode = getRenderMode();
+  const width = safeWidth();
+  
+  if (mode === 'suppressed') return "";
+  
+  if (mode === 'full' || (mode === 'nocolor' && width >= 100)) {
+    return renderStartupFrame(width, mode === 'full');
   }
-  result += "\x1b[0m";
-  return result;
+  
+  if (mode === 'compact' || (mode === 'nocolor' && width >= 70)) {
+    return renderCompactStartupFrame(width, mode === 'compact');
+  }
+  
+  return renderPlainStartupText(mode !== 'nocolor' && mode !== 'plain'); // Plain typically means narrow or non-TTY. We can still apply color if it's just narrow TTY, but getRenderMode returns plain if !interactive.
+}
+
+export function getHiveHelpHeader(): string {
+  const mode = getRenderMode();
+  if (mode === 'suppressed') return "";
+  return getHiveStartup();
+}
+
+export function getHiveProvidersHeader(): string {
+  const mode = getRenderMode();
+  if (mode === 'suppressed') return "";
+  const useColor = mode === 'full' || mode === 'compact';
+  return renderHiveCompactHeader({ color: useColor, suffix: "Providers" });
+}
+
+export function getHiveRunHeader(options?: StatusRailOptions): string {
+  const mode = getRenderMode();
+  if (mode === 'suppressed') return "";
+  
+  const width = safeWidth();
+  const useColor = mode === 'full' || mode === 'compact';
+  
+  if (!options) {
+    return renderHiveCompactHeader({ color: useColor, suffix: "Agentic Build" });
+  }
+  
+  return renderStatusRail(width, useColor, options);
+}
+
+export function renderHiveWordmark(text: string, options?: { color?: boolean }): string {
+  if (options?.color) {
+    return gradientText(text, VIOLET_GRADIENT);
+  }
+  return text;
 }

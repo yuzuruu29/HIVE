@@ -1,6 +1,6 @@
 # HIVE Roadmap
 
-HIVE — Hyper Intelligence for Verified Engineering — is built incrementally. Core orchestration and execution loop components are heavily tested and **verified**, while advanced features (like parallel swarms and experimental handoffs) remain in active development.
+HIVE - Hyper Intelligence for Verified Engineering - is built incrementally. Core orchestration and execution loop components are heavily tested and **verified**, while advanced features (like parallel swarms and experimental handoffs) remain in active development.
 
 ## Completed Phases (Verified Core)
 

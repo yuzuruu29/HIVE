@@ -1,7 +1,8 @@
 import * as readline from 'node:readline/promises';
 import { ProviderRegistry } from '../providers/registry.js';
 import { ProviderKind } from '../providers/types.js';
-import { renderHiveCompactHeader } from './banner.js';
+import { getHiveProvidersHeader } from './branding.js';
+import { getRenderMode } from './terminal.js';
 
 export async function runProviderSetupWizard(registry: ProviderRegistry): Promise<void> {
   const rl = readline.createInterface({
@@ -9,8 +10,10 @@ export async function runProviderSetupWizard(registry: ProviderRegistry): Promis
     output: process.stdout
   });
 
-  console.log(renderHiveCompactHeader({ suffix: "Apiary Setup" }));
-  console.log("\nLet's configure a new model provider.\n");
+  if (getRenderMode() !== 'suppressed') {
+    console.log(getHiveProvidersHeader());
+    console.log("\nLet's configure a new model provider.\n");
+  }
 
   try {
     const id = (await rl.question("Provider ID (e.g., my-openrouter, local-ollama): ")).trim();
@@ -81,15 +84,15 @@ Select Provider Kind:
     try {
       const res = await registry.test(id);
       if (res.ok) {
-        console.log(`✅ ${res.message}`);
+        console.log(`[PASS] ${res.message}`);
         await registry.approve(id);
         console.log(`Provider ${id} is approved and ready to use!`);
       } else {
-        console.log(`❌ Health check failed: ${res.message}`);
+        console.log(`[FAIL] Health check failed: ${res.message}`);
         console.log(`The provider was saved but NOT approved. Fix your environment or config, then run: hive providers approve ${id}`);
       }
     } catch (testErr: any) {
-      console.log(`❌ Health check encountered an error: ${testErr.message}`);
+      console.log(`[ERROR] Health check encountered an error: ${testErr.message}`);
       console.log(`The provider was saved but NOT approved. Run: hive providers approve ${id}`);
     }
 

@@ -7,8 +7,9 @@ import { TaskStore } from "./store.js";
 import { ProviderRegistry } from "./providers/registry.js";
 import { ProviderRole, ProviderSnapshot } from "./types.js";
 import { ProviderKind } from "./providers/types.js";
-import { renderHiveBanner, renderHiveCompactHeader, renderDashboard, renderStatus, runProviderSetupWizard } from "./ui/index.js";
+import { getHiveHelpHeader, getHiveProvidersHeader, getHiveRunHeader, renderDashboard, renderStatus, runProviderSetupWizard } from "./ui/index.js";
 import { ConfigStore, HiveMode } from "./config.js";
+import { shouldSuppressBranding } from "./ui/terminal.js";
 
 export interface CoderCliOptions {
   cwd?: string;
@@ -77,35 +78,49 @@ export async function runCoderCli(args: string[], cliOptions: CoderCliOptions = 
   const configStore = new ConfigStore(cwd);
   const currentMode = await configStore.getMode();
 
-  if (args.length === 0) {
-    // Show Dashboard
-    const providers = await registry.list();
-    const rolesConfig = await registry.getRoles();
-    const tasks = await store.list();
-    
-    const rolesAssigned = [];
-    if (rolesConfig.planner) rolesAssigned.push("Planner");
-    if (rolesConfig.builder) rolesAssigned.push("Builder");
-    if (rolesConfig.validator) rolesAssigned.push("Validator");
-    if (rolesConfig.reviewer) rolesAssigned.push("Reviewer");
+  const isSuppressed = shouldSuppressBranding();
 
-    const dashboard = renderDashboard({
-      providersApproved: providers.filter(p => p.approved).length,
-      rolesAssigned,
-      tasksCount: tasks.length,
-      mode: currentMode
-    });
-    
-    return { exitCode: 0, output: dashboard };
+  // If help flag is used anywhere top level, treat it as help command
+  if (args.includes("--help") || args.includes("-h")) {
+    if (args[0] === "providers") {
+      args = ["providers", "help"];
+    } else {
+      args = ["help"];
+    }
   }
 
-  if (args[0] === "help" || args[0] === "--help") {
-    const banner = renderHiveBanner();
-    const helpText = `
-${banner}
+  // Filter out options so command parsing is clean
+  const globalArgs = args.filter(a => !a.startsWith('--'));
 
-Verified Agentic Coding
+  if (globalArgs.length === 0) {
+    if (process.stdout.isTTY) {
+      // TUI logic typically hijacks output, but we will return the dashboard if we can't launch ink.
+      const { startTui } = await import("./ui/tui.js");
+      startTui(cwd);
+      return new Promise(() => {}); 
+    } else {
+      const providers = await registry.list();
+      const rolesConfig = await registry.getRoles();
+      const tasks = await store.list();
+      const rolesAssigned = [];
+      if (rolesConfig.planner) rolesAssigned.push("Planner");
+      if (rolesConfig.builder) rolesAssigned.push("Builder");
+      if (rolesConfig.validator) rolesAssigned.push("Validator");
+      if (rolesConfig.reviewer) rolesAssigned.push("Reviewer");
 
+      const out = renderDashboard({
+        providersApproved: providers.filter(p => p.approved).length,
+        rolesAssigned,
+        tasksCount: tasks.length,
+        mode: currentMode
+      });
+      return { exitCode: 0, output: out };
+    }
+  }
+
+  if (globalArgs[0] === "help") {
+    const header = getHiveHelpHeader();
+    const helpContent = `
 Usage:
   hive run "<task>"
   hive status
@@ -121,10 +136,11 @@ Usage:
 
 Safety:
   worktree isolation - approve-before-commit - no auto-push - secret redaction`;
-    return { exitCode: 0, output: helpText.replace(/^\n/, "").trimEnd() };
+    const full = (header ? header + "\n\n" : "") + helpContent.trim();
+    return { exitCode: 0, output: full };
   }
   
-  const [command, ...rest] = args;
+  const [command, ...rest] = globalArgs;
   
   try {
     if (command === "providers") {
@@ -133,7 +149,8 @@ Safety:
       
       if (sub === "list") {
         const providers = await registry.list();
-        if (providers.length === 0) return { exitCode: 0, output: "No providers configured." };
+        if (providers.length === 0) return { exitCode: 0, output: isSuppressed ? "[]" : "No providers configured." };
+        if (isSuppressed) return { exitCode: 0, output: JSON.stringify(providers) };
         const out = providers.map(p => `- ${p.id} (${p.kind}) [Approved: ${p.approved}]`).join("\n");
         return { exitCode: 0, output: out };
       }
@@ -143,11 +160,9 @@ Safety:
         return { exitCode: 0, output: "" };
       }
       
-      if (sub === "--help" || sub === "help") {
-        const header = renderHiveCompactHeader({ suffix: "Providers" });
-        const helpText = `
-${header}
-
+      if (sub === "help") {
+        const header = getHiveProvidersHeader();
+        const helpContent = `
 Commands:
   hive providers setup
   hive providers list
@@ -156,11 +171,12 @@ Commands:
   hive providers approve <id>
   hive providers remove <id>
   hive providers roles`;
-        return { exitCode: 0, output: helpText.replace(/^\n/, "").trimEnd() };
+        const full = (header ? header + "\n\n" : "") + helpContent.trim();
+        return { exitCode: 0, output: full };
       }
       
       if (sub === "add") {
-        const { options } = parseRunArgs(subRest);
+        const { options } = parseRunArgs(args.slice(2)); // Use raw args to get flags
         if (!options.id || !options.kind) {
           throw new Error("Usage: hive providers add --id <id> --kind <kind> [--base-url <url>] [--api-key-env <env>] [--model <model>]");
         }
@@ -173,29 +189,32 @@ Commands:
           apiKeyEnv: options['api-key-env'],
           defaultModel: options.model
         });
-        return { exitCode: 0, output: `Provider ${options.id} added. Run 'hive providers approve ${options.id}' to enable it.` };
+        const out = isSuppressed ? JSON.stringify({ success: true, id: options.id }) : `Provider ${options.id} added. Run 'hive providers approve ${options.id}' to enable it.`;
+        return { exitCode: 0, output: out };
       }
       
       if (sub === "test") {
         const id = subRest[0];
         if (!id) throw new Error("Usage: hive providers test <provider-id>");
         const res = await registry.test(id);
-        if (res.ok) return { exitCode: 0, output: `✅ ${res.message}` };
-        return { exitCode: 1, output: `❌ ${res.message}` };
+        if (isSuppressed) return { exitCode: res.ok ? 0 : 1, output: JSON.stringify(res) };
+        return { exitCode: res.ok ? 0 : 1, output: `[${res.ok ? 'PASS' : 'FAIL'}] ${res.message}` };
       }
       
       if (sub === "approve") {
         const id = subRest[0];
         if (!id) throw new Error("Usage: hive providers approve <provider-id>");
         await registry.approve(id);
-        return { exitCode: 0, output: `Provider ${id} approved.` };
+        return { exitCode: 0, output: isSuppressed ? JSON.stringify({ success: true }) : `Provider ${id} approved.` };
       }
       
       if (sub === "remove") {
         const id = subRest[0];
         if (!id) throw new Error("Usage: hive providers remove <provider-id>");
         const removed = await registry.remove(id);
-        return { exitCode: removed ? 0 : 1, output: removed ? `Provider ${id} removed.` : `Provider ${id} not found.` };
+        const outMsg = removed ? `Provider ${id} removed.` : `Provider ${id} not found.`;
+        if (isSuppressed) return { exitCode: removed ? 0 : 1, output: JSON.stringify({ success: removed }) };
+        return { exitCode: removed ? 0 : 1, output: outMsg };
       }
       
       if (sub === "roles") {
@@ -205,7 +224,7 @@ Commands:
           const model = subRest[3];
           if (!role || !providerId || !model) throw new Error("Usage: hive providers roles set <role> <provider-id> <model>");
           await registry.setRole(role, providerId, model);
-          return { exitCode: 0, output: `Role ${role} set to ${providerId}/${model}.` };
+          return { exitCode: 0, output: isSuppressed ? JSON.stringify({ success: true }) : `Role ${role} set to ${providerId}/${model}.` };
         }
         
         const roles = await registry.getRoles();
@@ -216,39 +235,31 @@ Commands:
     }
 
     if (command === "run") {
-      const { prompt, options } = parseRunArgs(rest);
+      // Need original args to parse flags correctly
+      const runIndex = args.indexOf("run");
+      const { prompt, options } = parseRunArgs(args.slice(runIndex + 1));
       if (!prompt) throw new Error("Task prompt is required. Usage: hive run \"<task>\"");
       
-      // Determine providers
       const rolesConfig = await registry.getRoles();
       const providersList = await registry.list();
       
-      // Basic safety fallback - if nothing is configured, error out.
-      // Except if they used OPENAI legacy, we handled that in executor, but let's encourage registry now.
       if (providersList.length === 0 && !options.provider && !process.env.OPENAI_API_KEY) {
         throw new Error("No approved provider configured. Run `hive providers setup` or add a provider with `hive providers add`.");
       }
 
       const getSnapshot = (roleName: string, roleKey: keyof typeof rolesConfig): ProviderSnapshot => {
-        // CLI Override: --<roleKey> <provider>/<model>
         const cliOverride = options[roleKey];
         if (cliOverride) {
           const [p, m] = cliOverride.split('/');
           return { role: roleName as ProviderRole, providerType: p, modelId: m || "" };
         }
-        
-        // Global CLI Override: --provider <provider> --model <model>
         if (options.provider) {
           return { role: roleName as ProviderRole, providerType: options.provider, modelId: options.model || "" };
         }
-
-        // Registry Roles
         const roleAssigned = rolesConfig[roleKey];
         if (roleAssigned) {
           return { role: roleName as ProviderRole, providerType: roleAssigned.provider, modelId: roleAssigned.model };
         }
-
-        // Default legacy fallback
         return { role: roleName as ProviderRole, providerType: 'openai', modelId: 'gpt-4o' };
       };
 
@@ -262,18 +273,28 @@ Commands:
       const taskId = `cli-${Date.now()}`;
       await setActiveTask(cwd, taskId);
       
-      console.log(renderHiveCompactHeader());
-      console.log(`Starting standalone task: ${taskId}`);
-      console.log(`Executing orchestration loop synchronously (Plan -> Build -> Verify -> Review)...`);
+      if (!isSuppressed) {
+        const primaryProvider = providers[0];
+        const runHeader = getHiveRunHeader({
+          provider: primaryProvider.providerType,
+          model: primaryProvider.modelId,
+          mode: currentMode,
+          agents: 4
+        });
+        if (runHeader) console.log(runHeader + "\n");
+        console.log(`Starting standalone task: ${taskId}`);
+        console.log(`Executing orchestration loop synchronously (Plan -> Build -> Verify -> Review)...`);
+      }
       
       const executor = new StandaloneExecutor(cwd);
       const orchestrator = new CoderOrchestrator(taskId, cwd, providers, executor);
-      
-      // Save initial state
       await store.save(orchestrator.getRecord());
       
       const result = await orchestrator.runToReview(prompt);
       
+      if (isSuppressed) {
+        return { exitCode: 0, output: JSON.stringify(result) };
+      }
       return { exitCode: 0, output: `Task reached state: ${result.state}\nRun 'hive status' or 'hive diff' to review.` };
     }
     
@@ -282,6 +303,10 @@ Commands:
       const data = await store.load(taskId);
       if (!data) throw new Error("Task data not found.");
       
+      if (isSuppressed) {
+        return { exitCode: 0, output: JSON.stringify(data) };
+      }
+
       const nextCommands = [];
       if (data.state === 'AWAITING_APPROVAL') {
         nextCommands.push("hive diff", "hive approve");
@@ -314,19 +339,24 @@ Commands:
     if (command === "diff") {
       const taskId = await getActiveTask(cwd);
       const p = path.join(cwd, ".hivemind", "coder-tasks", taskId, "diff.patch");
-      const { options } = parseRunArgs(rest);
+      const runIndex = args.indexOf("diff");
+      const { options } = parseRunArgs(args.slice(runIndex + 1));
       
       try {
         const diff = await fs.readFile(p, "utf-8");
+        if (isSuppressed) {
+          return { exitCode: 0, output: JSON.stringify({ diff }) };
+        }
+
+        const header = getHiveProvidersHeader() || "";
         if (options.full) {
-          return { exitCode: 0, output: `${renderHiveCompactHeader()}\n\n${diff}` || "No changes." };
+          return { exitCode: 0, output: `${header}\n\n${diff}`.trim() || "No changes." };
         } else {
-          // Provide diff summary instead
           const data = await store.load(taskId);
           const summary = data?.diffSummary;
           if (!summary) return { exitCode: 0, output: "No diff summary available." };
-          const out = `${renderHiveCompactHeader()}\n\nFiles Changed: ${summary.filesChanged.join(', ')}\nInsertions: ${summary.insertions}, Deletions: ${summary.deletions}\nRun 'hive diff --full' to see raw patch.`;
-          return { exitCode: 0, output: out };
+          const out = `${header}\n\nFiles Changed: ${summary.filesChanged.join(', ')}\nInsertions: ${summary.insertions}, Deletions: ${summary.deletions}\nRun 'hive diff --full' to see raw patch.`;
+          return { exitCode: 0, output: out.trim() };
         }
       } catch (err) {
         throw new Error("No diff available yet or task not complete.");
@@ -334,15 +364,19 @@ Commands:
     }
     
     if (command === "approve") {
+      const runIndex = args.indexOf("approve");
+      const messageArgs = args.slice(runIndex + 1).filter(a => !a.startsWith('--'));
       const taskId = await getActiveTask(cwd);
-      const message = rest.join(" ") || "Approved via CLI";
+      const message = messageArgs.join(" ") || "Approved via CLI";
       const record = await store.load(taskId);
       if (!record) throw new Error("Task data not found.");
       
       const orchestrator = await CoderOrchestrator.fromRecord(record, cwd, new StandaloneExecutor(cwd));
       await orchestrator.approve(message);
       
-      return { exitCode: 0, output: `${renderHiveCompactHeader()}\nTask ${taskId} approved.` };
+      if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true }) };
+      const header = getHiveProvidersHeader() || "";
+      return { exitCode: 0, output: `${header}\nTask ${taskId} approved.`.trim() };
     }
     
     if (command === "discard") {
@@ -353,11 +387,12 @@ Commands:
         await orchestrator.discard();
       }
       await clearActiveTask(cwd);
+      if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true }) };
       return { exitCode: 0, output: `Task ${taskId} discarded.` };
     }
     
     if (command === "push") {
-      const confirmedIndex = rest.indexOf("--confirmed");
+      const confirmedIndex = args.indexOf("--confirmed");
       if (confirmedIndex === -1) {
         throw new Error("Must provide --confirmed flag to push.");
       }
@@ -374,11 +409,12 @@ Commands:
       const forge = new GitHubForge(owner, repo, token);
       await orchestrator.push(forge);
       
+      if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true }) };
       return { exitCode: 0, output: `Task ${taskId} pushed to remote.` };
     }
     
     if (command === "pr") {
-      const confirmedIndex = rest.indexOf("--confirmed");
+      const confirmedIndex = args.indexOf("--confirmed");
       if (confirmedIndex === -1) {
         throw new Error("Must provide --confirmed flag to create PR.");
       }
@@ -395,11 +431,13 @@ Commands:
       const forge = new GitHubForge(owner, repo, token);
       const prUrl = await orchestrator.createPR(forge);
       
+      if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true, url: prUrl }) };
       return { exitCode: 0, output: `PR created for ${taskId}.\nURL: ${prUrl}` };
     }
     
     if (command === "mode") {
       if (rest.length === 0) {
+        if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ mode: currentMode }) };
         return { exitCode: 0, output: `Current Mode: ${currentMode}` };
       }
       if (rest[0] === "set" && rest[1]) {
@@ -408,6 +446,7 @@ Commands:
           throw new Error("Invalid mode. Choose from: guarded, standard, autonomous, plan, review");
         }
         await configStore.setMode(newMode);
+        if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true, mode: newMode }) };
         return { exitCode: 0, output: `Mode set to: ${newMode}` };
       }
       return { exitCode: 1, output: "Usage: hive mode [set <mode>]" };
@@ -420,6 +459,7 @@ Commands:
       
       if (sub === "list") {
         const tasks = await store.list();
+        if (isSuppressed) return { exitCode: 0, output: JSON.stringify(tasks) };
         if (tasks.length === 0) return { exitCode: 0, output: "No task cells found." };
         const out = tasks.map(t => `${t.taskId === activeId ? '*' : ' '} ${t.taskId} [${t.state}] - ${t.branchName}`).join("\n");
         return { exitCode: 0, output: out };
@@ -437,18 +477,19 @@ Commands:
         const record = await store.load(id);
         if (!record) throw new Error(`Task cell ${id} not found.`);
         await setActiveTask(cwd, id);
+        if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true, id }) };
         return { exitCode: 0, output: `Resumed task cell ${id}.` };
       }
       if (sub === "fork") {
-        // Stub for now
         const id = rest[1];
         if (!id) throw new Error("Usage: hive sessions fork <id>");
+        if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true, message: "Not Implemented" }) };
         return { exitCode: 0, output: `Task cell ${id} forked (Not Implemented).` };
       }
       if (sub === "archive") {
-        // Stub for now
         const id = rest[1];
         if (!id) throw new Error("Usage: hive sessions archive <id>");
+        if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true, message: "Not Implemented" }) };
         return { exitCode: 0, output: `Task cell ${id} archived (Not Implemented).` };
       }
       return { exitCode: 1, output: `Unknown sessions command: ${sub}` };
@@ -457,6 +498,9 @@ Commands:
     return { exitCode: 1, output: `Unknown command: ${command}` };
     
   } catch (err: any) {
+    if (isSuppressed) {
+      return { exitCode: 1, output: JSON.stringify({ error: err.message }) };
+    }
     return { exitCode: 1, output: err.message };
   }
 }

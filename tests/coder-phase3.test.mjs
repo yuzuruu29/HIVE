@@ -131,7 +131,7 @@ test("HIVE Phase 3 - Orchestrator and RemoteForge integration", async () => {
       // Ensure PR body contains HIVE artifacts
       assert.match(bodyPayload.body, /HIVE Task Report/);
       assert.match(bodyPayload.body, /Verification Results/);
-      assert.match(bodyPayload.body, /✅ Passed/);
+      assert.match(bodyPayload.body, /\[PASS\]/);
       assert.match(bodyPayload.body, /Guardrail Checklist/);
       
       // Ensure token is never persisted in task store

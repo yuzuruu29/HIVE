@@ -213,7 +213,7 @@ export class CoderOrchestrator {
     
     let verifications = 'None';
     if (r.verificationResults && r.verificationResults.length > 0) {
-      verifications = r.verificationResults.map((v: VerificationResult) => `- **${v.command}**: ${v.passed ? '✅ Passed' : '❌ Failed'}`).join('\n');
+      verifications = r.verificationResults.map((v: VerificationResult) => `- **${v.command}**: ${v.passed ? '[PASS]' : '[FAIL]'}`).join('\n');
     }
 
     return `## HIVE Task Report: ${r.taskId}
