@@ -71,7 +71,10 @@ export class CoderOrchestrator {
       const plannerSnapshot = this.record.providers.find((p: ProviderSnapshot) => p.role === 'Planner');
       if (this.executor && plannerSnapshot) {
         await this.saveState('PLANNING');
-        const planPrompt = `Please write a plan for: ${prompt}\n\nYou MUST also explicitly output a list of expected changed paths (one per line) wrapped in <expected_files>...</expected_files> tags.`;
+        let planPrompt = `Please write a plan for: ${prompt}\n\nYou MUST also explicitly output a list of expected changed paths (one per line) wrapped in <expected_files>...</expected_files> tags.`;
+        if (inspection.scoutContext) {
+          planPrompt = `[Scout Context]\n${inspection.scoutContext}\n\n${planPrompt}`;
+        }
         const planOutput = await this.executeWithTranscript('Planner', planPrompt, this.repoPath, plannerSnapshot);
         
         let expectedFiles: string[] = [];

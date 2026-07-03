@@ -1,0 +1,13 @@
+[
+  {
+    "id": "local-ollama",
+    "name": "local-ollama",
+    "kind": "ollama",
+    "baseUrl": "http://localhost:11434",
+    "authType": "none",
+    "defaultModel": "test-model",
+    "approved": true,
+    "createdAt": "2026-07-03T20:39:55.119Z",
+    "updatedAt": "2026-07-03T20:39:55.471Z"
+  }
+]

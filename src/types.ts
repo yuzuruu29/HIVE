@@ -65,6 +65,7 @@ export interface RepoInspectionResult {
   availableScripts: string[];
   isValidRepo: boolean;
   errors?: string[];
+  scoutContext?: string;
 }
 
 export interface CoderAgentExecutor {

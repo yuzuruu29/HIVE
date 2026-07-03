@@ -37,12 +37,12 @@ test('Coder CLI', async (t) => {
   await t.test('status command uses active task', async () => {
     await fs.writeFile(path.join(cwd, '.hivemind', 'coder-tasks', 'active-task.txt'), 'cli-123', 'utf8');
     const store = new TaskStore(cwd);
-    await store.save({ taskId: 'cli-123', state: 'AWAITING_APPROVAL' });
+    await store.save({ taskId: 'cli-123', state: 'AWAITING_APPROVAL', verificationResults: [], providers: [] });
 
     const res = await runCoderCli(['status'], { cwd });
     assert.strictEqual(res.exitCode, 0);
-    assert.match(res.output, /Task ID: cli-123/);
-    assert.match(res.output, /State: AWAITING_APPROVAL/);
+    assert.match(res.output, /Cell: cli-123/);
+    assert.match(res.output, /Queen: AWAITING_APPROVAL/);
   });
 
   await t.test('diff command reads local file', async () => {
@@ -50,7 +50,7 @@ test('Coder CLI', async (t) => {
     await fs.mkdir(path.join(cwd, '.hivemind', 'coder-tasks', 'cli-123'), { recursive: true });
     await fs.writeFile(path.join(cwd, '.hivemind', 'coder-tasks', 'cli-123', 'diff.patch'), 'test diff content', 'utf8');
 
-    const res = await runCoderCli(['diff'], { cwd });
+    const res = await runCoderCli(['diff', '--full'], { cwd });
     assert.strictEqual(res.exitCode, 0);
     assert.match(res.output, /test diff content/);
   });
@@ -66,7 +66,7 @@ test('Coder CLI', async (t) => {
   await t.test('push command calls push API', async () => {
     await fs.writeFile(path.join(cwd, '.hivemind', 'coder-tasks', 'active-task.txt'), 'cli-123', 'utf8');
     const store = new TaskStore(cwd);
-    await store.save({ taskId: 'cli-123', state: 'APPROVED' });
+    await store.save({ taskId: 'cli-123', state: 'COMPLETED', verificationResults: [], providers: [] });
 
     process.env.GITHUB_OWNER = 'test';
     process.env.GITHUB_REPO = 'repo';

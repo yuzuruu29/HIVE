@@ -7,7 +7,8 @@ import { TaskStore } from "./store.js";
 import { ProviderRegistry } from "./providers/registry.js";
 import { ProviderRole, ProviderSnapshot } from "./types.js";
 import { ProviderKind } from "./providers/types.js";
-import { renderHiveBanner, renderHiveCompactHeader } from "./ui/index.js";
+import { renderHiveBanner, renderHiveCompactHeader, renderDashboard, renderStatus } from "./ui/index.js";
+import { ConfigStore, HiveMode } from "./config.js";
 
 export interface CoderCliOptions {
   cwd?: string;
@@ -25,6 +26,14 @@ async function getActiveTask(cwd: string): Promise<string> {
     return content.trim();
   } catch (err) {
     throw new Error("No active task found. Run 'hive run <task>' first.");
+  }
+}
+
+async function getActiveTaskSafe(cwd: string): Promise<string | null> {
+  try {
+    return await getActiveTask(cwd);
+  } catch {
+    return null;
   }
 }
 
@@ -65,10 +74,32 @@ export async function runCoderCli(args: string[], cliOptions: CoderCliOptions = 
   const cwd = cliOptions.cwd || process.cwd();
   const store = new TaskStore(cwd);
   const registry = new ProviderRegistry(cwd);
-  
-  const globalArgs = args.filter(a => !a.startsWith('--'));
-  
-  if (globalArgs.length === 0 || globalArgs[0] === "help") {
+  const configStore = new ConfigStore(cwd);
+  const currentMode = await configStore.getMode();
+
+  if (args.length === 0) {
+    // Show Dashboard
+    const providers = await registry.list();
+    const rolesConfig = await registry.getRoles();
+    const tasks = await store.list();
+    
+    const rolesAssigned = [];
+    if (rolesConfig.planner) rolesAssigned.push("Planner");
+    if (rolesConfig.builder) rolesAssigned.push("Builder");
+    if (rolesConfig.validator) rolesAssigned.push("Validator");
+    if (rolesConfig.reviewer) rolesAssigned.push("Reviewer");
+
+    const dashboard = renderDashboard({
+      providersApproved: providers.filter(p => p.approved).length,
+      rolesAssigned,
+      tasksCount: tasks.length,
+      mode: currentMode
+    });
+    
+    return { exitCode: 0, output: dashboard };
+  }
+
+  if (args[0] === "help" || args[0] === "--help") {
     const banner = renderHiveBanner();
     const helpText = `
 ${banner}
@@ -78,20 +109,22 @@ Verified Agentic Coding
 Usage:
   hive run "<task>"
   hive status
-  hive diff
+  hive diff [--full]
   hive approve
   hive discard
   hive push --confirmed
   hive pr --confirmed
   hive providers list
   hive providers setup
+  hive sessions list
+  hive mode
 
 Safety:
   worktree isolation - approve-before-commit - no auto-push - secret redaction`;
-    return { exitCode: args.length === 0 ? 1 : 0, output: helpText.replace(/^\n/, "").trimEnd() };
+    return { exitCode: 0, output: helpText.replace(/^\n/, "").trimEnd() };
   }
   
-  const [command, ...rest] = globalArgs;
+  const [command, ...rest] = args;
   
   try {
     if (command === "providers") {
@@ -243,18 +276,52 @@ Commands:
       const data = await store.load(taskId);
       if (!data) throw new Error("Task data not found.");
       
-      let output = `${renderHiveCompactHeader()}\n\nTask ID: ${taskId}\nState: ${data.state}\n`;
-      if (data.reviewerVerdict) output += `Reviewer Verdict: ${data.reviewerVerdict}\n`;
+      const nextCommands = [];
+      if (data.state === 'AWAITING_APPROVAL') {
+        nextCommands.push("hive diff", "hive approve");
+      } else if (data.state === 'COMPLETED') {
+        nextCommands.push("hive push --confirmed", "hive pr --confirmed");
+      } else if (data.state === 'FAILED' || data.state === 'DISCARDED') {
+        nextCommands.push("hive discard", "hive run <task>");
+      } else {
+        nextCommands.push("hive status (refresh)");
+      }
+
+      const output = renderStatus({
+        taskId,
+        mode: currentMode,
+        branch: data.branchName,
+        state: data.state,
+        plannerState: data.plan ? "complete" : "pending",
+        builderState: data.diffSummary ? "complete" : "pending",
+        validatorState: data.verificationResults.length > 0 ? (data.verificationResults.every(v => v.passed) ? "passed" : "failed") : "pending",
+        reviewerState: data.reviewerVerdict ? (data.reviewerVerdict.includes('REJECT') ? 'rejected' : 'approved') : "pending",
+        filesChanged: data.diffSummary?.filesChanged.length || 0,
+        testsPassed: data.verificationResults.length > 0 && data.verificationResults.every(v => v.passed),
+        safety: currentMode,
+        nextCommands
+      });
       
-      return { exitCode: 0, output: output.trim() };
+      return { exitCode: 0, output };
     }
     
     if (command === "diff") {
       const taskId = await getActiveTask(cwd);
       const p = path.join(cwd, ".hivemind", "coder-tasks", taskId, "diff.patch");
+      const { options } = parseRunArgs(rest);
+      
       try {
         const diff = await fs.readFile(p, "utf-8");
-        return { exitCode: 0, output: `${renderHiveCompactHeader()}\n\n${diff}` || "No changes." };
+        if (options.full) {
+          return { exitCode: 0, output: `${renderHiveCompactHeader()}\n\n${diff}` || "No changes." };
+        } else {
+          // Provide diff summary instead
+          const data = await store.load(taskId);
+          const summary = data?.diffSummary;
+          if (!summary) return { exitCode: 0, output: "No diff summary available." };
+          const out = `${renderHiveCompactHeader()}\n\nFiles Changed: ${summary.filesChanged.join(', ')}\nInsertions: ${summary.insertions}, Deletions: ${summary.deletions}\nRun 'hive diff --full' to see raw patch.`;
+          return { exitCode: 0, output: out };
+        }
       } catch (err) {
         throw new Error("No diff available yet or task not complete.");
       }
@@ -323,6 +390,62 @@ Commands:
       const prUrl = await orchestrator.createPR(forge);
       
       return { exitCode: 0, output: `PR created for ${taskId}.\nURL: ${prUrl}` };
+    }
+    
+    if (command === "mode") {
+      if (rest.length === 0) {
+        return { exitCode: 0, output: `Current Mode: ${currentMode}` };
+      }
+      if (rest[0] === "set" && rest[1]) {
+        const newMode = rest[1] as HiveMode;
+        if (!["guarded", "standard", "autonomous", "plan", "review"].includes(newMode)) {
+          throw new Error("Invalid mode. Choose from: guarded, standard, autonomous, plan, review");
+        }
+        await configStore.setMode(newMode);
+        return { exitCode: 0, output: `Mode set to: ${newMode}` };
+      }
+      return { exitCode: 1, output: "Usage: hive mode [set <mode>]" };
+    }
+    
+    if (command === "sessions") {
+      if (rest.length === 0) return { exitCode: 1, output: "Usage: hive sessions <list|show|resume|fork|archive>" };
+      const sub = rest[0];
+      const activeId = await getActiveTaskSafe(cwd);
+      
+      if (sub === "list") {
+        const tasks = await store.list();
+        if (tasks.length === 0) return { exitCode: 0, output: "No task cells found." };
+        const out = tasks.map(t => `${t.taskId === activeId ? '*' : ' '} ${t.taskId} [${t.state}] - ${t.branchName}`).join("\n");
+        return { exitCode: 0, output: out };
+      }
+      if (sub === "show") {
+        const id = rest[1];
+        if (!id) throw new Error("Usage: hive sessions show <id>");
+        const record = await store.load(id);
+        if (!record) throw new Error(`Task cell ${id} not found.`);
+        return { exitCode: 0, output: JSON.stringify(record, null, 2) };
+      }
+      if (sub === "resume") {
+        const id = rest[1];
+        if (!id) throw new Error("Usage: hive sessions resume <id>");
+        const record = await store.load(id);
+        if (!record) throw new Error(`Task cell ${id} not found.`);
+        await setActiveTask(cwd, id);
+        return { exitCode: 0, output: `Resumed task cell ${id}.` };
+      }
+      if (sub === "fork") {
+        // Stub for now
+        const id = rest[1];
+        if (!id) throw new Error("Usage: hive sessions fork <id>");
+        return { exitCode: 0, output: `Task cell ${id} forked (Not Implemented).` };
+      }
+      if (sub === "archive") {
+        // Stub for now
+        const id = rest[1];
+        if (!id) throw new Error("Usage: hive sessions archive <id>");
+        return { exitCode: 0, output: `Task cell ${id} archived (Not Implemented).` };
+      }
+      return { exitCode: 1, output: `Unknown sessions command: ${sub}` };
     }
     
     return { exitCode: 1, output: `Unknown command: ${command}` };
