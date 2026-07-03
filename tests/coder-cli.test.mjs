@@ -25,6 +25,7 @@ test('Coder CLI', async (t) => {
   });
 
   await t.test('run command starts task and saves taskId', async () => {
+    process.env.OPENAI_API_KEY = 'test-key';
     const res = await runCoderCli(['run', 'test prompt'], { cwd });
     assert.strictEqual(res.exitCode, 0);
     assert.match(res.output, /Task reached state: AWAITING_APPROVAL/);

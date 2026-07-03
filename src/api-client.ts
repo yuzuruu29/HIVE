@@ -1,53 +1,44 @@
 import { CoderAgentExecutor, ProviderRole, ProviderSnapshot } from './types.js';
+import { ProviderRegistry } from './providers/registry.js';
+import { getAdapterForKind } from './providers/health.js';
+import { ProviderConfig } from './providers/types.js';
 
 export class StandaloneExecutor implements CoderAgentExecutor {
+  constructor(private repoPath: string) {}
+
   async execute(role: ProviderRole, prompt: string, cwd: string, snapshot: ProviderSnapshot): Promise<{ output: string }> {
-    const pType = snapshot.providerType.toLowerCase();
+    const registry = new ProviderRegistry(this.repoPath);
+    const providerId = snapshot.providerType.toLowerCase();
     
-    if (pType === 'openai') {
-      const apiKey = process.env.OPENAI_API_KEY;
-      if (!apiKey) throw new Error("OPENAI_API_KEY is not set.");
-      
-      const baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
-      const res = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: snapshot.modelId || "gpt-4o",
-          messages: [{ role: "user", content: prompt }]
-        })
-      });
-      const data = await res.json() as any;
-      if (!res.ok) throw new Error(data.error?.message || `OpenAI error: ${res.status}`);
-      return { output: data.choices[0].message.content };
+    let config = await registry.get(providerId);
+
+    // Preserve existing fallback behavior if provider registry is empty but environment has keys
+    if (!config) {
+      if (providerId === 'openai' || providerId === 'anthropic') {
+         config = {
+           id: providerId,
+           name: providerId,
+           kind: providerId as any,
+           authType: "bearer",
+           approved: true,
+           createdAt: new Date().toISOString(),
+           updatedAt: new Date().toISOString()
+         };
+      } else {
+        throw new Error(`Provider ${providerId} is not configured.`);
+      }
     }
-    
-    if (pType === 'anthropic') {
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set.");
-      
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01"
-        },
-        body: JSON.stringify({
-          model: snapshot.modelId || "claude-3-opus-20240229",
-          max_tokens: 4000,
-          messages: [{ role: "user", content: prompt }]
-        })
-      });
-      const data = await res.json() as any;
-      if (!res.ok) throw new Error(data.error?.message || `Anthropic error: ${res.status}`);
-      return { output: data.content[0].text };
+
+    if (!config.approved) {
+      throw new Error(`Provider ${config.id} exists but is not approved. Run \`hive providers approve ${config.id}\`.`);
     }
-    
-    // Minimal fallback for unknown provider
-    return { output: `[Simulated response for ${snapshot.providerType} / ${snapshot.modelId}]\nI have executed the prompt.` };
+
+    const adapter = getAdapterForKind(config.kind);
+    const result = await adapter.complete(config, {
+      prompt,
+      model: snapshot.modelId || config.defaultModel || ""
+    });
+
+    return { output: result.output };
   }
 }

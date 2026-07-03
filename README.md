@@ -1,12 +1,57 @@
-# HIVE
+# HIVE (Hyper Intelligence for Verified Engineering) is a standalone CLI for verified agentic coding. It supports dynamic provider configuration, multi-agent orchestration, and pathspec-scoped diff validation to ensure code is never pushed automatically or unsafely.
 
-**HIVE is an open-source agentic coding CLI where multiple AI agents plan, build, test, review, and ship code through a verified engineering loop.**
+## Visual Identity
+- HIVE CLI uses a queen bee terminal motif.
+- Violet wordmark indicates verified agentic coding.
 
-## What HIVE Is
-- A standalone CLI tool for agentic coding.
-- A verified patch workflow that enforces quality.
-- A local-first engineering loop running on your machine.
-- Supports provider/adaptor-based agents (OpenAI, Anthropic).
+## Provider Setup
+
+HIVE supports multiple model providers (OpenAI, Anthropic, OpenRouter, Ollama, Google). Providers must be added and approved before they can be used. **Never store raw API keys directly in the CLI commands or configurations.** 
+
+### Add a Provider
+Add an OpenAI-compatible custom provider:
+```bash
+hive providers add --id my-custom-openai --kind openai-compatible --base-url https://api.custom.com/v1 --api-key-env CUSTOM_API_KEY --model my-model
+```
+
+Add an OpenRouter provider:
+```bash
+hive providers add --id openrouter-main --kind openrouter --base-url https://openrouter.ai/api/v1 --api-key-env OPENROUTER_API_KEY --model qwen/qwen3-coder
+```
+
+Add a local Ollama provider:
+```bash
+hive providers add --id local-ollama --kind ollama --base-url http://localhost:11434 --model llama3
+```
+
+### Approve and Test a Provider
+Before HIVE will allow a provider to execute, you must explicitly approve it. You can optionally run a non-destructive health check.
+```bash
+hive providers test local-ollama
+hive providers approve local-ollama
+```
+
+### Assigning Roles
+HIVE orchestrates coding through `planner`, `builder`, `validator`, and `reviewer` roles. You can assign different providers and models to specific roles:
+```bash
+hive providers roles set builder local-ollama codellama
+hive providers roles set reviewer openrouter-main anthropic/claude-3-sonnet
+```
+
+### Runtime Provider Overrides
+If you need to quickly override the provider for a specific task without modifying roles:
+```bash
+hive run "fix the bug" --provider local-ollama --model llama3
+```
+
+### Supported Providers
+- **`openai`**: OpenAI Official endpoints
+- **`openai-compatible`**: Custom OpenAI-like endpoints (vLLM, LMStudio, TokenRouter)
+- **`openrouter`**: OpenRouter endpoints
+- **`ollama`**: Local Ollama endpoints (No auth required)
+- **`anthropic`**: *(Basic integration configured)*
+- **`google`**: *(Basic integration configured)*
+- **`oauth`**: *(Not currently implemented - API Keys are recommended)*
 
 ## What HIVE Is Not
 - Not a full IDE.
