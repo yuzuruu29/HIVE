@@ -28,6 +28,10 @@ export function formatScoutText(pack: ScoutContextPack): string {
     const topFiles = pack.importantFiles.slice(0, 15);
     for (const f of topFiles) {
       text += `- ${f.path} (Score: ${f.priorityScore}, Lang: ${f.language})\n  Reason: ${f.reason}\n`;
+      if (f.excerpt) {
+        text += `  Excerpt: ${f.excerpt.replace(/\n/g, '\n    ')}\n`;
+        if (f.truncated) text += `    ... (truncated)\n`;
+      }
     }
     if (pack.importantFiles.length > 15) {
       text += `- ... and ${pack.importantFiles.length - 15} more files\n`;

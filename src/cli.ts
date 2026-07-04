@@ -518,7 +518,10 @@ Commands:
       }
       
       if (options.files) {
-        const fileList = pack.importantFiles.map(f => f.path).join('\n');
+        const fileList = pack.importantFiles.map(f => {
+          const score = f.priorityScore.toString().padStart(3, ' ');
+          return `[${score}] ${f.path} (${f.language})`;
+        }).join('\n');
         return { exitCode: 0, output: fileList || "No important files found." };
       }
       

@@ -28,11 +28,15 @@ test('Scout Context Engine', async (t) => {
       { path: 'src/ui/dashboard.ts', reason: '', size: 100, language: 'TypeScript', priorityScore: 15 },
       { path: 'src/cli.ts', reason: '', size: 100, language: 'TypeScript', priorityScore: 30 },
       { path: 'src/orchestrator.ts', reason: '', size: 100, language: 'TypeScript', priorityScore: 25 },
-      { path: 'package.json', reason: '', size: 100, language: 'JSON', priorityScore: 60 }
+      { path: 'package.json', reason: '', size: 100, language: 'JSON', priorityScore: 60 },
+      { path: 'src/providers/adapters/openai.ts', reason: '', size: 100, language: 'TypeScript', priorityScore: 20 }
     ];
 
-    const ranked = rankFiles(files, "Fix the dashboard ui");
-    assert.strictEqual(ranked[0].path, 'src/ui/dashboard.ts'); // boosted by 50 for ui, +25 for dashboard
+    const uiRanked = rankFiles(files, "Fix the dashboard ui");
+    assert.strictEqual(uiRanked[0].path, 'src/ui/dashboard.ts'); // boosted by 50 for ui, +25 for dashboard
+
+    const providerRanked = rankFiles(files, "add provider setup api");
+    assert.strictEqual(providerRanked[0].path, 'src/providers/adapters/openai.ts'); // boosted for provider
   });
 
   await t.test('budget correctly truncates large contexts', () => {
@@ -60,6 +64,42 @@ test('Scout Context Engine', async (t) => {
     assert.strictEqual(budgeted.promptBudget.truncated, true);
     assert.strictEqual(budgeted.docs.length, 1);
     assert.strictEqual(budgeted.docs[0].path, 'README.md');
+  });
+
+  await t.test('prompt-size snapshot prevents budget overflow', async () => {
+    const { formatScoutText } = await import('../src/scout/format.js');
+    
+    // Simulate a massive pack to test format boundaries
+    const massivePack = {
+      repoRoot: '/fake',
+      generatedAt: 'now',
+      summary: 'Massive summary test',
+      frameworks: [],
+      languages: [],
+      scripts: {},
+      testHints: [],
+      recentChanges: [],
+      riskNotes: ['Risk 1', 'Risk 2'],
+      importantFiles: Array.from({length: 100}, (_, i) => ({ 
+        path: `src/file${i}.ts`, 
+        reason: 'testing', 
+        size: 1000, 
+        language: 'TypeScript', 
+        priorityScore: 10,
+        excerpt: 'const a = 1;'
+      })),
+      docs: Array.from({length: 10}, (_, i) => ({ 
+        path: `doc${i}.md`, 
+        excerpt: 'B'.repeat(2000) 
+      }))
+    };
+
+    const budgeted = applyBudget(massivePack, 5000);
+    assert.ok(budgeted.promptBudget.truncated, "Massive pack must be truncated");
+    
+    const formattedText = formatScoutText(budgeted);
+    // Header layout adds fixed chars. Ensure we are somewhat near the budget.
+    assert.ok(formattedText.length <= 5000 + 2000, "Formatted output should not grossly overflow the raw budget constraint");
   });
 
   await t.test('context pack generation works on current repo', async () => {

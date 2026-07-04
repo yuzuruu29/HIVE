@@ -69,6 +69,9 @@ HIVE uses the **Scout Context Engine** to deterministically gather local reposit
 - **Budget-aware**: Truncates context automatically to a max budget (e.g. 20,000 characters) to preserve prompt space.
 - **Task-ranked**: Boosts the priority of files based on heuristic keyword overlaps with your prompt.
 
+### How Scout Helps Planner and Builder
+By injecting this bounded, deterministic context block directly into the Planner and Builder execution prompts, HIVE significantly reduces hallucinations. The Planner uses the contextual architecture and top-ranked target files to generate more accurate multi-step execution plans. The Builder uses the dynamically extracted structural snippets (imports and class definitions) and task-specific risk notes to avoid breaking existing interfaces or leaking safe states.
+
 You can inspect what Scout sees manually via the CLI:
 ```bash
 hive scout --task "provider setup"
