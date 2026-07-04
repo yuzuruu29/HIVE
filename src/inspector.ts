@@ -35,25 +35,10 @@ export class RepoInspector {
         result.availableScripts = Object.keys(pkg.scripts);
       }
 
-      // Scout: Gather context
-      let context = `Project Type: ${pkg.name || 'Unknown'}\n`;
-      context += `Scripts: ${result.availableScripts.join(', ')}\n`;
-      
-      const readmePath = path.join(this.repoPath, 'README.md');
-      const readmeStat = await fs.promises.stat(readmePath).catch(() => null);
-      if (readmeStat) {
-        const readmeContent = await fs.promises.readFile(readmePath, 'utf8');
-        context += `\nREADME excerpt:\n${readmeContent.substring(0, 500)}...\n`;
-      }
-
-      const agentsPath = path.join(this.repoPath, 'AGENTS.md');
-      const agentsStat = await fs.promises.stat(agentsPath).catch(() => null);
-      if (agentsStat) {
-        const agentsContent = await fs.promises.readFile(agentsPath, 'utf8');
-        context += `\nAGENTS.md excerpt:\n${agentsContent.substring(0, 500)}...\n`;
-      }
-
-      result.scoutContext = context;
+      // Scout: Gather rich context
+      const { generateContextPack, formatScoutText } = await import('./scout/index.js');
+      const scoutPack = await generateContextPack(this.repoPath);
+      result.scoutContext = formatScoutText(scoutPack);
     } catch (err: any) {
       result.isValidRepo = false;
       result.errors = [err.message];

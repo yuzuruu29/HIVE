@@ -77,6 +77,15 @@ export class TuiApp {
 
       // Initial render
       this.render();
+
+      // Load scout info asynchronously
+      import("../scout/index.js").then(({ generateContextPack }) => {
+        generateContextPack(this.cwd).then(pack => {
+          if (this.stopped) return;
+          const { withScoutInfo } = require("./state.js"); // lazy load to avoid circular deps if any
+          this.setState(withScoutInfo(this.state, pack.importantFiles.length, pack.docs.length, pack.riskNotes.length));
+        }).catch(() => {});
+      }).catch(() => {});
     });
   }
 

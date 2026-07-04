@@ -248,6 +248,8 @@ export function renderFooter(state: TuiState, width: number): string {
     return lbl + val;
   }
 
+  const scoutStr = state.scoutSignals ? `ready \xb7 ${state.scoutSignals} sigs \xb7 ${state.scoutDocs} docs \xb7 ${state.scoutRiskNotes} risks` : "loading...";
+
   const leftParts = [
     colorEnabled ? applyColor("[default]", BRAND_COLORS.accent.r, BRAND_COLORS.accent.g, BRAND_COLORS.accent.b) : "[default]",
     colorEnabled ? applyColor("hive main", BRAND_COLORS.muted.r, BRAND_COLORS.muted.g, BRAND_COLORS.muted.b) : "hive main",
@@ -255,7 +257,8 @@ export function renderFooter(state: TuiState, width: number): string {
     field("provider", provider),
     field("model", model),
     field("agents", agents),
-    field("ctx", contextPercent + "%")
+    field("ctx", contextPercent + "%"),
+    field("scout", scoutStr)
   ];
 
   const left = leftParts.join(sep);

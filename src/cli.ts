@@ -143,6 +143,7 @@ Usage:
   hive providers list
   hive sessions list
   hive mode
+  hive scout [--task "<task>"] [--json] [--files]
 
 Safety:
   worktree isolation - approve-before-commit - no auto-push - secret redaction`;
@@ -503,6 +504,25 @@ Commands:
         return { exitCode: 0, output: `Task cell ${id} archived (Not Implemented).` };
       }
       return { exitCode: 1, output: `Unknown sessions command: ${sub}` };
+    }
+    
+    if (command === "scout") {
+      const scoutIndex = args.indexOf("scout");
+      const { options } = parseRunArgs(args.slice(scoutIndex + 1));
+      
+      const { generateContextPack, formatScoutText } = await import('./scout/index.js');
+      const pack = await generateContextPack(cwd, options.task);
+      
+      if (options.json) {
+        return { exitCode: 0, output: JSON.stringify(pack, null, 2) };
+      }
+      
+      if (options.files) {
+        const fileList = pack.importantFiles.map(f => f.path).join('\n');
+        return { exitCode: 0, output: fileList || "No important files found." };
+      }
+      
+      return { exitCode: 0, output: formatScoutText(pack) };
     }
     
     return { exitCode: 1, output: `Unknown command: ${command}` };

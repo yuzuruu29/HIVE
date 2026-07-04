@@ -103,9 +103,14 @@ export class CoderOrchestrator {
         if (this.executor && builderSnapshot) {
           await this.saveState('BUILDING');
           const planToExecute = this.record.plan || prompt;
-          const buildPrompt = feedback 
+          let buildPrompt = feedback 
             ? `The reviewer rejected the previous attempt with this feedback:\n${feedback}\n\nPlease fix the implementation.`
             : `Implement this plan:\n${planToExecute}`;
+          
+          if (inspection.scoutContext) {
+            buildPrompt = `[Scout Context]\n${inspection.scoutContext}\n\n[Safety Constraints]\n- Do not output raw secrets or sensitive data.\n- Do not modify files outside of the expected list.\n\n${buildPrompt}`;
+          }
+            
           await this.executeWithTranscript('Builder', buildPrompt, worktreePath, builderSnapshot);
         } else {
           await this.saveState('BUILDING');

@@ -33,6 +33,9 @@ export interface TuiState {
   selectedModel?: string;
   lastError?: string;
   updatedAt?: number;
+  scoutSignals?: number;
+  scoutDocs?: number;
+  scoutRiskNotes?: number;
 }
 
 export function initialState(): TuiState {
@@ -70,6 +73,9 @@ export function initialState(): TuiState {
     taskStatus: "idle",
     transcript: [],
     scrollOffset: 0,
+    scoutSignals: 0,
+    scoutDocs: 0,
+    scoutRiskNotes: 0,
   };
 }
 
@@ -156,4 +162,8 @@ export function clearTranscript(state: TuiState): TuiState {
 export function trimTranscript(state: TuiState, maxLines: number): TuiState {
   if (state.transcript.length <= maxLines) return state;
   return { ...state, transcript: state.transcript.slice(-maxLines) };
+}
+
+export function withScoutInfo(state: TuiState, signals: number, docs: number, riskNotes: number): TuiState {
+  return { ...state, scoutSignals: signals, scoutDocs: docs, scoutRiskNotes: riskNotes };
 }

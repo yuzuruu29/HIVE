@@ -61,6 +61,21 @@ hive run "fix the bug" --provider local-ollama --model llama3
 - **`google`**: *(Basic integration configured)*
 - **`oauth`**: *(Not currently implemented - API Keys are recommended)*
 
+## HIVE Scout Context Engine
+HIVE uses the **Scout Context Engine** to deterministically gather local repository intelligence for its agents. 
+
+- **Local-first**: Operates entirely locally without vector databases or embeddings.
+- **Safety-focused**: Strictly ignores `.env`, `.git`, `node_modules`, and explicitly blocks reading raw secrets.
+- **Budget-aware**: Truncates context automatically to a max budget (e.g. 20,000 characters) to preserve prompt space.
+- **Task-ranked**: Boosts the priority of files based on heuristic keyword overlaps with your prompt.
+
+You can inspect what Scout sees manually via the CLI:
+```bash
+hive scout --task "provider setup"
+hive scout --files
+hive scout --json
+```
+
 ## What HIVE Is Not
 - Not a full IDE.
 - Not an uncontrolled auto-coder that pushes directly to production.
@@ -97,6 +112,7 @@ node bin/hive.mjs run "small task"
 - `hive discard`: Discard the current task.
 - `hive push --confirmed`: Push the approved task to the remote repository.
 - `hive pr --confirmed`: Create a Pull Request for the approved task.
+- `hive scout [--task "<task>"] [--json] [--files]`: Run the Scout context engine to gather intelligence.
 
 ### Modes & Sessions
 - `hive mode`: View the current operating mode.
