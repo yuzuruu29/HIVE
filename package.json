@@ -12,7 +12,7 @@
     "dev": "tsc -w",
     "build": "tsc",
     "lint": "tsc --noEmit",
-    "test": "node --test --test-reporter=spec tests/coder-safety.test.mjs tests/coder-cli.test.mjs tests/coder-persistence.test.mjs tests/coder-phase2.5.test.mjs tests/coder-phase3.test.mjs tests/providers.test.mjs tests/ui.test.mjs tests/tui.test.mjs",
+    "test": "node --test --test-concurrency=1 --test-reporter=spec tests/coder-safety.test.mjs tests/coder-cli.test.mjs tests/coder-persistence.test.mjs tests/coder-phase2.5.test.mjs tests/coder-phase3.test.mjs tests/providers.test.mjs tests/ui.test.mjs tests/tui.test.mjs",
     "hive": "node ./bin/hive.mjs"
   },
   "dependencies": {
