@@ -12,7 +12,7 @@
     "dev": "tsc -w",
     "build": "tsc",
     "lint": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test --test-reporter=spec tests/coder-safety.test.mjs tests/coder-cli.test.mjs tests/coder-persistence.test.mjs tests/coder-phase2.5.test.mjs tests/coder-phase3.test.mjs tests/providers.test.mjs tests/ui.test.mjs tests/tui.test.mjs",
     "hive": "node ./bin/hive.mjs"
   },
   "dependencies": {
@@ -23,6 +23,8 @@
   "devDependencies": {
     "@types/node": "^18.0.0",
     "@types/react": "^18.2.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "ink-testing-library": "^3.0.0",
+    "sinon": "^17.0.0"
   }
 }

@@ -30,7 +30,13 @@ try {
 }
 
 const result = await runCoderCli(process.argv.slice(2));
-const stream = result.exitCode === 0 ? process.stdout : process.stderr;
 
-stream.write(`${result.output}\n`);
-process.exitCode = result.exitCode;
+// "__TUI_STARTED__" is a sentinel: the TUI ran and exited cleanly.
+// Do not print it to stdout.
+if (result.output === "__TUI_STARTED__") {
+  process.exitCode = result.exitCode;
+} else {
+  const stream = result.exitCode === 0 ? process.stdout : process.stderr;
+  stream.write(`${result.output}\n`);
+  process.exitCode = result.exitCode;
+}

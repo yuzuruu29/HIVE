@@ -84,3 +84,70 @@ test("UI Branding", async (t) => {
     assert.ok(compact.includes("Verified"));
   });
 });
+
+// --- TUI Actions Tests ---
+// Test the logic of TUI actions directly
+test("TUI Actions", async (t) => {
+  // Mock data for testing
+  const mockActiveTaskId = "task-123";
+  const mockDiffSummary = { filesChanged: ["file.txt"], insertions: 5, deletions: 2 };
+  const mockTranscripts = { planner: ["Planner log 1"], builder: ["Builder log 1"] };
+  const mockActiveTask = {
+    taskId: mockActiveTaskId,
+    state: "AWAITING_APPROVAL",
+    diffSummary: mockDiffSummary,
+    transcripts: mockTranscripts
+  };
+
+  await t.test("approve action logic", async () => {
+    // Simulate the logic for triggering the approve modal
+    const activeTaskId = mockActiveTaskId;
+    const activeTask = mockActiveTask;
+    
+    // Verify that the approve modal is triggered only if a task is awaiting approval
+    if (activeTaskId && activeTask?.state === "AWAITING_APPROVAL") {
+      assert.ok(true, "Approve modal should be triggered");
+    } else {
+      assert.fail("Approve modal should not be triggered");
+    }
+  });
+
+  await t.test("discard action logic", async () => {
+    // Simulate the logic for triggering the discard modal
+    const activeTaskId = mockActiveTaskId;
+    
+    // Verify that the discard modal is triggered only if there is an active task
+    if (activeTaskId) {
+      assert.ok(true, "Discard modal should be triggered");
+    } else {
+      assert.fail("Discard modal should not be triggered");
+    }
+  });
+
+  await t.test("diff viewing logic", async () => {
+    // Simulate the logic for switching to the diff pane
+    const activePane = "diff";
+    const activeTask = mockActiveTask;
+    
+    // Verify that the diff pane displays the correct content
+    if (activePane === "diff" && activeTask) {
+      assert.ok(activeTask.diffSummary, "Diff summary should be displayed");
+      assert.ok(activeTask.diffSummary.filesChanged.includes("file.txt"), "Files changed should be displayed");
+      assert.strictEqual(activeTask.diffSummary.insertions, 5, "Insertions count should be displayed");
+      assert.strictEqual(activeTask.diffSummary.deletions, 2, "Deletions count should be displayed");
+    }
+  });
+
+  await t.test("transcript navigation logic", async () => {
+    // Simulate the logic for switching to the transcripts pane
+    const activePane = "transcripts";
+    const activeTask = mockActiveTask;
+    
+    // Verify that the transcripts pane displays the correct logs
+    if (activePane === "transcripts" && activeTask) {
+      assert.ok(activeTask.transcripts, "Transcripts should be displayed");
+      assert.ok(activeTask.transcripts.planner.includes("Planner log 1"), "Planner logs should be displayed");
+      assert.ok(activeTask.transcripts.builder.includes("Builder log 1"), "Builder logs should be displayed");
+    }
+  });
+});

@@ -9,7 +9,7 @@ import { ProviderRole, ProviderSnapshot } from "./types.js";
 import { ProviderKind } from "./providers/types.js";
 import { getHiveHelpHeader, getHiveProvidersHeader, getHiveRunHeader, renderDashboard, renderStatus, runProviderSetupWizard } from "./ui/index.js";
 import { ConfigStore, HiveMode } from "./config.js";
-import { shouldSuppressBranding } from "./ui/terminal.js";
+import { shouldSuppressBranding, isCI } from "./ui/terminal.js";
 
 export interface CoderCliOptions {
   cwd?: string;
@@ -93,11 +93,11 @@ export async function runCoderCli(args: string[], cliOptions: CoderCliOptions = 
   const globalArgs = args.filter(a => !a.startsWith('--'));
 
   if (globalArgs.length === 0) {
-    if (process.stdout.isTTY) {
-      // TUI logic typically hijacks output, but we will return the dashboard if we can't launch ink.
-      const { startTui } = await import("./ui/tui.js");
-      startTui(cwd);
-      return new Promise(() => {}); 
+    if (process.stdout.isTTY && !isSuppressed && !isCI()) {
+      // Persistent interactive TUI cockpit
+      const { startHiveTui } = await import("./tui/index.js");
+      await startHiveTui(cwd);
+      return { exitCode: 0, output: "__TUI_STARTED__" };
     } else {
       const providers = await registry.list();
       const rolesConfig = await registry.getRoles();
@@ -118,11 +118,21 @@ export async function runCoderCli(args: string[], cliOptions: CoderCliOptions = 
     }
   }
 
+  if (globalArgs[0] === "tui") {
+    if (isSuppressed) return { exitCode: 1, output: JSON.stringify({ error: "TUI not available in --json mode" }) };
+    if (isCI()) return { exitCode: 1, output: "TUI is disabled in CI environments." };
+    if (!process.stdout.isTTY) return { exitCode: 1, output: "TUI requires an interactive terminal." };
+    const { startHiveTui } = await import("./tui/index.js");
+    await startHiveTui(cwd);
+    return { exitCode: 0, output: "__TUI_STARTED__" };
+  }
+
   if (globalArgs[0] === "help") {
     const header = getHiveHelpHeader();
     const helpContent = `
 Usage:
   hive run "<task>"
+  hive tui
   hive status
   hive diff [--full]
   hive approve
