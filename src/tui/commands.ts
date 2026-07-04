@@ -3,7 +3,7 @@
  * Command parser and executor for the HIVE TUI cockpit.
  */
 
-import { TuiState, withOutput, withMode, withClear } from "./state.js";
+import { TuiState, withOutput, withMode, withClear, appendTranscriptLine, setTaskStatus, clearTranscript } from "./state.js";
 
 // -- Command Types -------------------------------------------------------------
 
@@ -75,14 +75,15 @@ export interface ExecuteResult {
 export async function executeTuiCommand(
   cmd: TuiCommand,
   state: TuiState,
-  cwd: string
+  cwd: string,
+  onUpdate?: (updater: (s: TuiState) => TuiState) => void
 ): Promise<ExecuteResult> {
   switch (cmd.kind) {
     case "exit":
       return { state, shouldExit: true };
 
     case "clear":
-      return { state: withClear(state), shouldExit: false };
+      return { state: clearTranscript(withClear(state)), shouldExit: false };
 
     case "help": {
       const lines = [
@@ -216,30 +217,49 @@ export async function executeTuiCommand(
         };
       }
 
+      if (state.taskStatus === "running") {
+        return {
+          state: withOutput(state, ["  Error: Another task is already running."]),
+          shouldExit: false,
+        };
+      }
+
       const startLines = [
         `  > Running task: ${task}`,
-        "  Initializing HIVE swarm...",
       ];
       let nextState = withOutput(withMode(state, "running"), startLines);
+      nextState = setTaskStatus(nextState, "running");
+      nextState = appendTranscriptLine(nextState, `[User] ${task}`);
 
-      try {
-        const { runCoderCli } = await import("../cli.js");
-        const result = await runCoderCli(["run", task], { cwd });
-        const resultLines = result.output
-          .split("\n")
-          .map((l: string) => `  ${l}`);
-        nextState = withOutput(
-          withMode(nextState, result.exitCode === 0 ? "default" : "error"),
-          [
-            ...resultLines,
-            `  Exit code: ${result.exitCode}`,
-          ]
-        );
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        nextState = withOutput(withMode(nextState, "error"), [
-          `  Error: ${msg}`,
-        ]);
+      if (onUpdate) {
+        // Run in background without awaiting here to unblock UI
+        import("./runtime-adapter.js").then(({ runTuiTask }) => {
+          runTuiTask(cwd, task, {
+            onStart: (taskId) => {
+               onUpdate((s) => appendTranscriptLine(s, `[Runtime] Started task ${taskId}`));
+            },
+            onOutput: (line) => {
+               onUpdate((s) => appendTranscriptLine(s, line));
+            },
+            onError: (err) => {
+               onUpdate((s) => {
+                 let next = appendTranscriptLine(s, `[Error] ${err}`);
+                 next = setTaskStatus(next, "error");
+                 return withMode(next, "error");
+               });
+            },
+            onStatus: (status) => {
+               onUpdate((s) => setTaskStatus(s, status));
+            },
+            onComplete: (res) => {
+               onUpdate((s) => {
+                 let next = appendTranscriptLine(s, `[Runtime] Task finished. Status: ${res?.state}`);
+                 next = setTaskStatus(next, "complete");
+                 return withMode(next, "default");
+               });
+            }
+          });
+        });
       }
 
       return { state: nextState, shouldExit: false };

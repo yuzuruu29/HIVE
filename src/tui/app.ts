@@ -177,12 +177,16 @@ export class TuiApp {
   }
 
   private handleChar(ch: string): void {
-    if (this.state.running) return; // Block input while running
-
     if (ch === CTRL_C || ch === CTRL_D) {
+      if (this.state.taskStatus === "running" || this.state.taskStatus === "verifying") {
+        const next = { ...this.state, outputLines: [...this.state.outputLines, "  Cancel requested. Waiting for current operation to finish."].slice(-200) };
+        this.setState(next);
+      }
       this.stop();
       return;
     }
+
+    if (this.state.running || this.state.taskStatus === "running" || this.state.taskStatus === "verifying") return; // Block input while running
 
     if (ch === ENTER || ch === ENTER_LF) {
       this.submitInput();
@@ -241,7 +245,12 @@ export class TuiApp {
     // Mark running
     this.setState(withRunning(this.state, true));
 
-    executeTuiCommand(cmd, this.state, this.cwd).then(({ state: updated, shouldExit }) => {
+    const onUpdate = (updater: (s: TuiState) => TuiState) => {
+      if (this.stopped) return;
+      this.setState(updater(this.state));
+    };
+
+    executeTuiCommand(cmd, this.state, this.cwd, onUpdate).then(({ state: updated, shouldExit }) => {
       if (this.stopped) return;
       if (shouldExit) {
         this.stop();

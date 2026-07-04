@@ -1,4 +1,108 @@
-import { VIOLET_GRADIENT, gradientText, stripAnsi } from "./colors.js";
+import { VIOLET_GRADIENT, gradientText, stripAnsi, bgRgb, reset, interpolateColor, applyBrightness } from "./colors.js";
+
+export type PixelWordmarkOptions = {
+  colorEnabled: boolean;
+  width?: "wide" | "compact";
+  scanlines?: boolean;
+};
+
+const HIVE_PIXEL_MATRIX = {
+  H: [
+    "11100111",
+    "11100111",
+    "11100111",
+    "11111111",
+    "11111111",
+    "11100111",
+    "11100111",
+    "11100111"
+  ],
+  I: [
+    "111111",
+    "001100",
+    "001100",
+    "001100",
+    "001100",
+    "001100",
+    "001100",
+    "111111"
+  ],
+  V: [
+    "11000011",
+    "11000011",
+    "11000011",
+    "01100110",
+    "01100110",
+    "00111100",
+    "00111100",
+    "00011000"
+  ],
+  E: [
+    "11111111",
+    "11111111",
+    "11000000",
+    "11111100",
+    "11111100",
+    "11000000",
+    "11111111",
+    "11111111"
+  ]
+};
+
+export function renderHivePixelWordmark(options: PixelWordmarkOptions): string[] {
+  const { colorEnabled, scanlines = true, width = "wide" } = options;
+  const letters = [HIVE_PIXEL_MATRIX.H, HIVE_PIXEL_MATRIX.I, HIVE_PIXEL_MATRIX.V, HIVE_PIXEL_MATRIX.E];
+  const spacing = 2; // 2 pixels space between letters
+  const rows = 8;
+  const result: string[] = [];
+
+  // Calculate total matrix width in pixels
+  let totalWidth = 0;
+  for (let i = 0; i < letters.length; i++) {
+    totalWidth += letters[i][0].length;
+    if (i < letters.length - 1) totalWidth += spacing;
+  }
+
+  for (let r = 0; r < rows; r++) {
+    let rowStr = "";
+    let globalCol = 0;
+    
+    // Slight scanline effect alternating row brightness
+    const rowBrightness = scanlines ? (r % 2 === 0 ? 1.0 : 0.8) : 1.0;
+
+    for (let l = 0; l < letters.length; l++) {
+      const letterRows = letters[l];
+      const rowData = letterRows[r];
+
+      for (let c = 0; c < rowData.length; c++) {
+        const isFilled = rowData[c] === '1';
+        
+        if (colorEnabled) {
+          if (isFilled) {
+            const t = globalCol / Math.max(1, totalWidth - 1);
+            const baseColor = interpolateColor(VIOLET_GRADIENT, t);
+            const finalColor = applyBrightness(baseColor, rowBrightness);
+            rowStr += bgRgb(finalColor.r, finalColor.g, finalColor.b, "  ");
+          } else {
+            rowStr += "  ";
+          }
+        } else {
+          rowStr += isFilled ? "##" : "  ";
+        }
+        globalCol++;
+      }
+
+      if (l < letters.length - 1) {
+        rowStr += " ".repeat(spacing * 2);
+        globalCol += spacing;
+      }
+    }
+    result.push(rowStr);
+  }
+
+  return result;
+}
+
 
 export function getWideHiveTitle(color: boolean = true): string[] {
   const lines = [

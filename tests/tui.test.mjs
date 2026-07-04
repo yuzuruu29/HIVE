@@ -127,9 +127,9 @@ test("TUI Renderer - renderTuiScreen", async (t) => {
     assert.ok(frame.includes("BRAND KIT / COLOR PALETTE"));
   });
 
-  await t.test("wide renderer contains TYPOGRAPHY / UI", () => {
+  await t.test("wide renderer contains TYPOGRAPHY", () => {
     const frame = renderTuiScreen({ ...baseState, width: 160 });
-    assert.ok(frame.includes("TYPOGRAPHY / UI"));
+    assert.ok(frame.includes("TYPOGRAPHY"));
   });
 
   await t.test("wide renderer contains RUNTIME", () => {
@@ -141,7 +141,7 @@ test("TUI Renderer - renderTuiScreen", async (t) => {
     const frame = renderTuiScreen({ ...baseState, width: 160 });
     assert.ok(frame.includes("[default]"));
     assert.ok(frame.includes("hive main"));
-    assert.ok(frame.includes("/help  Ctrl+C"));
+    assert.ok(frame.includes("update: hive update  /help"));
   });
 
   await t.test("no undefined/null appears in rendered output", () => {
@@ -231,6 +231,50 @@ test("TUI Renderer - renderTuiScreen", async (t) => {
       frame.includes("hello world"),
       "Expected input text in input row"
     );
+  });
+
+  await t.test("renderHivePixelWordmark returns multiple rows", async () => {
+    const { renderHivePixelWordmark } = await import("../dist/ui/banner.js");
+    const output = renderHivePixelWordmark({ colorEnabled: true });
+    assert.ok(output.length > 4, "Expected multiple rows for pixel wordmark");
+  });
+
+  await t.test("color wordmark contains ANSI background color sequences", async () => {
+    const { renderHivePixelWordmark } = await import("../dist/ui/banner.js");
+    const output = renderHivePixelWordmark({ colorEnabled: true }).join("\n");
+    assert.ok(output.includes("\x1b[48;2;"), "Expected truecolor ANSI background codes");
+  });
+
+  await t.test("no-color wordmark contains ## fallback", async () => {
+    const { renderHivePixelWordmark } = await import("../dist/ui/banner.js");
+    const output = renderHivePixelWordmark({ colorEnabled: false }).join("\n");
+    assert.ok(output.includes("##"), "Expected fallback to ## without colors");
+  });
+});
+
+// -- state pure function tests -------------------------------------------------
+
+test("TUI State - pure functions", async (t) => {
+  const { initialState, appendTranscriptLine, setTaskStatus, clearTranscript } = await import("../dist/tui/state.js");
+
+  await t.test("appendTranscriptLine appends string to transcript array", () => {
+    let state = initialState();
+    state = appendTranscriptLine(state, "test line 1");
+    assert.strictEqual(state.transcript.length, 1);
+    assert.strictEqual(state.transcript[0], "test line 1");
+  });
+
+  await t.test("setTaskStatus sets taskStatus", () => {
+    let state = initialState();
+    state = setTaskStatus(state, "running");
+    assert.strictEqual(state.taskStatus, "running");
+  });
+
+  await t.test("clearTranscript clears transcript array", () => {
+    let state = initialState();
+    state = appendTranscriptLine(state, "test line 1");
+    state = clearTranscript(state);
+    assert.strictEqual(state.transcript.length, 0);
   });
 });
 

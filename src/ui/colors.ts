@@ -39,8 +39,51 @@ export function stripAnsi(input: string): string {
   return input.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
+export function bgRgb(r: number, g: number, b: number, text?: string): string {
+  const bg = `\x1b[48;2;${Math.round(r)};${Math.round(g)};${Math.round(b)}m`;
+  if (text !== undefined) {
+    return `${bg}${text}\x1b[0m`;
+  }
+  return bg;
+}
+
+export function reset(): string {
+  return '\x1b[0m';
+}
+
 function interpolate(start: number, end: number, factor: number): number {
   return start + (end - start) * factor;
+}
+
+export function interpolateColor(stops: Array<{r: number, g: number, b: number}>, t: number): {r: number, g: number, b: number} {
+  if (stops.length === 0) return {r: 0, g: 0, b: 0};
+  if (stops.length === 1) return stops[0];
+  
+  const clampedT = Math.max(0, Math.min(1, t));
+  const scaledRatio = clampedT * (stops.length - 1);
+  const stopIdx = Math.floor(scaledRatio);
+  
+  if (stopIdx >= stops.length - 1) {
+    return stops[stops.length - 1];
+  }
+  
+  const remainder = scaledRatio - stopIdx;
+  const startColor = stops[stopIdx];
+  const endColor = stops[stopIdx + 1];
+  
+  return {
+    r: Math.round(interpolate(startColor.r, endColor.r, remainder)),
+    g: Math.round(interpolate(startColor.g, endColor.g, remainder)),
+    b: Math.round(interpolate(startColor.b, endColor.b, remainder))
+  };
+}
+
+export function applyBrightness(rgb: {r: number, g: number, b: number}, factor: number): {r: number, g: number, b: number} {
+  return {
+    r: Math.round(Math.min(255, Math.max(0, rgb.r * factor))),
+    g: Math.round(Math.min(255, Math.max(0, rgb.g * factor))),
+    b: Math.round(Math.min(255, Math.max(0, rgb.b * factor)))
+  };
 }
 
 export function gradientText(text: string, stops: Array<{r: number, g: number, b: number}>): string {

@@ -10,6 +10,7 @@ import {
   getCompactHiveTitle,
   getLargeHoneycombAscii,
   getSmallHoneycombAscii,
+  renderHivePixelWordmark
 } from "../ui/banner.js";
 import {
   stripAnsi,
@@ -69,23 +70,33 @@ function contentRow(left: string, width: number, useColor: boolean): string {
 
 // -- Right Panel ---------------------------------------------------------------
 
-export function renderHelpPanel(_state: TuiState, useColor: boolean, width: number): string[] {
+export function renderHelpPanel(state: TuiState, useColor: boolean, width: number, height: number): string[] {
+  if (state.transcript && state.transcript.length > 0 && state.taskStatus !== "idle") {
+    const lines = state.transcript.slice(-Math.max(1, height));
+    return lines.map(l => {
+      if (!useColor) return "  " + l;
+      if (l.startsWith("[HIVE]")) return "  " + applyColor(l, BRAND_COLORS.primary_bright.r, BRAND_COLORS.primary_bright.g, BRAND_COLORS.primary_bright.b);
+      if (l.startsWith("[Error]")) return "  " + applyColor(l, 255, 100, 100);
+      return "  " + applyColor(l, BRAND_COLORS.muted.r, BRAND_COLORS.muted.g, BRAND_COLORS.muted.b);
+    });
+  }
+
   const HELP_PANEL_LINES = [
     "HIVE CLI/IDE COMMAND COCKPIT",
     rep("-", width),
     "Welcome to HIVE.",
-    "Terminal-native intelligence for verified agentic builds.",
+    "Your terminal-native workspace for intelligent engineering.",
     "",
-    "> /help       explore available commands",
-    "> /providers  inspect providers",
-    "> /status     runtime status",
-    "> /model      select model",
-    "> /run        execute task",
-    "> /clear      clear output",
-    "> /exit       quit HIVE",
+    "> Type /help to explore available commands",
+    "> Type /providers to inspect providers",
+    "> Type /status to view runtime status",
+    "> Type /model to select model",
+    "> Type /update to check for updates",
     "",
     "TIP",
     "Press Shift+Tab to toggle permissions mode.",
+    "HIVE is built for focus, built for builders.",
+    "",
     "Ready when you are.",
   ];
 
@@ -118,39 +129,49 @@ function renderLowerPanels(width: number, useColor: boolean): string[] {
   
   const col1 = [
     "BRAND KIT / COLOR PALETTE",
-    "Deep Violet      #5B21B6",
-    "Vivid Violet     #7C3AED",
-    "Lavender         #A78BFA",
-    "Pale Highlight   #DDD6FE",
-    "Neon Line        #8B5CF6"
+    "Deep Violet        #5B21B6",
+    "Vivid Violet       #7C3AED",
+    "Lavender           #A78BFA",
+    "Pale Highlight     #DDD6FE",
+    "Neon Line Accent   #8B5CF6",
+    "Background         #08080B",
+    "Muted Text         #9CA3AF"
   ];
   
   const col2 = [
-    "TYPOGRAPHY / UI",
-    "Display: pixel block",
-    "Interface: monospace",
-    "Output: ASCII safe",
-    "Lines: violet gradient",
-    "Rail: segmented"
+    "TYPOGRAPHY",
+    "Display: pixel/block bitmap style",
+    "Interface: clean mono terminal style",
+    "",
+    "DISPLAY EXAMPLE",
+    useColor ? "## HIVE" : "## HIVE" // Small example
   ];
 
   const col3 = [
     "RUNTIME / BRAND NOTE",
-    "HIVE - Hyper Intelligence",
-    "for Verified Engineering.",
-    "Build the future.",
+    "HIVE - Hyper Intelligence for Verified Engineering.",
+    "provider: <provider>",
+    "model: <model>",
+    "mode: <mode>",
+    "agents: <n>",
+    "ctx: <n>%",
+    "",
+    "BRAND TRAITS",
     "[#] retro-tech",
+    "[#] ASCII-safe",
+    "[#] violet gradient",
     "[#] terminal-native"
   ];
   
-  const c1w = 30;
-  const c2w = 30;
-  const c3w = 30;
+  const c1w = 32;
+  const c2w = 36;
+  const c3w = 40;
   
   const lines: string[] = [];
   lines.push(hBorder(width, useColor));
   
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 13; i++) {
+    if (!col1[i] && !col2[i] && !col3[i]) continue;
     const styleItem = (text: string, title: boolean) => {
       if (!useColor) return text;
       if (title) return applyColor(text, BRAND_COLORS.accent.r, BRAND_COLORS.accent.g, BRAND_COLORS.accent.b);
@@ -182,7 +203,11 @@ export function renderMainPanel(
   state: TuiState,
   availableRows: number
 ): string[] {
-  const { outputLines } = state;
+  const { outputLines, transcript } = state;
+  // If we are showing transcript in the main panel because it is too large for the right panel:
+  if (transcript && transcript.length > 0 && state.taskStatus !== "idle") {
+     return transcript.slice(-Math.max(1, availableRows)).map(l => "  " + l);
+  }
   return outputLines.slice(-Math.max(1, availableRows));
 }
 
@@ -223,19 +248,18 @@ export function renderFooter(state: TuiState, width: number): string {
     return lbl + val;
   }
 
-  const inputStat = state.running ? "running" : "ready";
   const leftParts = [
     colorEnabled ? applyColor("[default]", BRAND_COLORS.accent.r, BRAND_COLORS.accent.g, BRAND_COLORS.accent.b) : "[default]",
     colorEnabled ? applyColor("hive main", BRAND_COLORS.muted.r, BRAND_COLORS.muted.g, BRAND_COLORS.muted.b) : "hive main",
+    field("status", state.taskStatus || "idle"),
     field("provider", provider),
     field("model", model),
     field("agents", agents),
-    field("ctx", contextPercent + "%"),
-    field("input", inputStat)
+    field("ctx", contextPercent + "%")
   ];
 
   const left = leftParts.join(sep);
-  const rightRaw = "/help  Ctrl+C";
+  const rightRaw = state.taskStatus === "running" || state.taskStatus === "verifying" ? "Ctrl+C cancel" : "update: hive update  /help";
   const right = colorEnabled
     ? applyColor(rightRaw, BRAND_COLORS.muted.r, BRAND_COLORS.muted.g, BRAND_COLORS.muted.b)
     : rightRaw;
@@ -280,7 +304,7 @@ export function renderTuiScreen(state: TuiState): string {
 
   const useWideTitle = actualWidth >= 120;
   
-  const titleLines = useWideTitle ? getWideHiveTitle(colorEnabled) : getCompactHiveTitle(colorEnabled);
+  const titleLines = useWideTitle ? renderHivePixelWordmark({ colorEnabled, width: "wide" }) : getCompactHiveTitle(colorEnabled);
   const motifLines = useWideTitle ? getLargeHoneycombAscii(colorEnabled) : getSmallHoneycombAscii(colorEnabled);
   
   const leftColLines = [
@@ -289,9 +313,9 @@ export function renderTuiScreen(state: TuiState): string {
     ...motifLines
   ];
 
-  const leftColW = useWideTitle ? 40 : 30;
+  const leftColW = useWideTitle ? 76 : 30;
   const rightPanelW = Math.max(30, actualWidth - leftColW - 6);
-  const rightPanelLines = renderHelpPanel(state, colorEnabled, rightPanelW);
+  const rightPanelLines = renderHelpPanel(state, colorEnabled, rightPanelW, leftColLines.length);
 
   const lowerPanels = renderLowerPanels(actualWidth, colorEnabled);
   

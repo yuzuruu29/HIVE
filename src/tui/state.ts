@@ -25,6 +25,14 @@ export interface TuiState {
   height: number;
   colorEnabled: boolean;
   running: boolean;
+  taskStatus: "idle" | "running" | "verifying" | "complete" | "error";
+  activeTask?: string;
+  transcript: string[];
+  scrollOffset: number;
+  selectedProvider?: string;
+  selectedModel?: string;
+  lastError?: string;
+  updatedAt?: number;
 }
 
 export function initialState(): TuiState {
@@ -59,6 +67,9 @@ export function initialState(): TuiState {
     height: rows,
     colorEnabled,
     running: false,
+    taskStatus: "idle",
+    transcript: [],
+    scrollOffset: 0,
   };
 }
 
@@ -114,6 +125,35 @@ export function withClear(state: TuiState): TuiState {
   return {
     ...state,
     outputLines: ["  Output cleared."],
+    transcript: [],
     selectedPanel: "main",
   };
+}
+
+export function appendTranscriptLine(state: TuiState, line: string): TuiState {
+  const MAX_LINES = 1000;
+  const transcript = [...state.transcript, line].slice(-MAX_LINES);
+  return { ...state, transcript };
+}
+
+export function setTaskStatus(state: TuiState, status: TuiState["taskStatus"]): TuiState {
+  return { ...state, taskStatus: status };
+}
+
+export function setRuntimeInfo(state: TuiState, activeTask?: string, provider?: string, model?: string): TuiState {
+  return { 
+    ...state, 
+    activeTask: activeTask !== undefined ? activeTask : state.activeTask,
+    selectedProvider: provider !== undefined ? provider : state.selectedProvider,
+    selectedModel: model !== undefined ? model : state.selectedModel
+  };
+}
+
+export function clearTranscript(state: TuiState): TuiState {
+  return { ...state, transcript: [], scrollOffset: 0 };
+}
+
+export function trimTranscript(state: TuiState, maxLines: number): TuiState {
+  if (state.transcript.length <= maxLines) return state;
+  return { ...state, transcript: state.transcript.slice(-maxLines) };
 }
