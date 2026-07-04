@@ -1,12 +1,51 @@
 import { VIOLET_GRADIENT, gradientText, stripAnsi } from "./colors.js";
 
+export function getWideHiveTitle(color: boolean = true): string[] {
+  const lines = [
+    "HH   HH  IIIIII  VV    VV  EEEEEEE",
+    "HH   HH    II    VV    VV  EE     ",
+    "HHHHHHH    II    VV    VV  EEEEE  ",
+    "HH   HH    II     VV  VV   EE     ",
+    "HH   HH  IIIIII    VVVV    EEEEEEE"
+  ];
+  if (!color) return lines;
+  return lines.map(line => gradientText(line, VIOLET_GRADIENT));
+}
+
 export function getLargeHiveTitle(color: boolean = true): string[] {
   const lines = [
     "H   H  III  V   V  EEEEE",
-    "H   H   I   V   V  E",
-    "HHHHH   I   V   V  EEEE",
-    "H   H   I    V V   E",
+    "H   H   I   V   V  E    ",
+    "HHHHH   I   V   V  EEEE ",
+    "H   H   I    V V   E    ",
     "H   H  III    V    EEEEE"
+  ];
+  if (!color) return lines;
+  return lines.map(line => gradientText(line, VIOLET_GRADIENT));
+}
+
+export function getCompactHiveTitle(color: boolean = true): string[] {
+  // Alias for tests/compatibility
+  return getLargeHiveTitle(color);
+}
+
+export function getLargeHoneycombAscii(color: boolean = true): string[] {
+  const lines = [
+    "   __    __   ",
+    "  /  \\__/  \\  ",
+    "  \\__/  \\__/  ",
+    "     \\__/     "
+  ];
+  if (!color) return lines;
+  return lines.map(line => gradientText(line, VIOLET_GRADIENT));
+}
+
+export function getSmallHoneycombAscii(color: boolean = true): string[] {
+  const lines = [
+    "  __  __  ",
+    " /  \\/  \\ ",
+    " \\__/\\__/ ",
+    "   \\__/   "
   ];
   if (!color) return lines;
   return lines.map(line => gradientText(line, VIOLET_GRADIENT));

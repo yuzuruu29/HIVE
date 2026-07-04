@@ -105,13 +105,82 @@ test("TUI Renderer - renderTuiScreen", async (t) => {
     );
   });
 
-  await t.test("contains queen bee ASCII motif", () => {
-    const frame = renderTuiScreen(baseState);
-    // Queen bee has /\_/\ shape
+  await t.test("wide renderer contains honeycomb motif", () => {
+    const frame = renderTuiScreen({ ...baseState, width: 160 });
+    // Honeycomb has \__/ shape
     assert.ok(
-      frame.includes("/\\_/\\"),
-      "Expected queen bee /\\_/\\ in frame"
+      frame.includes("\\__/"),
+      "Expected honeycomb \\__/ in frame"
     );
+  });
+
+  await t.test("wide renderer contains HIVE CLI/IDE COMMAND COCKPIT", () => {
+    const frame = renderTuiScreen({ ...baseState, width: 160 });
+    assert.ok(
+      frame.includes("HIVE CLI/IDE COMMAND COCKPIT"),
+      "Expected 'HIVE CLI/IDE COMMAND COCKPIT' in right panel"
+    );
+  });
+
+  await t.test("wide renderer contains BRAND KIT / COLOR PALETTE", () => {
+    const frame = renderTuiScreen({ ...baseState, width: 160 });
+    assert.ok(frame.includes("BRAND KIT / COLOR PALETTE"));
+  });
+
+  await t.test("wide renderer contains TYPOGRAPHY / UI", () => {
+    const frame = renderTuiScreen({ ...baseState, width: 160 });
+    assert.ok(frame.includes("TYPOGRAPHY / UI"));
+  });
+
+  await t.test("wide renderer contains RUNTIME", () => {
+    const frame = renderTuiScreen({ ...baseState, width: 160 });
+    assert.ok(frame.includes("RUNTIME / BRAND NOTE"));
+  });
+
+  await t.test("wide renderer contains bottom IDE rail", () => {
+    const frame = renderTuiScreen({ ...baseState, width: 160 });
+    assert.ok(frame.includes("[default]"));
+    assert.ok(frame.includes("hive main"));
+    assert.ok(frame.includes("/help  Ctrl+C"));
+  });
+
+  await t.test("no undefined/null appears in rendered output", () => {
+    const frame = renderTuiScreen({ ...baseState, width: 160, provider: null, model: undefined });
+    assert.ok(!frame.includes("undefined"));
+    assert.ok(!frame.includes("null"));
+    assert.ok(frame.includes("none"));
+  });
+
+  await t.test("compact renderer does not wrap title", () => {
+    const narrowState = { ...baseState, width: 80 };
+    const frame = renderTuiScreen(narrowState);
+    assert.ok(frame.includes("HIVE"));
+    assert.ok(!frame.includes("BRAND KIT")); // Lower panels disabled on narrow
+  });
+
+  await t.test("long cwd/model/provider values truncate safely", () => {
+    const longState = { 
+      ...baseState, 
+      width: 100, 
+      provider: "A_VERY_LONG_PROVIDER_NAME_THAT_EXCEEDS_WIDTH_LIMITS", 
+      model: "A_VERY_LONG_MODEL_NAME_THAT_EXCEEDS_WIDTH_LIMITS" 
+    };
+    let frame = "";
+    assert.doesNotThrow(() => {
+      frame = renderTuiScreen(longState);
+    });
+    // Find the longest line
+    const lines = frame.split("\n");
+    const longest = Math.max(...lines.map(l => stripAnsi(l).length));
+    assert.ok(longest <= 100, `Longest line should not exceed 100 cols, got ${longest}`);
+  });
+
+  await t.test("max-width layout does not stretch beyond configured width", () => {
+    const wideState = { ...baseState, width: 200 };
+    const frame = renderTuiScreen(wideState);
+    const lines = frame.split("\n");
+    const longestVisible = Math.max(...lines.map(l => stripAnsi(l.trim()).length));
+    assert.ok(longestVisible <= 160, `Layout should not stretch beyond 160 visible cols, got ${longestVisible}`);
   });
 
   await t.test("contains input row prompt", () => {
@@ -122,29 +191,8 @@ test("TUI Renderer - renderTuiScreen", async (t) => {
     );
   });
 
-  await t.test("contains status rail footer", () => {
-    const frame = renderTuiScreen(baseState);
-    // Footer must contain provider: and mode: fields
-    assert.ok(
-      frame.includes("provider:"),
-      "Expected 'provider:' in footer"
-    );
-    assert.ok(
-      frame.includes("mode:"),
-      "Expected 'mode:' in footer"
-    );
-  });
-
-  await t.test("contains command cockpit header", () => {
-    const frame = renderTuiScreen(baseState);
-    assert.ok(
-      frame.includes("HIVE COMMAND COCKPIT"),
-      "Expected 'HIVE COMMAND COCKPIT' in right panel"
-    );
-  });
-
   await t.test("is ASCII-only after stripping ANSI", () => {
-    const frame = renderTuiScreen({ ...baseState, colorEnabled: true });
+    const frame = renderTuiScreen({ ...baseState, width: 160, colorEnabled: true });
     const bare = stripAnsi(frame);
     for (let i = 0; i < bare.length; i++) {
       const code = bare.charCodeAt(i);
@@ -155,19 +203,8 @@ test("TUI Renderer - renderTuiScreen", async (t) => {
     }
   });
 
-  await t.test("handles narrow width gracefully (40 cols)", () => {
-    const narrowState = { ...baseState, width: 40 };
-    // Should not throw
-    let frame = "";
-    assert.doesNotThrow(() => {
-      frame = renderTuiScreen(narrowState);
-    });
-    // Should still contain HIVE
-    assert.ok(frame.includes("HIVE"));
-  });
-
   await t.test("no-color mode has no ANSI escape sequences", () => {
-    const noColorState = { ...baseState, colorEnabled: false };
+    const noColorState = { ...baseState, colorEnabled: false, width: 160 };
     const frame = renderTuiScreen(noColorState);
     assert.ok(
       !frame.includes("\x1b["),

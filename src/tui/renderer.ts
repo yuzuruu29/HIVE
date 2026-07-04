@@ -6,8 +6,10 @@
 
 import { TuiState } from "./state.js";
 import {
-  getLargeHiveTitle,
-  getQueenBeeAscii,
+  getWideHiveTitle,
+  getCompactHiveTitle,
+  getLargeHoneycombAscii,
+  getSmallHoneycombAscii,
 } from "../ui/banner.js";
 import {
   stripAnsi,
@@ -15,7 +17,6 @@ import {
   applyColor,
   TERMINAL_LINE_GRADIENT,
   BRAND_COLORS,
-  VIOLET_GRADIENT,
 } from "../ui/colors.js";
 
 // -- Helpers -------------------------------------------------------------------
@@ -31,11 +32,12 @@ function padRight(text: string, width: number): string {
   return text + (pad > 0 ? rep(" ", pad) : "");
 }
 
-function clampLine(text: string, maxCols: number): string {
+function safeClampLine(text: string, maxCols: number): string {
   const bare = stripAnsi(text);
   if (bare.length <= maxCols) return text;
-  // Truncate raw visible characters, keeping ANSI prefix
-  return bare.slice(0, maxCols - 1);
+  // If we must clamp, we just strip ANSI to avoid leaking unclosed color tags.
+  // Then we crop and return raw ascii.
+  return bare.slice(0, maxCols);
 }
 
 function hBorder(width: number, useColor: boolean): string {
@@ -53,68 +55,125 @@ function blankRow(width: number, useColor: boolean): string {
   return p + rep(" ", width - 2) + p;
 }
 
-function contentRow(
-  left: string,
-  width: number,
-  useColor: boolean
-): string {
+function contentRow(left: string, width: number, useColor: boolean): string {
   const p = pipe(useColor);
   const innerW = width - 2;
-  const padded = padRight(left, innerW);
-  const clamped = clampLine(padded, innerW);
-  // Ensure exactly innerW visible chars
-  const bare = stripAnsi(clamped);
-  const trail = rep(" ", Math.max(0, innerW - bare.length));
-  return p + clamped + trail + p;
+  const bareLen = stripAnsi(left).length;
+  if (bareLen > innerW) {
+    const clamped = safeClampLine(left, innerW);
+    return p + clamped + p;
+  }
+  const trail = rep(" ", innerW - bareLen);
+  return p + left + trail + p;
 }
 
 // -- Right Panel ---------------------------------------------------------------
 
-const HELP_PANEL_LINES = [
-  "HIVE COMMAND COCKPIT",
-  "----------------------------------------------------",
-  "/help       show commands",
-  "/providers  inspect providers",
-  "/model      select model",
-  "/run        execute task",
-  "/clear      clear output",
-  "/exit       quit HIVE",
-  "",
-  "Plain text = task prompt.",
-  "Ctrl+C exits at any time.",
-];
+export function renderHelpPanel(_state: TuiState, useColor: boolean, width: number): string[] {
+  const HELP_PANEL_LINES = [
+    "HIVE CLI/IDE COMMAND COCKPIT",
+    rep("-", width),
+    "Welcome to HIVE.",
+    "Terminal-native intelligence for verified agentic builds.",
+    "",
+    "> /help       explore available commands",
+    "> /providers  inspect providers",
+    "> /status     runtime status",
+    "> /model      select model",
+    "> /run        execute task",
+    "> /clear      clear output",
+    "> /exit       quit HIVE",
+    "",
+    "TIP",
+    "Press Shift+Tab to toggle permissions mode.",
+    "Ready when you are.",
+  ];
 
-export function renderHelpPanel(
-  _state: TuiState,
-  useColor: boolean
-): string[] {
   return HELP_PANEL_LINES.map((l) => {
     if (l === "" || !useColor) return l;
-    if (l === "HIVE COMMAND COCKPIT") {
-      return applyColor(
-        l,
-        BRAND_COLORS.accent.r,
-        BRAND_COLORS.accent.g,
-        BRAND_COLORS.accent.b
-      );
+    if (l === "HIVE CLI/IDE COMMAND COCKPIT" || l === "TIP") {
+      return applyColor(l, BRAND_COLORS.accent.r, BRAND_COLORS.accent.g, BRAND_COLORS.accent.b);
     }
-    if (l.startsWith("/")) {
-      const [cmd, ...rest] = l.split(/\s+/);
-      const coloredCmd = applyColor(
-        cmd,
-        BRAND_COLORS.primary_bright.r,
-        BRAND_COLORS.primary_bright.g,
-        BRAND_COLORS.primary_bright.b
-      );
-      return coloredCmd + " " + rest.join(" ");
+    if (l.startsWith("> /")) {
+      const parts = l.split(" ");
+      const arrow = parts[0];
+      const cmd = parts[1];
+      const rest = parts.slice(2).join(" ");
+      const cCmd = applyColor(cmd, BRAND_COLORS.primary_bright.r, BRAND_COLORS.primary_bright.g, BRAND_COLORS.primary_bright.b);
+      return applyColor(arrow, BRAND_COLORS.muted.r, BRAND_COLORS.muted.g, BRAND_COLORS.muted.b) + " " + cCmd + " " + rest;
     }
-    return applyColor(
-      l,
-      BRAND_COLORS.muted.r,
-      BRAND_COLORS.muted.g,
-      BRAND_COLORS.muted.b
-    );
+    if (l.startsWith("-")) {
+      return gradientText(l, TERMINAL_LINE_GRADIENT);
+    }
+    return applyColor(l, BRAND_COLORS.muted.r, BRAND_COLORS.muted.g, BRAND_COLORS.muted.b);
   });
+}
+
+// -- Lower Dashboard -----------------------------------------------------------
+
+function renderLowerPanels(width: number, useColor: boolean): string[] {
+  if (width < 100) return [];
+  
+  const cols3 = width >= 120;
+  
+  const col1 = [
+    "BRAND KIT / COLOR PALETTE",
+    "Deep Violet      #5B21B6",
+    "Vivid Violet     #7C3AED",
+    "Lavender         #A78BFA",
+    "Pale Highlight   #DDD6FE",
+    "Neon Line        #8B5CF6"
+  ];
+  
+  const col2 = [
+    "TYPOGRAPHY / UI",
+    "Display: pixel block",
+    "Interface: monospace",
+    "Output: ASCII safe",
+    "Lines: violet gradient",
+    "Rail: segmented"
+  ];
+
+  const col3 = [
+    "RUNTIME / BRAND NOTE",
+    "HIVE - Hyper Intelligence",
+    "for Verified Engineering.",
+    "Build the future.",
+    "[#] retro-tech",
+    "[#] terminal-native"
+  ];
+  
+  const c1w = 30;
+  const c2w = 30;
+  const c3w = 30;
+  
+  const lines: string[] = [];
+  lines.push(hBorder(width, useColor));
+  
+  for (let i = 0; i < 6; i++) {
+    const styleItem = (text: string, title: boolean) => {
+      if (!useColor) return text;
+      if (title) return applyColor(text, BRAND_COLORS.accent.r, BRAND_COLORS.accent.g, BRAND_COLORS.accent.b);
+      return applyColor(text, BRAND_COLORS.muted.r, BRAND_COLORS.muted.g, BRAND_COLORS.muted.b);
+    };
+
+    const t1 = styleItem(padRight(col1[i] || "", c1w), i === 0);
+    const t2 = styleItem(padRight(col2[i] || "", c2w), i === 0);
+    const t3 = cols3 ? styleItem(padRight(col3[i] || "", c3w), i === 0) : "";
+    
+    let inner = "";
+    if (cols3) {
+      const gap = Math.max(2, Math.floor((width - 4 - c1w - c2w - c3w) / 2));
+      inner = t1 + rep(" ", gap) + t2 + rep(" ", gap) + t3;
+    } else {
+      const gap = Math.max(2, width - 4 - c1w - c2w);
+      inner = t1 + rep(" ", gap) + t2;
+    }
+    
+    lines.push(contentRow(inner, width, useColor));
+  }
+  
+  return lines;
 }
 
 // -- Main Panel: output history ------------------------------------------------
@@ -124,7 +183,6 @@ export function renderMainPanel(
   availableRows: number
 ): string[] {
   const { outputLines } = state;
-  // Take last availableRows lines
   return outputLines.slice(-Math.max(1, availableRows));
 }
 
@@ -135,183 +193,175 @@ export function renderInputRow(state: TuiState): string {
     ? "  [running...] "
     : "  > ";
   const cursor = state.colorEnabled
-    ? applyColor(
-        "_",
-        BRAND_COLORS.accent.r,
-        BRAND_COLORS.accent.g,
-        BRAND_COLORS.accent.b
-      )
+    ? applyColor("_", BRAND_COLORS.accent.r, BRAND_COLORS.accent.g, BRAND_COLORS.accent.b)
     : "_";
-  return prompt + state.input + cursor;
+  
+  const text = state.colorEnabled 
+    ? applyColor(state.input, BRAND_COLORS.text.r, BRAND_COLORS.text.g, BRAND_COLORS.text.b)
+    : state.input;
+    
+  return prompt + text + cursor;
 }
 
 // -- Footer / Status Rail ------------------------------------------------------
 
-export function renderFooter(state: TuiState): string {
-  const { provider, model, mode, agents, contextPercent, colorEnabled } =
-    state;
+export function renderFooter(state: TuiState, width: number): string {
+  const { provider, model, mode, agents, contextPercent, colorEnabled } = state;
 
   const sep = colorEnabled
-    ? applyColor(
-        " - ",
-        BRAND_COLORS.dim.r,
-        BRAND_COLORS.dim.g,
-        BRAND_COLORS.dim.b
-      )
+    ? applyColor(" - ", BRAND_COLORS.dim.r, BRAND_COLORS.dim.g, BRAND_COLORS.dim.b)
     : " - ";
 
-  function field(label: string, value: string | number): string {
+  function field(label: string, value: string | number | undefined | null): string {
+    const valStr = value === undefined || value === null ? "none" : String(value);
     const lbl = colorEnabled
-      ? applyColor(
-          label + ":",
-          BRAND_COLORS.muted.r,
-          BRAND_COLORS.muted.g,
-          BRAND_COLORS.muted.b
-        )
+      ? applyColor(label + ":", BRAND_COLORS.muted.r, BRAND_COLORS.muted.g, BRAND_COLORS.muted.b)
       : label + ":";
     const val = colorEnabled
-      ? applyColor(
-          String(value),
-          BRAND_COLORS.text.r,
-          BRAND_COLORS.text.g,
-          BRAND_COLORS.text.b
-        )
-      : String(value);
+      ? applyColor(valStr, BRAND_COLORS.text.r, BRAND_COLORS.text.g, BRAND_COLORS.text.b)
+      : valStr;
     return lbl + val;
   }
 
+  const inputStat = state.running ? "running" : "ready";
   const leftParts = [
-    "default",
+    colorEnabled ? applyColor("[default]", BRAND_COLORS.accent.r, BRAND_COLORS.accent.g, BRAND_COLORS.accent.b) : "[default]",
+    colorEnabled ? applyColor("hive main", BRAND_COLORS.muted.r, BRAND_COLORS.muted.g, BRAND_COLORS.muted.b) : "hive main",
     field("provider", provider),
     field("model", model),
-    field("mode", mode),
     field("agents", agents),
     field("ctx", contextPercent + "%"),
+    field("input", inputStat)
   ];
 
   const left = leftParts.join(sep);
-
   const rightRaw = "/help  Ctrl+C";
   const right = colorEnabled
-    ? applyColor(
-        rightRaw,
-        BRAND_COLORS.muted.r,
-        BRAND_COLORS.muted.g,
-        BRAND_COLORS.muted.b
-      )
+    ? applyColor(rightRaw, BRAND_COLORS.muted.r, BRAND_COLORS.muted.g, BRAND_COLORS.muted.b)
     : rightRaw;
 
   const leftLen = stripAnsi(left).length;
   const rightLen = stripAnsi(right).length;
-  const gap = Math.max(1, state.width - leftLen - rightLen);
+  const innerW = width - 2;
 
-  return left + rep(" ", gap) + right;
+  let finalLeft = left;
+  let finalLeftLen = leftLen;
+  const maxLeftLen = Math.max(10, innerW - rightLen - 4);
+  
+  if (leftLen > maxLeftLen) {
+    finalLeft = safeClampLine(left, maxLeftLen - 3) + "...";
+    finalLeftLen = stripAnsi(finalLeft).length;
+  }
+
+  const gap = Math.max(1, innerW - finalLeftLen - rightLen - 2);
+
+  const p = pipe(colorEnabled);
+  const trail = rep(" ", gap);
+  return p + " " + finalLeft + trail + right + " " + p;
 }
 
 // -- Full Screen Render --------------------------------------------------------
 
 export function renderTuiScreen(state: TuiState): string {
-  const { width, height, colorEnabled } = state;
-  const safeW = Math.max(width, 40);
+  const { width: termWidth, height, colorEnabled } = state;
+  
+  const MAX_WIDTH = 160;
+  const actualWidth = Math.max(40, Math.min(termWidth, MAX_WIDTH));
+  
+  if (termWidth < 70) {
+    return [
+      hBorder(actualWidth, colorEnabled),
+      contentRow("HIVE TUI - Window too small", actualWidth, colorEnabled),
+      contentRow("Please resize width >= 70", actualWidth, colorEnabled),
+      contentRow(renderInputRow(state), actualWidth, colorEnabled),
+      hBorder(actualWidth, colorEnabled)
+    ].join("\n");
+  }
 
-  // Layout:
-  //   1 row  = top border
-  //   N rows = main content (title + bee + right panel interleaved)
-  //   1 row  = blank separator
-  //   1 row  = bottom border of top section
-  //   1 row  = input row line
-  //   1 row  = input border
-  //   1 row  = footer
-  // We want the main panel to fill the available height.
+  const useWideTitle = actualWidth >= 120;
+  
+  const titleLines = useWideTitle ? getWideHiveTitle(colorEnabled) : getCompactHiveTitle(colorEnabled);
+  const motifLines = useWideTitle ? getLargeHoneycombAscii(colorEnabled) : getSmallHoneycombAscii(colorEnabled);
+  
+  const leftColLines = [
+    ...titleLines,
+    "",
+    ...motifLines
+  ];
 
-  // Fixed structural rows:
-  const FIXED_ROWS =
-    1 + // top border
-    1 + // blank above title
-    1 + // blank below bee
-    1 + // bottom border (top section)
-    1 + // input border top
-    1 + // input row
-    1 + // input border bottom
-    1; // footer
+  const leftColW = useWideTitle ? 40 : 30;
+  const rightPanelW = Math.max(30, actualWidth - leftColW - 6);
+  const rightPanelLines = renderHelpPanel(state, colorEnabled, rightPanelW);
 
-  const titleLines = getLargeHiveTitle(colorEnabled); // 5 lines
-  const beeLines = getQueenBeeAscii(colorEnabled); // 5 lines
-  const leftColLines = [...titleLines, "", ...beeLines]; // 11 lines
-  const rightPanelLines = renderHelpPanel(state, colorEnabled);
+  const lowerPanels = renderLowerPanels(actualWidth, colorEnabled);
+  
+  const FIXED_ROWS = 1 + // top border
+                     1 + // blank above title
+                     1 + // bottom border of top section
+                     1 + // input border top
+                     1 + // input row
+                     1 + // input border bottom
+                     1 + // footer
+                     1 + // footer border bottom
+                     lowerPanels.length;
 
-  // Main frame content height = max(leftColLines, rightPanelLines)
   const frameContentRows = Math.max(leftColLines.length, rightPanelLines.length);
-
-  // Output panel rows = remaining after all fixed + frame content
-  const outputRows = Math.max(
-    2,
-    height - FIXED_ROWS - frameContentRows - 2
-  );
-
-  const outputPanel = renderMainPanel(state, outputRows);
+  const outputRows = Math.max(2, height - FIXED_ROWS - frameContentRows - 1);
 
   const lines: string[] = [];
-  const border = hBorder(safeW, colorEnabled);
-  const blank = blankRow(safeW, colorEnabled);
+  const border = hBorder(actualWidth, colorEnabled);
+  const blank = blankRow(actualWidth, colorEnabled);
 
-  // Top border
   lines.push(border);
-
-  // Blank spacer inside top section
   lines.push(blank);
-
-  // Interleaved title+bee (left) and help panel (right)
-  const leftColW = 36;
-  const rightStart = leftColW + 4; // padding
-  const rightW = Math.max(0, safeW - 2 - rightStart - 2);
 
   for (let i = 0; i < frameContentRows; i++) {
     const leftRaw = leftColLines[i] || "";
     const rightRaw = rightPanelLines[i] || "";
 
-    const leftPadded = padRight(leftRaw, leftColW);
-    const rightClamped = clampLine(rightRaw, rightW);
-    const rightBareLen = stripAnsi(rightClamped).length;
-    const rightTrail = rep(" ", Math.max(0, rightW - rightBareLen));
+    const leftStr = padRight(leftRaw, leftColW);
+    const rightStr = padRight(rightRaw, rightPanelW);
+    
+    const clampedR = safeClampLine(rightStr, rightPanelW);
 
-    const inner = leftPadded + "    " + rightClamped + rightTrail;
+    const inner = leftStr + "  " + clampedR;
     const innerBare = stripAnsi(inner);
-    const totalInnerW = safeW - 2 - 2; // -2 pipes, -2 margin spaces
+    const totalInnerW = actualWidth - 4; 
+    
     const trail = rep(" ", Math.max(0, totalInnerW - innerBare.length));
-
+    
     const p = pipe(colorEnabled);
-    lines.push(p + "  " + inner + trail + p);
+    lines.push(p + " " + inner + trail + " " + p);
   }
 
-  // Blank spacer
   lines.push(blank);
-
-  // Output panel lines (inside border)
+  lines.push(border);
+  
+  const outputPanel = renderMainPanel(state, outputRows);
   for (const outLine of outputPanel) {
     const colored = colorEnabled
-      ? applyColor(
-          outLine,
-          BRAND_COLORS.text.r,
-          BRAND_COLORS.text.g,
-          BRAND_COLORS.text.b
-        )
+      ? applyColor(outLine, BRAND_COLORS.text.r, BRAND_COLORS.text.g, BRAND_COLORS.text.b)
       : outLine;
-    lines.push(contentRow(colored, safeW, colorEnabled));
+    lines.push(contentRow(colored, actualWidth, colorEnabled));
   }
 
-  // Input section border
+  if (lowerPanels.length > 0) {
+    for (const pLine of lowerPanels) {
+      lines.push(pLine);
+    }
+  }
+
+  lines.push(border);
+  lines.push(contentRow(renderInputRow(state), actualWidth, colorEnabled));
+  lines.push(border);
+  lines.push(renderFooter(state, actualWidth));
   lines.push(border);
 
-  // Input row
-  const inputContent = renderInputRow(state);
-  lines.push(contentRow(inputContent, safeW, colorEnabled));
-
-  // Input section bottom border
-  lines.push(border);
-
-  // Footer / status rail
-  lines.push(renderFooter(state));
+  if (termWidth > MAX_WIDTH) {
+    const leftPad = Math.floor((termWidth - MAX_WIDTH) / 2);
+    const spaces = rep(" ", leftPad);
+    return lines.map(l => spaces + l).join("\n");
+  }
 
   return lines.join("\n");
 }
