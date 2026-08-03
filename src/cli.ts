@@ -10,9 +10,23 @@ import { ProviderKind } from "./providers/types.js";
 import { getHiveHelpHeader, getHiveProvidersHeader, getHiveRunHeader, renderDashboard, renderStatus, runProviderSetupWizard } from "./ui/index.js";
 import { ConfigStore, HiveMode } from "./config.js";
 import { shouldSuppressBranding, isCI } from "./ui/terminal.js";
+import { runCodeCommand, type CodingRuntimeFactory } from "./coding/command.js";
+import { CODE_COMMAND_HELP } from "./coding/cli-options.js";
+import { CodingSessionStore } from "./coding/session-store.js";
+import { findRepositoryRoot } from "./coding/repository.js";
+import {
+  createHiveRunReport,
+  formatHiveRunReportMarkdown,
+  writeHiveRunReport,
+} from "./coding/report.js";
 
 export interface CoderCliOptions {
   cwd?: string;
+  /** Receives live coding runtime lines. The CLI binary uses this for streaming output. */
+  stream?: (line: string) => void;
+  /** Injectable coding runtime boundary for tests and embedders. */
+  codingRuntimeFactory?: CodingRuntimeFactory;
+  signal?: AbortSignal;
 }
 
 export type CoderCliResult = {
@@ -74,15 +88,19 @@ function parseRunArgs(args: string[]): { prompt: string; options: Record<string,
 export async function runCoderCli(args: string[], cliOptions: CoderCliOptions = {}): Promise<CoderCliResult> {
   const cwd = cliOptions.cwd || process.cwd();
   const store = new TaskStore(cwd);
+  const codingRoot = await findRepositoryRoot(cwd).catch(() => cwd);
+  const codingStore = new CodingSessionStore(codingRoot);
   const registry = new ProviderRegistry(cwd);
   const configStore = new ConfigStore(cwd);
   const currentMode = await configStore.getMode();
 
-  const isSuppressed = shouldSuppressBranding();
+  const isSuppressed = args.includes("--json") || shouldSuppressBranding();
 
   // If help flag is used anywhere top level, treat it as help command
   if (args.includes("--help") || args.includes("-h")) {
-    if (args[0] === "providers") {
+    if (args[0] === "code") {
+      return { exitCode: 0, output: CODE_COMMAND_HELP };
+    } else if (args[0] === "providers") {
       args = ["providers", "help"];
     } else {
       args = ["help"];
@@ -131,6 +149,8 @@ export async function runCoderCli(args: string[], cliOptions: CoderCliOptions = 
     const header = getHiveHelpHeader();
     const helpContent = `
 Usage:
+  hive code "<objective>" [options]
+  hive code --resume <session-id> [options]
   hive run "<task>"
   hive tui
   hive status
@@ -141,7 +161,11 @@ Usage:
   hive pr --confirmed
   hive providers setup
   hive providers list
-  hive sessions list
+  hive sessions [list]
+  hive sessions show <id>
+  hive resume <id>
+  hive agents [show <id>]
+  hive report <session-id> [--json|--markdown] [--output <path>]
   hive mode
   hive scout [--task "<task>"] [--json] [--files]
 
@@ -154,6 +178,107 @@ Safety:
   const [command, ...rest] = globalArgs;
   
   try {
+    if (command === "code") {
+      if (args.length === 1 && process.stdout.isTTY && !isCI()) {
+        const { startHiveTui } = await import("./tui/index.js");
+        await startHiveTui(cwd);
+        return { exitCode: 0, output: "__TUI_STARTED__" };
+      }
+      return await runCodeCommand(args.slice(1), cwd, {
+        createRuntime: cliOptions.codingRuntimeFactory,
+        onLine: cliOptions.stream,
+        signal: cliOptions.signal,
+      });
+    }
+
+    if (command === "report") {
+      const reportArgs = args.slice(1);
+      let sessionId: string | undefined;
+      let outputPath: string | undefined;
+      let format: "json" | "markdown" = "markdown";
+      let formatWasSet = false;
+      for (let index = 0; index < reportArgs.length; index += 1) {
+        const argument = reportArgs[index];
+        if (argument === "--json" || argument === "--markdown") {
+          if (formatWasSet) throw new Error("Choose exactly one report format.");
+          format = argument === "--json" ? "json" : "markdown";
+          formatWasSet = true;
+        } else if (argument === "--output") {
+          const value = reportArgs[index + 1];
+          if (!value || value.startsWith("--")) throw new Error("--output requires a path.");
+          if (outputPath) throw new Error("--output may only be specified once.");
+          outputPath = value;
+          index += 1;
+        } else if (argument.startsWith("--")) {
+          throw new Error(`Unknown report option: ${argument}`);
+        } else if (sessionId) {
+          throw new Error("Usage: hive report <session-id> [--json|--markdown] [--output <path>]");
+        } else {
+          sessionId = argument;
+        }
+      }
+      if (!sessionId) throw new Error("Usage: hive report <session-id> [--json|--markdown] [--output <path>]");
+      const session = await codingStore.load(sessionId);
+      if (!session) throw new Error(`Coding session ${sessionId} not found.`);
+      const report = createHiveRunReport(session);
+      const rendered = format === "json"
+        ? `${JSON.stringify(report, null, 2)}\n`
+        : formatHiveRunReportMarkdown(report);
+      if (!outputPath) return { exitCode: 0, output: rendered };
+      const written = await writeHiveRunReport(codingRoot, outputPath, rendered);
+      return { exitCode: 0, output: `Report written to ${path.relative(codingRoot, written)}.` };
+    }
+
+    if (command === "resume") {
+      const id = rest[0];
+      if (!id) throw new Error("Usage: hive resume <id>");
+      const coding = await codingStore.load(id);
+      if (coding) {
+        await codingStore.setActive(id);
+        return await runCodeCommand([
+          "--resume", id,
+          "--mode", coding.mode,
+          "--approval", coding.approvalPolicy,
+          "--no-tui",
+          ...(args.includes("--json") ? ["--json"] : []),
+        ], cwd, {
+          createRuntime: cliOptions.codingRuntimeFactory,
+          onLine: cliOptions.stream,
+          signal: cliOptions.signal,
+        });
+      }
+      const legacy = await store.load(id);
+      if (!legacy) throw new Error(`Session ${id} not found.`);
+      await setActiveTask(cwd, id);
+      if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true, id, kind: "legacy" }) };
+      return { exitCode: 0, output: `Resumed task cell ${id}.` };
+    }
+
+    if (command === "agents") {
+      const codingSessions = await codingStore.list();
+      if (rest[0] === "show") {
+        const id = rest[1];
+        if (!id) throw new Error("Usage: hive agents show <id>");
+        const active = await codingStore.getActive();
+        const candidates = active
+          ? [active, ...codingSessions.filter((session) => session.id !== active.id)]
+          : codingSessions;
+        for (const session of candidates) {
+          const agent = session.tasks.find((task) => task.id === id);
+          if (agent) return { exitCode: 0, output: JSON.stringify(agent, null, 2) };
+        }
+        throw new Error(`Subagent ${id} not found.`);
+      }
+      if (rest.length > 0) return { exitCode: 1, output: "Usage: hive agents [show <id>]" };
+      const agents = codingSessions.flatMap((session) => session.tasks);
+      if (isSuppressed) return { exitCode: 0, output: JSON.stringify(agents) };
+      if (agents.length === 0) return { exitCode: 0, output: "No coding subagents found." };
+      return {
+        exitCode: 0,
+        output: agents.map((agent) => `${agent.id} [${agent.role}] ${agent.status} - ${agent.title} (${agent.sessionId})`).join("\n"),
+      };
+    }
+
     if (command === "providers") {
       if (rest.length === 0) return { exitCode: 1, output: "Usage: hive providers <setup|list|add|test|approve|remove|roles>" };
       const [sub, ...subRest] = rest;
@@ -310,41 +435,79 @@ Commands:
     }
     
     if (command === "status") {
-      const taskId = await getActiveTask(cwd);
-      const data = await store.load(taskId);
-      if (!data) throw new Error("Task data not found.");
-      
-      if (isSuppressed) {
-        return { exitCode: 0, output: JSON.stringify(data) };
+      // Check legacy active task first (backward compatibility)
+      const taskId = await getActiveTaskSafe(cwd);
+      if (taskId) {
+        const data = await store.load(taskId);
+        if (!data) throw new Error("Task data not found.");
+
+        if (isSuppressed) {
+          return { exitCode: 0, output: JSON.stringify(data) };
+        }
+
+        const nextCommands = [];
+        if (data.state === 'AWAITING_APPROVAL') {
+          nextCommands.push("hive diff", "hive approve");
+        } else if (data.state === 'COMPLETED') {
+          nextCommands.push("hive push --confirmed", "hive pr --confirmed");
+        } else if (data.state === 'FAILED' || data.state === 'DISCARDED') {
+          nextCommands.push("hive discard", "hive run <task>");
+        } else {
+          nextCommands.push("hive status (refresh)");
+        }
+
+        const output = renderStatus({
+          taskId,
+          mode: currentMode,
+          branch: data.branchName,
+          state: data.state,
+          plannerState: data.plan ? "complete" : "pending",
+          builderState: data.diffSummary ? "complete" : "pending",
+          validatorState: data.verificationResults.length > 0 ? (data.verificationResults.every(v => v.passed) ? "passed" : "failed") : "pending",
+          reviewerState: data.reviewerVerdict ? (data.reviewerVerdict.includes('REJECT') ? 'rejected' : 'approved') : "pending",
+          filesChanged: data.diffSummary?.filesChanged.length || 0,
+          testsPassed: data.verificationResults.length > 0 && data.verificationResults.every(v => v.passed),
+          safety: currentMode,
+          nextCommands
+        });
+
+        return { exitCode: 0, output };
       }
 
-      const nextCommands = [];
-      if (data.state === 'AWAITING_APPROVAL') {
-        nextCommands.push("hive diff", "hive approve");
-      } else if (data.state === 'COMPLETED') {
-        nextCommands.push("hive push --confirmed", "hive pr --confirmed");
-      } else if (data.state === 'FAILED' || data.state === 'DISCARDED') {
-        nextCommands.push("hive discard", "hive run <task>");
-      } else {
-        nextCommands.push("hive status (refresh)");
+      // Fall through to coding session status
+      const activeCoding = await codingStore.getActive();
+      if (activeCoding) {
+        if (isSuppressed) {
+          return { exitCode: 0, output: JSON.stringify({
+            kind: "coding",
+            id: activeCoding.id,
+            status: activeCoding.status,
+            verdict: activeCoding.verdict,
+            objective: activeCoding.objective,
+          }) };
+        }
+        const verdict = activeCoding.verdict ?? "Not computed";
+        const validation = activeCoding.validationResults ?? [];
+        const failures = activeCoding.failures ?? [];
+        const lines = [
+          `Session: ${activeCoding.id}`,
+          `Status: ${activeCoding.status}`,
+          `Verdict: ${verdict}`,
+          `Objective: ${activeCoding.objective}`,
+          `Mode: ${activeCoding.mode}`,
+          "",
+          `Agents: ${activeCoding.tasks.length}`,
+          `Files changed: ${activeCoding.files?.length ?? 0}`,
+          `Validations: ${validation.length} (${validation.filter((v) => v.status === "passed").length} passed)`,
+          `Failures: ${failures.length}`,
+        ];
+        if (activeCoding.finalReport?.finalSha) {
+          lines.push(`Final SHA: ${activeCoding.finalReport.finalSha}`);
+        }
+        return { exitCode: 0, output: lines.join("\n") };
       }
 
-      const output = renderStatus({
-        taskId,
-        mode: currentMode,
-        branch: data.branchName,
-        state: data.state,
-        plannerState: data.plan ? "complete" : "pending",
-        builderState: data.diffSummary ? "complete" : "pending",
-        validatorState: data.verificationResults.length > 0 ? (data.verificationResults.every(v => v.passed) ? "passed" : "failed") : "pending",
-        reviewerState: data.reviewerVerdict ? (data.reviewerVerdict.includes('REJECT') ? 'rejected' : 'approved') : "pending",
-        filesChanged: data.diffSummary?.filesChanged.length || 0,
-        testsPassed: data.verificationResults.length > 0 && data.verificationResults.every(v => v.passed),
-        safety: currentMode,
-        nextCommands
-      });
-      
-      return { exitCode: 0, output };
+      throw new Error("No active task found. Run 'hive run <task>' or 'hive code' first.");
     }
     
     if (command === "diff") {
@@ -381,16 +544,37 @@ Commands:
       const message = messageArgs.join(" ") || "Approved via CLI";
       const record = await store.load(taskId);
       if (!record) throw new Error("Task data not found.");
-      
+
       const orchestrator = await CoderOrchestrator.fromRecord(record, cwd, new StandaloneExecutor(cwd));
       await orchestrator.approve(message);
-      
+
       if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true }) };
       const header = getHiveProvidersHeader() || "";
       return { exitCode: 0, output: `${header}\nTask ${taskId} approved.`.trim() };
     }
-    
+
+    if (command === "reject") {
+      const codingSession = await codingStore.getActive();
+      if (!codingSession) throw new Error("No active coding session.");
+      codingSession.verdict = "REJECTED";
+      codingSession.status = "failed";
+      await codingStore.save(codingSession);
+      if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true, verdict: "REJECTED" }) };
+      return { exitCode: 0, output: `Session ${codingSession.id} rejected.` };
+    }
+
     if (command === "discard") {
+      const codingSession = await codingStore.getActive();
+      if (codingSession) {
+        codingSession.status = "cancelled";
+        codingSession.cancelledAt = new Date().toISOString();
+        codingSession.cancellationReason = "Discarded by user";
+        codingSession.verdict = "BLOCKED";
+        await codingStore.save(codingSession);
+        await codingStore.clearActive();
+        if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true }) };
+        return { exitCode: 0, output: `Coding session ${codingSession.id} discarded.` };
+      }
       const taskId = await getActiveTask(cwd);
       const record = await store.load(taskId);
       if (record) {
@@ -464,29 +648,44 @@ Commands:
     }
     
     if (command === "sessions") {
-      if (rest.length === 0) return { exitCode: 1, output: "Usage: hive sessions <list|show|resume|fork|archive>" };
-      const sub = rest[0];
+      const sub = rest[0] ?? "list";
       const activeId = await getActiveTaskSafe(cwd);
+      const activeCoding = await codingStore.getActive();
       
       if (sub === "list") {
         const tasks = await store.list();
-        if (isSuppressed) return { exitCode: 0, output: JSON.stringify(tasks) };
-        if (tasks.length === 0) return { exitCode: 0, output: "No task cells found." };
-        const out = tasks.map(t => `${t.taskId === activeId ? '*' : ' '} ${t.taskId} [${t.state}] - ${t.branchName}`).join("\n");
+        const codingSessions = await codingStore.list();
+        if (isSuppressed) return { exitCode: 0, output: JSON.stringify([
+          ...codingSessions.map((session) => ({ kind: "coding", ...session })),
+          ...tasks.map((task) => ({ kind: "legacy", ...task })),
+        ]) };
+        if (tasks.length === 0 && codingSessions.length === 0) return { exitCode: 0, output: "No sessions found." };
+        const out = [
+          ...codingSessions.map((session) => `${session.id === activeCoding?.id ? '*' : ' '} ${session.id} [${session.status}] - ${session.objective}`),
+          ...tasks.map(t => `${t.taskId === activeId ? '*' : ' '} ${t.taskId} [${t.state}] - ${t.branchName}`),
+        ].join("\n");
         return { exitCode: 0, output: out };
       }
       if (sub === "show") {
         const id = rest[1];
         if (!id) throw new Error("Usage: hive sessions show <id>");
+        const coding = await codingStore.load(id);
+        if (coding) return { exitCode: 0, output: JSON.stringify(coding, null, 2) };
         const record = await store.load(id);
-        if (!record) throw new Error(`Task cell ${id} not found.`);
+        if (!record) throw new Error(`Session ${id} not found.`);
         return { exitCode: 0, output: JSON.stringify(record, null, 2) };
       }
       if (sub === "resume") {
         const id = rest[1];
         if (!id) throw new Error("Usage: hive sessions resume <id>");
+        const coding = await codingStore.load(id);
+        if (coding) {
+          await codingStore.setActive(id);
+          if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true, id, kind: "coding" }) };
+          return { exitCode: 0, output: `Resumed coding session ${id}. Run 'hive code --resume ${id}' to continue execution.` };
+        }
         const record = await store.load(id);
-        if (!record) throw new Error(`Task cell ${id} not found.`);
+        if (!record) throw new Error(`Session ${id} not found.`);
         await setActiveTask(cwd, id);
         if (isSuppressed) return { exitCode: 0, output: JSON.stringify({ success: true, id }) };
         return { exitCode: 0, output: `Resumed task cell ${id}.` };

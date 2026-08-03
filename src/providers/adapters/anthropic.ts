@@ -1,20 +1,20 @@
-import { ProviderAdapter, ProviderConfig, ProviderHealthResult, ProviderCompletionInput, ProviderCompletionResult } from '../types.js';
+import { ProviderAdapter, ProviderConfig, ProviderHealthResult, ProviderCompletionInput, ProviderCompletionResult, ProviderRequestCredential } from '../types.js';
 
 export class AnthropicAdapter implements ProviderAdapter {
   kind = "anthropic" as const;
 
-  async healthCheck(config: ProviderConfig): Promise<ProviderHealthResult> {
+  async healthCheck(config: ProviderConfig, credential?: ProviderRequestCredential): Promise<ProviderHealthResult> {
     const defaultEnv = config.apiKeyEnv || "ANTHROPIC_API_KEY";
-    if (!process.env[defaultEnv]) {
+    if (!credential?.secret && !process.env[defaultEnv]) {
       return { ok: false, providerId: config.id, message: `Missing environment variable ${defaultEnv}`, redactedError: "Missing key" };
     }
     // No dedicated standard /models endpoint in Anthropic currently. Just checking key existence.
     return { ok: true, providerId: config.id, message: "API key is present in environment." };
   }
 
-  async complete(config: ProviderConfig, input: ProviderCompletionInput): Promise<ProviderCompletionResult> {
+  async complete(config: ProviderConfig, input: ProviderCompletionInput, credential?: ProviderRequestCredential): Promise<ProviderCompletionResult> {
     const defaultEnv = config.apiKeyEnv || "ANTHROPIC_API_KEY";
-    const token = process.env[defaultEnv];
+    const token = credential?.secret ?? process.env[defaultEnv];
     if (!token) throw new Error(`Missing environment variable ${defaultEnv}`);
 
     const messages = [{ role: "user", content: input.prompt }];

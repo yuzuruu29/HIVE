@@ -7,15 +7,42 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
+  core:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Use Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
-        node-version: '18.x'
-    - run: npm install
+        node-version: '22.12.0'
+        cache: npm
+    - run: npm ci
     - run: npm run lint
     - run: npm run build
     - run: npm test
+
+  windows-desktop:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22.12.0'
+        cache: npm
+    - run: npm ci
+    - run: npm run lint
+    - run: npm test
+    - run: npm run test:desktop
+    - run: npm run test:desktop-release
+    - run: npm run desktop:e2e
+    - run: npm run desktop:pack
+    - run: npm run desktop:smoke
+    - uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: desktop-e2e-failures
+        path: |
+          playwright-report/
+          test-results/
+        if-no-files-found: ignore

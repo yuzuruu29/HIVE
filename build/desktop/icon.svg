@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="HIVE">
+  <rect width="256" height="256" rx="48" fill="#0b0712"/>
+  <path d="M64 71 96 52l32 19v37l-32 19-32-19zm64 0 32-19 32 19v37l-32 19-32-19zm-32 56 32-19 32 19v37l-32 19-32-19z" fill="none" stroke="#a970ff" stroke-width="13" stroke-linejoin="round"/>
+</svg>

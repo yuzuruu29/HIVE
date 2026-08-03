@@ -1,5 +1,9 @@
 node_modules/
 dist/
+dist-desktop/
+release/
+playwright-report/
+test-results/
 coverage/
 .env
 .env.*

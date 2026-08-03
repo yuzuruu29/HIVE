@@ -9,7 +9,8 @@ export function applyBudget(
   let usedChars = 0;
   let truncated = false;
 
-  // Base structures always included (Summary, scripts, risk notes)
+  // Base structural metadata (summary, scripts, risk notes) is small and
+  // always emitted, so it is not counted against the competing content budget.
   const baseJson = JSON.stringify({
     repoRoot: rawPack.repoRoot,
     generatedAt: rawPack.generatedAt,
@@ -24,8 +25,8 @@ export function applyBudget(
     recentChanges: rawPack.recentChanges
   }, null, 2);
 
-  usedChars += baseJson.length;
-
+  // Docs are the cheapest supplementary context: include them first so the
+  // most relevant documentation survives, then fill remaining budget with files.
   const budgetedDocs: ScoutDocSignal[] = [];
   for (const doc of rawPack.docs) {
     const docSize = doc.path.length + doc.excerpt.length + 50;
@@ -39,7 +40,7 @@ export function applyBudget(
 
   const budgetedFiles: ScoutFileSignal[] = [];
   for (const file of rawPack.importantFiles) {
-    // Only include basic metadata in the budget cost, 
+    // Only include basic metadata in the budget cost,
     // unless we decide to pull excerpts for important files later
     const fileSizeStr = JSON.stringify(file).length;
     if (usedChars + fileSizeStr > maxChars) {
@@ -56,7 +57,7 @@ export function applyBudget(
     importantFiles: budgetedFiles,
     promptBudget: {
       maxChars,
-      usedChars,
+      usedChars: baseJson.length + usedChars,
       truncated
     }
   };

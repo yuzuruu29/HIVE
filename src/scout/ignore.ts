@@ -19,16 +19,17 @@ const GLOBAL_IGNORES = new Set([
  * Strict check if a path should be ignored by the Scout engine.
  */
 export function isIgnoredPath(filePath: string): boolean {
-  const parts = filePath.split(path.sep).map(p => p.split('/').join('')).filter(Boolean);
-  
+  // Split on either separator so the check works on Windows and Unix-style paths.
+  const parts = filePath.split(/[/\\]/).filter(Boolean);
+
   // Check against ignore list for any segment
   for (const part of parts) {
     if (GLOBAL_IGNORES.has(part)) return true;
   }
 
   // Exact file blocks
-  const basename = path.basename(filePath);
+  const basename = parts[parts.length - 1] ?? '';
   if (basename === '.env' || basename.startsWith('.env.')) return true;
-  
+
   return false;
 }

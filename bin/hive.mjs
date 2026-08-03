@@ -29,14 +29,20 @@ try {
   // Ignore errors reading .env
 }
 
-const result = await runCoderCli(process.argv.slice(2));
+const result = await runCoderCli(process.argv.slice(2), {
+  stream(line) {
+    process.stdout.write(`${line}\n`);
+  },
+});
 
 // "__TUI_STARTED__" is a sentinel: the TUI ran and exited cleanly.
 // Do not print it to stdout.
 if (result.output === "__TUI_STARTED__") {
   process.exitCode = result.exitCode;
-} else {
+} else if (result.output) {
   const stream = result.exitCode === 0 ? process.stdout : process.stderr;
   stream.write(`${result.output}\n`);
+  process.exitCode = result.exitCode;
+} else {
   process.exitCode = result.exitCode;
 }

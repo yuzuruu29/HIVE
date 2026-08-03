@@ -4,12 +4,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 
-import { isIgnoredPath } from '../src/scout/ignore.js';
-import { gatherFileSignals } from '../src/scout/file-signals.js';
-import { gatherDocSignals } from '../src/scout/doc-signals.js';
-import { rankFiles } from '../src/scout/ranking.js';
-import { applyBudget } from '../src/scout/budget.js';
-import { generateContextPack } from '../src/scout/context-pack.js';
+import { isIgnoredPath } from '../dist/scout/ignore.js';
+import { rankFiles } from '../dist/scout/ranking.js';
+import { applyBudget } from '../dist/scout/budget.js';
+import { generateContextPack } from '../dist/scout/context-pack.js';
 
 test('Scout Context Engine', async (t) => {
   await t.test('ignore logic filters correctly', () => {
@@ -67,7 +65,7 @@ test('Scout Context Engine', async (t) => {
   });
 
   await t.test('prompt-size snapshot prevents budget overflow', async () => {
-    const { formatScoutText } = await import('../src/scout/format.js');
+    const { formatScoutText } = await import('../dist/scout/format.js');
     
     // Simulate a massive pack to test format boundaries
     const massivePack = {
@@ -114,5 +112,45 @@ test('Scout Context Engine', async (t) => {
     const topFiles = pack.importantFiles.slice(0, 5);
     const hasOrchestrator = topFiles.some(f => f.path.includes('orchestrator.ts'));
     assert.ok(hasOrchestrator, 'orchestrator.ts should be highly ranked for this prompt');
+  });
+
+  await t.test('real-task validation: provider task top 8 contains src/providers', async () => {
+    const root = process.cwd();
+    const pack = await generateContextPack(root, "Improve provider setup error messages and OpenRouter role assignment docs.");
+    const top8 = pack.importantFiles.slice(0, 8);
+    const hasProvider = top8.some(f => f.path.startsWith('src/providers/'));
+    assert.ok(hasProvider, 'Top 8 must contain src/providers');
+  });
+
+  await t.test('real-task validation: TUI task top 8 contains src/ui', async () => {
+    const root = process.cwd();
+    const pack = await generateContextPack(root, "Fix the TUI diff pane and improve transcript empty states.");
+    const top8 = pack.importantFiles.slice(0, 8);
+    const hasUI = top8.some(f => f.path.startsWith('src/ui/') || f.path.startsWith('src/tui/'));
+    assert.ok(hasUI, 'Top 8 must contain src/ui or src/tui');
+  });
+
+  await t.test('real-task validation: worktree task top 8 contains worktree/safety files', async () => {
+    const root = process.cwd();
+    const pack = await generateContextPack(root, "Strengthen worktree safety checks before commit approval.");
+    const top8 = pack.importantFiles.slice(0, 8);
+    const hasSafety = top8.some(f => f.path.includes('worktree.ts') || f.path.includes('safety'));
+    assert.ok(hasSafety, 'Top 8 must contain worktree or safety files');
+  });
+
+  await t.test('real-task validation: GitHub PR task top 8 contains forge/orchestrator files', async () => {
+    const root = process.cwd();
+    const pack = await generateContextPack(root, "Improve GitHub PR body generation and push confirmation handling.");
+    const top8 = pack.importantFiles.slice(0, 8);
+    const hasPR = top8.some(f => f.path.includes('forge.ts') || f.path.includes('orchestrator.ts'));
+    assert.ok(hasPR, 'Top 8 must contain forge.ts or orchestrator.ts');
+  });
+
+  await t.test('real-task validation: Scout task top 8 contains src/scout', async () => {
+    const root = process.cwd();
+    const pack = await generateContextPack(root, "Improve Scout context ranking and prompt budget behavior.");
+    const top8 = pack.importantFiles.slice(0, 8);
+    const hasScout = top8.some(f => f.path.startsWith('src/scout/'));
+    assert.ok(hasScout, 'Top 8 must contain src/scout');
   });
 });

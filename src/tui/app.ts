@@ -3,8 +3,19 @@
  * TuiApp - lifecycle, raw input loop, render scheduling.
  */
 
-import { TuiState, initialState, withInput, withHistory, withOutput, withSize, withRunning } from "./state.js";
+import {
+  TuiState,
+  initialState,
+  withInput,
+  withHistory,
+  withOutput,
+  withSize,
+  withRunning,
+  withSelectedSubagent,
+  withSubagentsExpanded,
+} from "./state.js";
 import { parseTuiCommand, executeTuiCommand } from "./commands.js";
+import type { TuiRuntimeHandle, TuiSessionRunner } from "./runtime-adapter.js";
 import { renderTuiScreen } from "./renderer.js";
 import {
   enterAlternateScreen,
@@ -37,10 +48,13 @@ export class TuiApp {
   private boundOnData: ((chunk: Buffer) => void) | null = null;
   private boundOnResize: (() => void) | null = null;
   private resolveStop: (() => void) | null = null;
+  private activeRuntime: TuiRuntimeHandle | null = null;
+  private readonly runSession?: TuiSessionRunner;
 
-  constructor(cwd: string) {
+  constructor(cwd: string, options: { runSession?: TuiSessionRunner } = {}) {
     this.cwd = cwd;
     this.state = initialState();
+    this.runSession = options.runSession;
   }
 
   // -- Lifecycle ---------------------------------------------------------------
@@ -92,6 +106,10 @@ export class TuiApp {
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
+
+    // Cancellation happens before terminal cleanup so active provider/tool
+    // work observes the abort even if cleanup itself throws.
+    this.activeRuntime?.cancel("TUI stopped.");
 
     // Remove listeners
     if (this.boundOnData) {
@@ -159,12 +177,20 @@ export class TuiApp {
         if (this.inputBuffer.length < 3) break;
 
         if (this.inputBuffer.startsWith(ARROW_UP)) {
-          this.navigateHistory(1);
+          if (this.state.subagentsExpanded && this.state.input.length === 0) {
+            this.navigateSubagents(-1);
+          } else {
+            this.navigateHistory(1);
+          }
           this.inputBuffer = this.inputBuffer.slice(ARROW_UP.length);
           continue;
         }
         if (this.inputBuffer.startsWith(ARROW_DOWN)) {
-          this.navigateHistory(-1);
+          if (this.state.subagentsExpanded && this.state.input.length === 0) {
+            this.navigateSubagents(1);
+          } else {
+            this.navigateHistory(-1);
+          }
           this.inputBuffer = this.inputBuffer.slice(ARROW_DOWN.length);
           continue;
         }
@@ -174,7 +200,9 @@ export class TuiApp {
       }
 
       if (this.inputBuffer.startsWith(ESCAPE)) {
-        // Lone escape - consume
+        if (this.state.subagentsExpanded) {
+          this.setState(withSubagentsExpanded(this.state, false));
+        }
         this.inputBuffer = this.inputBuffer.slice(1);
         continue;
       }
@@ -188,14 +216,13 @@ export class TuiApp {
   private handleChar(ch: string): void {
     if (ch === CTRL_C || ch === CTRL_D) {
       if (this.state.taskStatus === "running" || this.state.taskStatus === "verifying") {
-        const next = { ...this.state, outputLines: [...this.state.outputLines, "  Cancel requested. Waiting for current operation to finish."].slice(-200) };
+        this.activeRuntime?.cancel("User pressed Ctrl+C.");
+        const next = { ...this.state, outputLines: [...this.state.outputLines, "  Cancelling active session."].slice(-200) };
         this.setState(next);
       }
       this.stop();
       return;
     }
-
-    if (this.state.running || this.state.taskStatus === "running" || this.state.taskStatus === "verifying") return; // Block input while running
 
     if (ch === ENTER || ch === ENTER_LF) {
       this.submitInput();
@@ -231,6 +258,15 @@ export class TuiApp {
     });
   }
 
+  private navigateSubagents(direction: number): void {
+    const tasks = this.state.subagents;
+    if (tasks.length === 0) return;
+    const current = tasks.findIndex((task) => task.id === this.state.selectedSubagentId);
+    const start = current >= 0 ? current : 0;
+    const next = (start + direction + tasks.length) % tasks.length;
+    this.setState(withSelectedSubagent(this.state, tasks[next].id));
+  }
+
   private submitInput(): void {
     const raw = this.state.input.trim();
     if (!raw) return;
@@ -259,7 +295,9 @@ export class TuiApp {
       this.setState(updater(this.state));
     };
 
-    executeTuiCommand(cmd, this.state, this.cwd, onUpdate).then(({ state: updated, shouldExit }) => {
+    executeTuiCommand(cmd, this.state, this.cwd, onUpdate, {
+      runSession: this.runSession,
+    }).then(({ state: updated, shouldExit, runtime }) => {
       if (this.stopped) return;
       if (shouldExit) {
         this.stop();
@@ -267,6 +305,12 @@ export class TuiApp {
       }
       const final = withRunning(updated, false);
       this.setState(final);
+      if (runtime) {
+        this.activeRuntime = runtime;
+        void runtime.completion.finally(() => {
+          if (this.activeRuntime === runtime) this.activeRuntime = null;
+        });
+      }
     }).catch((err: unknown) => {
       if (this.stopped) return;
       const msg = err instanceof Error ? err.message : String(err);

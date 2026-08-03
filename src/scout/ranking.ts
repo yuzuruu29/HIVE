@@ -19,23 +19,28 @@ export function rankFiles(files: ScoutFileSignal[], taskPrompt?: string): ScoutF
     // Check if prompt words appear in the file path
     for (const token of promptTokens) {
       if (pathLower.includes(token)) {
-        score += 25; // Significant boost for keyword match in path
+        score += 50; // Increased base keyword boost so it beats package.json (60)
       }
     }
 
     // Specific domain mapping based on task keywords
-    if (promptTokens.includes('provider') && pathLower.includes('provider')) score += 50;
+    if (promptTokens.includes('provider') || promptTokens.includes('openrouter')) {
+      if (pathLower.includes('provider') || pathLower.includes('api-client')) score += 100;
+    }
     if (promptTokens.includes('tui') || promptTokens.includes('ui') || promptTokens.includes('pane')) {
-      if (pathLower.includes('ui/') || pathLower.includes('tui')) score += 50;
+      if (pathLower.includes('ui/') || pathLower.includes('tui')) score += 100;
     }
     if (promptTokens.includes('github') || promptTokens.includes('pr')) {
-      if (pathLower.includes('forge') || pathLower.includes('orchestrator')) score += 50;
+      if (pathLower.includes('forge') || pathLower.includes('orchestrator')) score += 100;
     }
     if (promptTokens.includes('worktree')) {
-      if (pathLower.includes('worktree')) score += 50;
+      if (pathLower.includes('worktree') || pathLower.includes('orchestrator')) score += 100;
     }
     if (promptTokens.includes('safety')) {
-      if (pathLower.includes('runner') || pathLower.includes('safety')) score += 50;
+      if (pathLower.includes('runner') || pathLower.includes('safety')) score += 100;
+    }
+    if (promptTokens.includes('scout') || promptTokens.includes('context')) {
+      if (pathLower.includes('scout')) score += 100;
     }
 
     return { file, score };

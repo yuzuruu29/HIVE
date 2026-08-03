@@ -3,7 +3,21 @@
  * Command parser and executor for the HIVE TUI cockpit.
  */
 
-import { TuiState, withOutput, withMode, withClear, appendTranscriptLine, setTaskStatus, clearTranscript } from "./state.js";
+import {
+  TuiState,
+  withOutput,
+  withMode,
+  withClear,
+  appendTranscriptLine,
+  setTaskStatus,
+  clearTranscript,
+  withSelectedSubagent,
+  withSubagentsExpanded,
+  reduceTuiRuntimeEvent,
+} from "./state.js";
+import { formatRuntimeEventText } from "../coding/output.js";
+import type { RuntimeEvent } from "../coding/types.js";
+import type { TuiRuntimeHandle, TuiSessionRunner } from "./runtime-adapter.js";
 
 // -- Command Types -------------------------------------------------------------
 
@@ -12,6 +26,7 @@ export type TuiCommandKind =
   | "providers"
   | "status"
   | "model"
+  | "agents"
   | "run"
   | "clear"
   | "exit"
@@ -52,6 +67,9 @@ export function parseTuiCommand(input: string): TuiCommand {
       return { kind: "status", args, raw };
     case "model":
       return { kind: "model", args, raw };
+    case "agents":
+    case "subagents":
+      return { kind: "agents", args, raw };
     case "run":
       return { kind: "run", args, raw };
     case "clear":
@@ -70,13 +88,37 @@ export function parseTuiCommand(input: string): TuiCommand {
 export interface ExecuteResult {
   state: TuiState;
   shouldExit: boolean;
+  runtime?: TuiRuntimeHandle;
+}
+
+export interface ExecuteTuiCommandOptions {
+  runSession?: TuiSessionRunner;
+}
+
+function projectRuntimeEvent(state: TuiState, event: RuntimeEvent): TuiState {
+  let next = reduceTuiRuntimeEvent(state, event);
+  next = appendTranscriptLine(next, formatRuntimeEventText(event));
+  switch (event.type) {
+    case "session.created":
+    case "session.started":
+      return setTaskStatus(withMode(next, "running"), "running");
+    case "validation.started":
+      return setTaskStatus(next, "verifying");
+    case "session.completed":
+      return setTaskStatus(withMode(next, "default"), "complete");
+    case "session.cancelled":
+      return setTaskStatus(withMode(next, "default"), "idle");
+    default:
+      return next;
+  }
 }
 
 export async function executeTuiCommand(
   cmd: TuiCommand,
   state: TuiState,
   cwd: string,
-  onUpdate?: (updater: (s: TuiState) => TuiState) => void
+  onUpdate?: (updater: (s: TuiState) => TuiState) => void,
+  options: ExecuteTuiCommandOptions = {},
 ): Promise<ExecuteResult> {
   switch (cmd.kind) {
     case "exit":
@@ -93,6 +135,7 @@ export async function executeTuiCommand(
         "  /providers     Inspect configured providers",
         "  /status        Show provider and runtime status",
         "  /model         Show or select active model",
+        "  /agents [id]   Toggle Subagents view or inspect one agent",
         "  /run <task>    Execute a task via HIVE swarm",
         "  /clear         Clear output panel",
         "  /exit          Quit HIVE TUI",
@@ -205,6 +248,34 @@ export async function executeTuiCommand(
       };
     }
 
+    case "agents": {
+      const target = cmd.args.trim();
+      if (target === "collapse") {
+        return {
+          state: withSubagentsExpanded(withSelectedSubagent(state), false),
+          shouldExit: false,
+        };
+      }
+      if (target) {
+        const selected = state.subagents.find((task) => task.id === target);
+        if (!selected) {
+          return {
+            state: withOutput(state, [`  Subagent not found: ${target}`]),
+            shouldExit: false,
+          };
+        }
+        return {
+          state: withSubagentsExpanded(withSelectedSubagent(state, selected.id), true),
+          shouldExit: false,
+        };
+      }
+      const selected = state.selectedSubagentId ?? state.subagents[0]?.id;
+      return {
+        state: withSubagentsExpanded(withSelectedSubagent(state, selected), !state.subagentsExpanded),
+        shouldExit: false,
+      };
+    }
+
     case "run":
     case "task": {
       const task = cmd.args.trim();
@@ -231,38 +302,23 @@ export async function executeTuiCommand(
       nextState = setTaskStatus(nextState, "running");
       nextState = appendTranscriptLine(nextState, `[User] ${task}`);
 
-      if (onUpdate) {
-        // Run in background without awaiting here to unblock UI
-        import("./runtime-adapter.js").then(({ runTuiTask }) => {
-          runTuiTask(cwd, task, {
-            onStart: (taskId) => {
-               onUpdate((s) => appendTranscriptLine(s, `[Runtime] Started task ${taskId}`));
-            },
-            onOutput: (line) => {
-               onUpdate((s) => appendTranscriptLine(s, line));
-            },
-            onError: (err) => {
-               onUpdate((s) => {
-                 let next = appendTranscriptLine(s, `[Error] ${err}`);
-                 next = setTaskStatus(next, "error");
-                 return withMode(next, "error");
-               });
-            },
-            onStatus: (status) => {
-               onUpdate((s) => setTaskStatus(s, status));
-            },
-            onComplete: (res) => {
-               onUpdate((s) => {
-                 let next = appendTranscriptLine(s, `[Runtime] Task finished. Status: ${res?.state}`);
-                 next = setTaskStatus(next, "complete");
-                 return withMode(next, "default");
-               });
-            }
-          });
-        });
-      }
+      if (!onUpdate) return { state: nextState, shouldExit: false };
 
-      return { state: nextState, shouldExit: false };
+      const { runTuiTask } = await import("./runtime-adapter.js");
+      const runtime = runTuiTask(cwd, task, {
+        onEvent: (event) => {
+          onUpdate((current) => projectRuntimeEvent(current, event));
+        },
+        onError: (error) => {
+          onUpdate((current) => {
+            let next = appendTranscriptLine(current, `[Error] ${error}`);
+            next = setTaskStatus(next, "error");
+            return withMode(next, "error");
+          });
+        },
+      }, { runSession: options.runSession });
+
+      return { state: nextState, shouldExit: false, runtime };
     }
 
     case "unknown": {

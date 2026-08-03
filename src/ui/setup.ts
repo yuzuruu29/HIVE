@@ -21,31 +21,38 @@ export async function runProviderSetupWizard(registry: ProviderRegistry): Promis
 
     console.log(`
 Select Provider Kind:
-  [1] openrouter
-  [2] ollama
-  [3] openai-compatible
-  [4] openai
+  [1] HIVE 0.1
+  [2] openrouter
+  [3] ollama
+  [4] openai-compatible
+  [5] openai
 `);
-    const kindChoice = (await rl.question("Choice [1-4]: ")).trim();
+    const kindChoice = (await rl.question("Choice [1-5]: ")).trim();
     let kind: ProviderKind;
     let defaultBaseUrl = "";
     let defaultModel = "";
+    let defaultKeyEnv = "";
     let needsKey = true;
 
     if (kindChoice === "1") {
+      kind = "openai-compatible";
+      defaultBaseUrl = (process.env.HIVE_CLOUD_BASE_URL || "").replace(/\/+$/, "");
+      defaultModel = "hive-0.1";
+      defaultKeyEnv = "HIVE_API_KEY";
+    } else if (kindChoice === "2") {
       kind = "openrouter";
       defaultBaseUrl = "https://openrouter.ai/api/v1";
       defaultModel = "qwen/qwen3-coder";
-    } else if (kindChoice === "2") {
+    } else if (kindChoice === "3") {
       kind = "ollama";
       defaultBaseUrl = "http://localhost:11434";
       defaultModel = "llama3";
       needsKey = false;
-    } else if (kindChoice === "3") {
+    } else if (kindChoice === "4") {
       kind = "openai-compatible";
       defaultBaseUrl = "http://localhost:1234/v1";
       defaultModel = "local-model";
-    } else if (kindChoice === "4") {
+    } else if (kindChoice === "5") {
       kind = "openai";
       defaultBaseUrl = "https://api.openai.com/v1";
       defaultModel = "gpt-4o";
@@ -55,6 +62,7 @@ Select Provider Kind:
 
     const baseUrlInput = (await rl.question(`Base URL [${defaultBaseUrl}]: `)).trim();
     const baseUrl = baseUrlInput || defaultBaseUrl;
+    if (!baseUrl) throw new Error("Base URL is required. Paste the HIVE Cloud API URL ending in /v1.");
 
     const modelInput = (await rl.question(`Default Model [${defaultModel}]: `)).trim();
     const model = modelInput || defaultModel;
@@ -62,9 +70,9 @@ Select Provider Kind:
     let apiKeyEnv = "";
     if (needsKey) {
       console.log("\nHIVE reads API keys securely from your environment variables.");
-      const envInput = (await rl.question("API Key Environment Variable (e.g., OPENROUTER_API_KEY): ")).trim();
-      if (!envInput) throw new Error("API Key Environment Variable is required for this provider.");
-      apiKeyEnv = envInput;
+      const envInput = (await rl.question(`API Key Environment Variable${defaultKeyEnv ? ` [${defaultKeyEnv}]` : " (e.g., OPENROUTER_API_KEY)"}: `)).trim();
+      apiKeyEnv = envInput || defaultKeyEnv;
+      if (!apiKeyEnv) throw new Error("API Key Environment Variable is required for this provider.");
     }
 
     const config = {

@@ -19,6 +19,7 @@ import {
   TERMINAL_LINE_GRADIENT,
   BRAND_COLORS,
 } from "../ui/colors.js";
+import { renderSubagentsPanel } from "./subagents.js";
 
 // -- Helpers -------------------------------------------------------------------
 
@@ -248,7 +249,7 @@ export function renderFooter(state: TuiState, width: number): string {
     return lbl + val;
   }
 
-  const scoutStr = state.scoutSignals ? `ready \xb7 ${state.scoutSignals} sigs \xb7 ${state.scoutDocs} docs \xb7 ${state.scoutRiskNotes} risks` : "loading...";
+  const scoutStr = state.scoutSignals ? `ready / ${state.scoutSignals} sigs / ${state.scoutDocs} docs / ${state.scoutRiskNotes} risks` : "loading...";
 
   const leftParts = [
     colorEnabled ? applyColor("[default]", BRAND_COLORS.accent.r, BRAND_COLORS.accent.g, BRAND_COLORS.accent.b) : "[default]",
@@ -293,16 +294,33 @@ export function renderTuiScreen(state: TuiState): string {
   const { width: termWidth, height, colorEnabled } = state;
   
   const MAX_WIDTH = 160;
-  const actualWidth = Math.max(40, Math.min(termWidth, MAX_WIDTH));
-  
+  const actualWidth = Math.max(20, Math.min(termWidth > 0 ? termWidth : 40, MAX_WIDTH));
+  const panelWidth = Math.max(1, actualWidth - 2);
+  const subagentPanel = renderSubagentsPanel(state, panelWidth);
+
   if (termWidth < 70) {
-    return [
-      hBorder(actualWidth, colorEnabled),
-      contentRow("HIVE TUI - Window too small", actualWidth, colorEnabled),
-      contentRow("Please resize width >= 70", actualWidth, colorEnabled),
-      contentRow(renderInputRow(state), actualWidth, colorEnabled),
-      hBorder(actualWidth, colorEnabled)
-    ].join("\n");
+    const border = hBorder(actualWidth, colorEnabled);
+    const lines: string[] = [
+      border,
+      contentRow(" HIVE - terminal coding cockpit", actualWidth, colorEnabled),
+      border,
+    ];
+    for (const line of subagentPanel) lines.push(contentRow(line, actualWidth, colorEnabled));
+
+    const fixedRows = lines.length + 5;
+    const outputRows = Math.max(1, height - fixedRows);
+    for (const outLine of renderMainPanel(state, outputRows)) {
+      const colored = colorEnabled
+        ? applyColor(outLine, BRAND_COLORS.text.r, BRAND_COLORS.text.g, BRAND_COLORS.text.b)
+        : outLine;
+      lines.push(contentRow(colored, actualWidth, colorEnabled));
+    }
+    lines.push(border);
+    lines.push(contentRow(renderInputRow(state), actualWidth, colorEnabled));
+    lines.push(border);
+    lines.push(contentRow(` status:${state.taskStatus} agents:${state.agents} ctx:${state.contextPercent}%`, actualWidth, colorEnabled));
+    lines.push(border);
+    return lines.map((line) => safeClampLine(line, actualWidth)).join("\n");
   }
 
   const useWideTitle = actualWidth >= 120;
@@ -330,6 +348,7 @@ export function renderTuiScreen(state: TuiState): string {
                      1 + // input border bottom
                      1 + // footer
                      1 + // footer border bottom
+                     subagentPanel.length +
                      lowerPanels.length;
 
   const frameContentRows = Math.max(leftColLines.length, rightPanelLines.length);
@@ -363,6 +382,10 @@ export function renderTuiScreen(state: TuiState): string {
 
   lines.push(blank);
   lines.push(border);
+
+  for (const panelLine of subagentPanel) {
+    lines.push(contentRow(panelLine, actualWidth, colorEnabled));
+  }
   
   const outputPanel = renderMainPanel(state, outputRows);
   for (const outLine of outputPanel) {

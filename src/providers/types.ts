@@ -52,10 +52,13 @@ export interface ProviderCompletionResult {
   };
 }
 
+/** Ephemeral request-only authentication. It must never be placed in ProviderConfig or persisted. */
+export interface ProviderRequestCredential { secret: string; kind: "api-key" | "bearer" | "oauth" }
+
 export interface ProviderAdapter {
   kind: ProviderKind;
-  healthCheck(config: ProviderConfig): Promise<ProviderHealthResult>;
-  complete(config: ProviderConfig, input: ProviderCompletionInput): Promise<ProviderCompletionResult>;
+  healthCheck(config: ProviderConfig, credential?: ProviderRequestCredential): Promise<ProviderHealthResult>;
+  complete(config: ProviderConfig, input: ProviderCompletionInput, credential?: ProviderRequestCredential): Promise<ProviderCompletionResult>;
 }
 
 export interface RoleAssignment {
@@ -64,10 +67,13 @@ export interface RoleAssignment {
 }
 
 export type ProviderRoles = {
+  queen?: RoleAssignment;
   planner?: RoleAssignment;
+  scout?: RoleAssignment;
   builder?: RoleAssignment;
   validator?: RoleAssignment;
   reviewer?: RoleAssignment;
+  fixer?: RoleAssignment;
   synthesis?: RoleAssignment;
   fallback?: RoleAssignment;
 };

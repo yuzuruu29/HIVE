@@ -1,16 +1,13 @@
 import { spawn } from 'child_process';
 import { VerificationResult, DiffSummary } from './types.js';
+import { redactKnownSecrets } from './security/secrets.js';
 
 const ALLOWED_COMMANDS = new Set(['npm', 'npx', 'node']);
 const BLOCKED_ARGS = new Set(['rm', 'rimraf', 'del', 'erase', 'rd', 'rmdir', 'remove-item']);
 const SECRET_KEY_PATTERN = /(OPENAI_API_KEY|API_KEY|TOKEN|SECRET|PASSWORD)/gi;
-const SECRET_ASSIGNMENT_PATTERN = /\b([A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)\s*[:=]\s*([^\s"'`]+)/gi;
-const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
 
 export function redactSecrets(value: string): string {
-  return value
-    .replace(SECRET_ASSIGNMENT_PATTERN, '$1=[REDACTED]')
-    .replace(BEARER_PATTERN, 'Bearer [REDACTED]');
+  return redactKnownSecrets(value);
 }
 
 export function parseSafeCommand(command: string): string[] {

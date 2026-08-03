@@ -1,19 +1,19 @@
-import { ProviderAdapter, ProviderConfig, ProviderHealthResult, ProviderCompletionInput, ProviderCompletionResult } from '../types.js';
+import { ProviderAdapter, ProviderConfig, ProviderHealthResult, ProviderCompletionInput, ProviderCompletionResult, ProviderRequestCredential } from '../types.js';
 
 export class GoogleAdapter implements ProviderAdapter {
   kind = "google" as const;
 
-  async healthCheck(config: ProviderConfig): Promise<ProviderHealthResult> {
+  async healthCheck(config: ProviderConfig, credential?: ProviderRequestCredential): Promise<ProviderHealthResult> {
     const defaultEnv = config.apiKeyEnv || "GEMINI_API_KEY";
-    if (!process.env[defaultEnv] && !process.env["GOOGLE_API_KEY"]) {
+    if (!credential?.secret && !process.env[defaultEnv] && !process.env["GOOGLE_API_KEY"]) {
       return { ok: false, providerId: config.id, message: `Missing environment variable ${defaultEnv}`, redactedError: "Missing key" };
     }
     return { ok: true, providerId: config.id, message: "API key is present in environment." };
   }
 
-  async complete(config: ProviderConfig, input: ProviderCompletionInput): Promise<ProviderCompletionResult> {
+  async complete(config: ProviderConfig, input: ProviderCompletionInput, credential?: ProviderRequestCredential): Promise<ProviderCompletionResult> {
     const defaultEnv = config.apiKeyEnv || "GEMINI_API_KEY";
-    const token = process.env[defaultEnv] || process.env["GOOGLE_API_KEY"];
+    const token = credential?.secret ?? process.env[defaultEnv] ?? process.env["GOOGLE_API_KEY"];
     if (!token) throw new Error(`Missing environment variable ${defaultEnv}`);
 
     const modelId = input.model || config.defaultModel || "gemini-1.5-pro";

@@ -1,0 +1,46 @@
+name: Windows Desktop Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: [ "v*" ]
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22.12.0'
+        cache: npm
+    - run: npm ci
+    - run: npm run lint
+    - run: npm test
+    - run: npm run test:desktop
+    - run: npm run desktop:e2e
+    - run: npm run desktop:dist
+      env:
+        CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+        CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+    - name: Smoke unpacked application
+      run: npm run desktop:pack && npm run desktop:smoke
+    - uses: actions/upload-artifact@v4
+      with:
+        name: HIVE-${{ github.ref_name }}-windows-x64
+        path: |
+          release/HIVE-*.exe
+          release/SHA256SUMS.txt
+        if-no-files-found: error
+        retention-days: 30
+    - uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: HIVE-${{ github.ref_name }}-desktop-failures
+        path: |
+          playwright-report/
+          test-results/
+        if-no-files-found: ignore

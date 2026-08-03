@@ -6,6 +6,54 @@ import { gatherDocSignals } from './doc-signals.js';
 import { rankFiles } from './ranking.js';
 import { applyBudget, DEFAULT_MAX_CHARS } from './budget.js';
 
+function extractStructuralExcerpt(content: string, taskPrompt?: string, maxLen: number = 400): string {
+  if (content.length <= maxLen) return content;
+  
+  const lines = content.split('\n');
+  const excerptLines: string[] = [];
+  let currentLen = 0;
+  
+  const promptTokens = taskPrompt ? taskPrompt.toLowerCase().split(/[\s,.-_]+/).filter(t => t.length > 2) : [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    const lower = line.toLowerCase();
+    let keep = false;
+    
+    if (
+      line.startsWith('import ') ||
+      line.startsWith('export ') ||
+      line.includes('function ') ||
+      line.includes('class ') ||
+      line.includes('interface ') ||
+      line.includes('type ')
+    ) {
+      keep = true;
+    } else {
+      for (const token of promptTokens) {
+        if (lower.includes(token)) {
+          keep = true;
+          break;
+        }
+      }
+    }
+    
+    if (keep) {
+      if (currentLen + line.length > maxLen) break;
+      excerptLines.push(line);
+      currentLen += line.length + 1;
+    }
+  }
+  
+  if (excerptLines.length === 0) {
+    return content.substring(0, maxLen).trim();
+  }
+  
+  return excerptLines.join('\n').trim();
+}
+
 export async function generateContextPack(repoRoot: string, taskPrompt?: string): Promise<ScoutContextPack> {
   const generatedAt = new Date().toISOString();
   
@@ -35,8 +83,8 @@ export async function generateContextPack(repoRoot: string, taskPrompt?: string)
     try {
       const fullPath = path.join(repoRoot, file.path);
       const content = await fs.promises.readFile(fullPath, 'utf8');
-      file.excerpt = content.substring(0, 250).trim();
-      file.truncated = content.length > 250;
+      file.excerpt = extractStructuralExcerpt(content, taskPrompt, 400);
+      file.truncated = content.length > 400;
     } catch (e) {
       // Ignore read errors
     }

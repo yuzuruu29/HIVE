@@ -1,19 +1,19 @@
-import { ProviderAdapter, ProviderConfig, ProviderHealthResult, ProviderCompletionInput, ProviderCompletionResult, ProviderKind } from '../types.js';
+import { ProviderAdapter, ProviderConfig, ProviderHealthResult, ProviderCompletionInput, ProviderCompletionResult, ProviderKind, ProviderRequestCredential } from '../types.js';
 
 export class OpenAiCompatibleAdapter implements ProviderAdapter {
   kind: ProviderKind = "openai-compatible";
 
-  protected getHeaders(config: ProviderConfig): Record<string, string> {
+  protected getHeaders(config: ProviderConfig, credential?: ProviderRequestCredential): Record<string, string> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json"
     };
 
     if (config.authType === "bearer" || config.authType === "api-key") {
       const envKey = config.apiKeyEnv || config.tokenEnv;
-      if (!envKey) {
+      if (!envKey && !credential?.secret) {
         throw new Error(`Provider ${config.id} is configured with authType ${config.authType} but lacks apiKeyEnv/tokenEnv.`);
       }
-      const token = process.env[envKey];
+      const token = credential?.secret ?? (envKey ? process.env[envKey] : undefined);
       if (!token) {
         throw new Error(`Missing environment variable ${envKey} for provider ${config.id}.`);
       }
@@ -22,12 +22,12 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     return headers;
   }
 
-  async healthCheck(config: ProviderConfig): Promise<ProviderHealthResult> {
+  async healthCheck(config: ProviderConfig, credential?: ProviderRequestCredential): Promise<ProviderHealthResult> {
     try {
       const baseUrl = config.baseUrl || "https://api.openai.com/v1";
       // To test health non-destructively, we list models instead of generating a response if possible,
       // but standard openai endpoint is /models
-      const headers = this.getHeaders(config);
+      const headers = this.getHeaders(config, credential);
       
       const res = await fetch(`${baseUrl}/models`, {
         method: "GET",
@@ -59,9 +59,9 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     }
   }
 
-  async complete(config: ProviderConfig, input: ProviderCompletionInput): Promise<ProviderCompletionResult> {
+  async complete(config: ProviderConfig, input: ProviderCompletionInput, credential?: ProviderRequestCredential): Promise<ProviderCompletionResult> {
     const baseUrl = config.baseUrl || "https://api.openai.com/v1";
-    const headers = this.getHeaders(config);
+    const headers = this.getHeaders(config, credential);
 
     const messages = [];
     if (input.systemPrompt) {

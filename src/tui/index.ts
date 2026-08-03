@@ -6,7 +6,25 @@
 
 import { TuiApp } from "./app.js";
 
-const MIN_WIDTH = 70;
+export {
+  aggregateSubagentCounts,
+  avatarVariant,
+  formatElapsed,
+  renderSubagentAvatar,
+  renderSubagentsPanel,
+  roleBadge,
+  roleLabel,
+  statusGlyph,
+  statusLabel,
+} from "./subagents.js";
+export {
+  applyRuntimeEvent,
+  reduceRuntimeEvent,
+  reduceTuiRuntimeEvent,
+  withMotionEnabled,
+  withSelectedSubagent,
+  withSubagentsExpanded,
+} from "./state.js";
 
 export async function startHiveTui(cwd: string): Promise<void> {
   // Guard: must be an interactive TTY
@@ -31,16 +49,6 @@ export async function startHiveTui(cwd: string): Promise<void> {
 
   // Guard: --json suppresses TUI
   if (process.argv.includes("--json")) {
-    return;
-  }
-
-  // Guard: minimum terminal width
-  const cols = process.stdout.columns || 0;
-  if (cols > 0 && cols < MIN_WIDTH) {
-    process.stderr.write(
-      `HIVE TUI requires an interactive terminal at least ${MIN_WIDTH} columns wide.\n` +
-        `Current width: ${cols} columns.\n`
-    );
     return;
   }
 
