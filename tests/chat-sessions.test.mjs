@@ -126,6 +126,29 @@ test('store corruption guard rejects an invalid role value', async () => {
   }
 });
 
+test('store list skips a corrupt session instead of aborting the listing', async () => {
+  const dir = await makeTempDir();
+  try {
+    const store = new ChatSessionStore(dir);
+    const goodId = newChatSessionId();
+    await store.save(makeRecord(goodId, { role: 'coding', messages: [msg('hello')] }));
+
+    const corruptId = 'chat-1000000000-dcba';
+    await fs.mkdir(store.baseDirectory, { recursive: true });
+    await fs.writeFile(path.join(store.baseDirectory, `${corruptId}.json`), '{ not json', 'utf8');
+    await assert.rejects(() => store.load(corruptId), ChatSessionCorruptionError);
+
+    const sessions = await store.list();
+    assert.deepEqual(
+      sessions.map((s) => s.id),
+      [goodId],
+      'corrupt entry is skipped and the valid session is still listed',
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('setActive refuses a session that does not exist', async () => {
   const dir = await makeTempDir();
   try {

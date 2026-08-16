@@ -162,7 +162,14 @@ export class ChatSessionStore {
       if (!entry.isFile() || !entry.name.endsWith(SESSION_FILE_SUFFIX)) continue;
       const id = entry.name.slice(0, -SESSION_FILE_SUFFIX.length);
       if (!CHAT_SESSION_ID_PATTERN.test(id)) continue;
-      const record = await this.load(id);
+      let record: ChatSessionRecord | null;
+      try {
+        record = await this.load(id);
+      } catch (error) {
+        // A single corrupt session must not abort the whole listing.
+        if (error instanceof ChatSessionCorruptionError) continue;
+        throw error;
+      }
       if (!record) continue;
       summaries.push({
         id: record.id,

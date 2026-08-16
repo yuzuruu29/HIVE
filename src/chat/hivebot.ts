@@ -174,6 +174,14 @@ function summarizeStages(stages: readonly StageResult[]): string {
   return out.join("\n\n");
 }
 
+/** Truncates a raw string to `MAX_HANDOFF_CONTEXT_CHARS` so a stage prompt never
+ * carries an unbounded transcript (e.g. Sentinel findings on a repair round). */
+function boundContext(text: string): string {
+  return text.length > MAX_HANDOFF_CONTEXT_CHARS
+    ? text.slice(0, MAX_HANDOFF_CONTEXT_CHARS)
+    : text;
+}
+
 /** Appends the shared protocol digest to the agent's own persona prompt. */
 async function buildSystemPrompt(
   skillRoot: string | null,
@@ -487,7 +495,9 @@ export async function runHivebot(
       while (verdictLabel === "FAIL" && hasForger && repairCount < preset.repairRounds) {
         if (budgetHit()) return await finalize("BUDGET_EXCEEDED", budgetReason());
         repairCount += 1;
-        const findings = `# Repair directive\nSentinel returned FAIL. Address these findings:\n${sentinel.output.trim()}`;
+        const findings = boundContext(
+          `# Repair directive\nSentinel returned FAIL. Address these findings:\n${sentinel.output.trim()}`,
+        );
         const forgerRepair = await completeStage(
           "Forger",
           buildPrompt(task, stages, "Forger", findings),

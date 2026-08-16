@@ -203,6 +203,45 @@ test('Sentinel FAIL then PASS triggers exactly one repair round and completes', 
   }
 });
 
+test('Sentinel FAIL findings injected into the repair prompt stay within the bound', async () => {
+  const tmp = await makeTempDir();
+  const huge = 'VERDICT: FAIL\n' + 'z'.repeat(10_000);
+  const { engine, calls } = makeStub({
+    Queen: 'PRESET: quick',
+    Forger: ['patch v1', 'patch v2'],
+    Sentinel: [huge, 'VERDICT: PASS\nok'],
+  });
+  try {
+    const result = await runHivebot('fix', {
+      cwd: tmp,
+      preset: 'quick',
+      createEngine: () => engine,
+    });
+    assert.equal(result.status, 'COMPLETE');
+    const forgerCalls = calls.filter((c) =>
+      String(c.prompt).includes('[HIVE] role: Forger'),
+    );
+    assert.equal(forgerCalls.length, 2, 'initial + one repair Forger call');
+    const repairPrompt = String(forgerCalls[1].prompt);
+    const start = repairPrompt.indexOf('# Repair directive');
+    assert.ok(start >= 0, 'repair directive present in the repair prompt');
+    const end = repairPrompt.indexOf('# Prior handoffs');
+    const findings = repairPrompt.slice(start, end).trim();
+    // The injected findings (boundContext output) is capped at 4000; the raw
+    // prompt section adds a couple of join-separator newlines, so allow ~4005.
+    assert.ok(
+      findings.length <= 4005,
+      `repair findings must be bounded to ~4000 chars, got ${findings.length}`,
+    );
+    assert.ok(
+      repairPrompt.lastIndexOf('z'.repeat(4000)) === -1,
+      'oversize Sentinel output is truncated in the repair prompt',
+    );
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Sentinel BLOCKED stops before Scribe
 // ---------------------------------------------------------------------------
