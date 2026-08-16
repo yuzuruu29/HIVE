@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-desktop/
 release/
+release-dist/
 playwright-report/
 test-results/
 coverage/
