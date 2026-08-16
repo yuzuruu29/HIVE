@@ -40,4 +40,6 @@ export interface ChatSessionRecord {
   messages: ChatMessage[];
   role: ChatRoleSelection;
   override?: SessionProviderOverride;
+  /** Whether Scout grounding was enabled; the pack itself is rebuilt on resume. */
+  grounded?: boolean;
 }

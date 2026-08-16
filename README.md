@@ -114,18 +114,19 @@ HIVE ships with a built-in chatbot and a **hivebot** swarm mode. Both are built 
 
 ### Chatbot (`hive chat`)
 - `hive chat "your message"` — single-turn answer. Each turn prints a **receipt** to stderr: `[role → provider/model · tokens · latency]`.
-- `hive chat` — interactive REPL. Inline commands: `/role <slug>`, `/auto`, `/model <provider/model>`, `/agent on|off`, `/list`, `/skill`, `/sessions`, `/resume <id>`, `/clear`, `/exit`, `/help`.
+- `hive chat` — interactive REPL. Non-agent turns **stream** output to the terminal as it arrives (providers without streaming fall back to buffered output; one-shot `--json`, agentic mode, and hivebot stay buffered). Inline commands: `/role <slug>`, `/auto`, `/model <provider/model>`, `/agent on|off`, `/ground on|off|refresh`, `/list`, `/skill`, `/sessions`, `/resume <id>`, `/clear`, `/exit`, `/help`.
 - Personae: `planning`, `coding`, `heavy-reasoning`, `game-builder`, `project-coworker`, `study-buddy`. In `/auto` mode (default), HIVE classifies each message and routes it to the best-fit role.
 
 Flags:
 - `--role <slug>` — force a persona (kebab or camel). Invalid roles error out with the valid list.
 - `--agent` — **agentic mode**: the model may call **read-only tools** (`read_file`, and related safe reads) to ground its answer. It cannot modify anything.
-- `--json` — emit machine-friendly **newline-delimited JSON events** (user, role, receipt, assistant, error). Requires a message: `hive chat --json "your message"`.
+- `--ground` — **Scout grounding**: inject a bounded Scout context pack (repo summary, ranked files, docs — capped at 12k chars) ahead of the persona prompt. The pack builds lazily from your first grounded message; `/ground refresh` rebuilds it, `/ground off` disables it. If Scout fails, the turn proceeds ungrounded. In `--json` mode a `{"type":"grounding"}` event reports `built` (with `chars`) or `unavailable`.
+- `--json` — emit machine-friendly **newline-delimited JSON events** (user, role, grounding, receipt, assistant, error). Requires a message: `hive chat --json "your message"`.
 - `--model <provider/model>` — manual provider + model override for the turn.
 - `--resume <id>` — **resume** a saved chat session before the first message, restoring prior messages into context.
 
 ### Sessions & resume
-The REPL persists each completed turn to `.hivemind/` via the chat session store. Use `/sessions` to list saved sessions, `/resume <id>` inside the REPL to switch sessions, or pass `--resume <id>` on the command line to load a session up front. Sessions store messages, the active role, and any manual model override.
+The REPL persists each completed turn to `.hivemind/` via the chat session store. Use `/sessions` to list saved sessions, `/resume <id>` inside the REPL to switch sessions, or pass `--resume <id>` on the command line to load a session up front. Sessions store messages, the active role, any manual model override, and whether Scout grounding was enabled (the pack itself is rebuilt on resume).
 
 ### Hivebot swarm (`hive hivebot "<task>"`)
 Delegates the task across the built-in six-role council (Queen → Scout → Architect → Forger → Sentinel → Scribe). Each council agent runs as its own LLM turn served by its assigned model (e.g. `planning` for Queen/Architect, `coding` for Scout/Forger, `heavy-reasoning` for Sentinel, `project-coworker` for Scribe).

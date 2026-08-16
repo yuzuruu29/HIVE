@@ -167,7 +167,7 @@ Usage:
   hive agents [show <id>]
   hive report <session-id> [--json|--markdown] [--output <path>]
   hive mode
-  hive chat ["message"] [--role <slug>] [--json] [--agent] [--model <provider/model>] [--resume <id>]
+  hive chat ["message"] [--role <slug>] [--json] [--agent] [--ground] [--model <provider/model>] [--resume <id>]
   hive hivebot "<task>" [--preset <quick|standard|deep|audit>] [--provider <id>] [--model <m>]
   hive scout [--task "<task>"] [--json] [--files]
 
@@ -176,6 +176,8 @@ Chat options:
                               game-builder, project-coworker, study-buddy; kebab
                               or camel cases accepted; "auto" classifies).
   --agent                     Agentic mode: read-only tools for grounding (no writes).
+  --ground                    Inject a bounded Scout context pack into the system
+                              prompt (toggle in-REPL with /ground on|off|refresh).
   --json                      Emit newline-delimited JSON events (requires a message).
   --model <provider/model>    Manual provider + model override.
   --resume <id>               Resume a saved chat session before the first prompt.

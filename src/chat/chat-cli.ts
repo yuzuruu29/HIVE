@@ -20,6 +20,7 @@ import { compactHistory } from "./history.js";
 import { ChatSessionStore, newChatSessionId } from "./session-store.js";
 import { locateSkillRoot } from "./skill-locate.js";
 import { createReadOnlyToolExecutor, describeReadOnlyTools } from "./agent-tools.js";
+import { buildScoutGrounding } from "./grounding.js";
 
 interface ResolvedTarget {
   providerId: string;
@@ -95,6 +96,7 @@ export interface ParsedChatArgs {
   role?: string;
   json: boolean;
   agent: boolean;
+  ground: boolean;
   override?: SessionOverride;
   positionals: string[];
 }
@@ -106,13 +108,15 @@ export interface ParsedChatArgs {
  * (e.g. `openrouter/providers...`) survive as the model part.
  */
 export function parseChatArgs(args: string[]): ParsedChatArgs {
-  const parsed: ParsedChatArgs = { json: false, agent: false, positionals: [] };
+  const parsed: ParsedChatArgs = { json: false, agent: false, ground: false, positionals: [] };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--json") {
       parsed.json = true;
     } else if (arg === "--agent") {
       parsed.agent = true;
+    } else if (arg === "--ground") {
+      parsed.ground = true;
     } else if (arg === "--role") {
       const value = args[i + 1];
       if (value !== undefined) {
@@ -203,6 +207,14 @@ interface TurnInput {
   history: ChatMessage[];
   override?: SessionOverride;
   signal?: AbortSignal;
+  /** Scout grounding block prepended to the persona system prompt. */
+  grounding?: string;
+}
+
+/** Combines the persona prompt with an optional Scout grounding block. */
+function systemPromptFor(role: ChatRoleSlug, grounding?: string): string {
+  const persona = CHAT_ROLE_META[role].systemPrompt;
+  return grounding ? `${grounding}\n\n---\n\n${persona}` : persona;
 }
 
 /** Single (non-agent) completion through the engine. */
@@ -210,7 +222,7 @@ async function completeTurn(
   input: TurnInput,
   onChunk?: (chunk: string) => void,
 ): Promise<{ output: string; receipt: ChatReceipt }> {
-  const systemPrompt = CHAT_ROLE_META[input.role].systemPrompt;
+  const systemPrompt = systemPromptFor(input.role, input.grounding);
   const context = renderHistory(compactHistory(input.history, HISTORY_CHAR_BUDGET).kept);
   const prompt = context ? `${context}\n\nUser: ${input.message}` : input.message;
   return input.engine.complete({
@@ -227,7 +239,7 @@ async function completeTurn(
 /** Agentic turn driven by StructuredAgentLoop with the engine as completion client. */
 async function completeAgentTurn(input: TurnInput): Promise<{ output: string; receipt: ChatReceipt }> {
   const binding = slugToBinding(input.role);
-  const persona = CHAT_ROLE_META[input.role].systemPrompt;
+  const persona = systemPromptFor(input.role, input.grounding);
   const toolsDesc = describeReadOnlyTools();
 
   let lastReceipt: ChatReceipt | undefined;
@@ -346,6 +358,8 @@ export async function runChat(
   }
   let override: SessionOverride | undefined = parsed.override;
   let agentMode = parsed.agent;
+  let grounded = parsed.ground;
+  let groundPack: string | null = null;
   let history: ChatMessage[] = [];
   let sessionTokens = 0;
 
@@ -357,6 +371,7 @@ export async function runChat(
       override,
       message,
       json: parsed.json,
+      ground: parsed.ground,
       signal: options.signal,
     });
   }
@@ -372,7 +387,7 @@ export async function runChat(
 
   // ---- Interactive REPL ----
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const HELP = `Commands: /role <slug>, /auto, /model <providerId>/<model>, /list, /skill, /agent on|off, /sessions, /resume <id>, /clear, /exit, /help`;
+  const HELP = `Commands: /role <slug>, /auto, /model <providerId>/<model>, /list, /skill, /agent on|off, /ground on|off|refresh, /sessions, /resume <id>, /clear, /exit, /help`;
   console.log("HIVE Chat — type a message. " + HELP);
   console.log(`Current role: ${currentRole}  (auto picks a model per message)\n`);
 
@@ -399,6 +414,7 @@ export async function runChat(
       messages: history,
       role: sessionRole(),
       override,
+      grounded,
     };
     if (!sessionId) {
       sessionId = base.id;
@@ -413,6 +429,8 @@ export async function runChat(
     history = record.messages.slice();
     currentRole = recordRoleToSlug(record.role);
     override = record.override;
+    grounded = record.grounded ?? false;
+    groundPack = null; // the pack is rebuilt from the next message after resume
     sessionTokens = record.messages.reduce(
       (sum, message) => sum + (message.receipt ? receiptTokens(message.receipt) : 0),
       0,
@@ -473,6 +491,7 @@ export async function runChat(
         if (cmd === "clear") {
           history.length = 0;
           sessionTokens = 0;
+          groundPack = null;
           console.log("Conversation cleared.");
           continue;
         }
@@ -551,6 +570,28 @@ export async function runChat(
           }
           continue;
         }
+        if (cmd === "ground") {
+          const state = rest[0];
+          if (state === "on") {
+            grounded = true;
+            groundPack = null;
+            console.log("Scout grounding ON — the context pack builds from your next message.");
+          } else if (state === "off") {
+            grounded = false;
+            console.log("Scout grounding OFF.");
+          } else if (state === "refresh") {
+            groundPack = null;
+            console.log(
+              grounded
+                ? "Scout context will rebuild from your next message."
+                : "Scout context marked stale — enable grounding with /ground on.",
+            );
+          } else {
+            const packInfo = groundPack ? ` · pack ${formatTokens(groundPack.length)} chars` : "";
+            console.log(`Usage: /ground on|off|refresh (currently ${grounded ? "on" : "off"}${packInfo})`);
+          }
+          continue;
+        }
         console.log(`Unknown command: /${cmd}`);
         continue;
       }
@@ -560,7 +601,18 @@ export async function runChat(
       const roleSource = currentRole === "auto" ? "auto" : "manual";
       if (currentRole === "auto") process.stderr.write(`(auto → ${role})\n`);
 
-      const myTurn = { cwd, engine, role, message: line, history, override };
+      if (grounded && !groundPack) {
+        const pack = await buildScoutGrounding(cwd, line);
+        if (pack === null) {
+          process.stderr.write("(scout grounding unavailable — continuing without it)\n");
+        } else {
+          groundPack = pack;
+          process.stderr.write(`(scout context built · ${formatTokens(pack.length)} chars)\n`);
+        }
+      }
+      const grounding: string | undefined = grounded && groundPack ? groundPack : undefined;
+
+      const myTurn = { cwd, engine, role, message: line, history, override, grounding };
 
       turnInFlight = true;
       try {
@@ -610,11 +662,16 @@ async function runOneShot(
     override?: SessionOverride;
     message: string;
     json: boolean;
+    ground?: boolean;
     signal?: AbortSignal;
   },
 ): Promise<{ exitCode: number; output: string }> {
   const role = opts.currentRole === "auto" ? classifyTask(opts.message) : opts.currentRole;
   const roleSource = opts.currentRole === "auto" ? "auto" : "manual";
+
+  const grounding: string | undefined = opts.ground
+    ? (await buildScoutGrounding(opts.cwd, opts.message)) ?? undefined
+    : undefined;
 
   if (opts.json) {
     const events: unknown[] = [];
@@ -623,6 +680,13 @@ async function runOneShot(
 
     push({ type: "user", role: "user", content: opts.message, at: new Date().toISOString() });
     push({ type: "role", role, source: roleSource });
+    if (opts.ground) {
+      push(
+        grounding
+          ? { type: "grounding", status: "built", chars: grounding.length }
+          : { type: "grounding", status: "unavailable" },
+      );
+    }
     try {
       const result = await completeTurn({
         engine,
@@ -631,6 +695,7 @@ async function runOneShot(
         history: [],
         override: opts.override,
         signal: opts.signal,
+        grounding,
       });
       push({ type: "receipt", ...result.receipt });
       push({ type: "assistant", role: "assistant", content: result.output });
@@ -650,6 +715,7 @@ async function runOneShot(
       history: [],
       override: opts.override,
       signal: opts.signal,
+      grounding,
     });
     process.stderr.write(`${formatReceiptLine(role, result.receipt)}\n`);
     return { exitCode: 0, output: result.output };
