@@ -181,6 +181,7 @@ export class DesktopCommandRouter {
       case "chat.cancel": { this.#chatService.cancel(command.conversationId); return { type: "request.completed", timestamp, requestId: command.requestId }; }
       case "council.start": { await this.#councilService.start(command.input); return { type: "request.completed", timestamp, requestId: command.requestId }; }
       case "council.cancel": { this.#councilService.cancel(command.runId); return { type: "request.completed", timestamp, requestId: command.requestId }; }
+      case "shell.open-view": case "shell.close-view": throw new Error("Shell window commands are handled by the desktop shell process.");
     }
   }
 

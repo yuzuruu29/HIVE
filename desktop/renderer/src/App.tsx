@@ -23,6 +23,17 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   const [state, dispatch] = useReducer(reduceDesktopEvent, undefined, initialDesktopState);
   const { prefs, updatePrefs } = usePrefs();
 
+  // A `?view=` seed (pop-out windows) overrides the saved mode for this window
+  // only; the prefs write is suppressed so the saved preference survives.
+  const seededView = useMemo<DesktopMode | null>(() => {
+    try {
+      const view = new URLSearchParams(window.location.search).get("view");
+      return view === "chat" || view === "coder" ? view : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const [repositoryPath, setRepositoryPath] = useState("");
   const [composer, setComposer] = useState("");
   const [saving, setSaving] = useState(false);
@@ -56,9 +67,8 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
     if (prefs.rails) {
       dispatch({ type: "ui.rails.set", rails: prefs.rails });
     }
-    if (prefs.mode) {
-      dispatch({ type: "ui.mode", mode: prefs.mode });
-    }
+    if (seededView) dispatch({ type: "ui.mode", mode: seededView });
+    else if (prefs.mode) dispatch({ type: "ui.mode", mode: prefs.mode });
   }, []);
 
   const send = async (command: DesktopCommandInput, scope?: { epoch?: number; repositoryRoot?: string }): Promise<DesktopEvent> => {
@@ -236,6 +246,9 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
     if (mode === "chat" && state.repositoryRoot) void send({ type: "chat.list" });
   };
 
+  const popOutCoder = () => { void send({ type: "shell.open-view", view: "coder" }); };
+  const recombineWindows = () => { void send({ type: "shell.close-view", view: "coder" }); };
+
   // Palette Commands
   const paletteCommands: PaletteCommand[] = useMemo(() => {
     const list: PaletteCommand[] = [];
@@ -397,6 +410,9 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
         activeRun={Boolean(repositoryActiveRun)}
         mode={state.mode}
         onModeChange={switchMode}
+        onPopOut={popOutCoder}
+        onRecombine={recombineWindows}
+        canRecombine={state.shellViews.length > 1}
         onToggleLeftRail={() => toggleRail("left")}
         onToggleRightRail={() => toggleRail("right")}
         onOpenSettings={() => setSettingsOpen(true)}

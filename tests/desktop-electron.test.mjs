@@ -20,6 +20,7 @@ import {
   DesktopCommandRouter,
   DesktopExternalToolService,
   DesktopCliForge,
+  ShellWindowRegistry,
   withDesktopCredentialRuntime,
 } from "../dist/desktop/electron/index.js";
 import { DefaultDesktopRunManager } from "../dist/desktop/index.js";
@@ -913,4 +914,101 @@ test("credential mutation queue prevents stale remove snapshot from overwriting 
   assert.equal(reopened.providers[0].configured, true);
   assert.equal((await stateStore.load()).providers[0].configured, true);
   await rm(appData, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// Shell window registry (pop-out coder window)
+// ---------------------------------------------------------------------------
+
+function mockShellWindow() {
+  const listeners = new Map();
+  const sent = [];
+  const window = {
+    destroyed: false,
+    focused: 0,
+    closed: 0,
+    webContents: { send: (channel, payload) => sent.push([channel, payload]) },
+    on(event, listener) { listeners.set(event, listener); },
+    focus() { this.focused += 1; },
+    show() {},
+    close() { this.closed += 1; this.destroyed = true; listeners.get("closed")?.(); },
+    isDestroyed() { return this.destroyed; },
+    sent,
+  };
+  return window;
+}
+
+test("ShellWindowRegistry enforces one window per view, focuses existing ones, and publishes views", () => {
+  const created = [];
+  const shellEvents = [];
+  const registry = new ShellWindowRegistry({
+    create: (view) => { const window = mockShellWindow(); created.push({ view, window }); return window; },
+    onShellEvent: (event) => shellEvents.push(event),
+    eventChannel: "hive-desktop:event",
+    clock: () => now,
+  });
+
+  registry.open("chat");
+  registry.open("coder");
+  assert.equal(created.length, 2, "one window per view");
+
+  const coderBefore = created.find((entry) => entry.view === "coder").window;
+  registry.open("coder");
+  assert.equal(created.length, 2, "second coder open focuses instead of creating");
+  assert.equal(coderBefore.focused, 1);
+
+  const viewEvents = shellEvents.filter((event) => event.type === "shell.views");
+  assert.deepEqual(viewEvents.at(-1).views, ["chat", "coder"]);
+});
+
+test("ShellWindowRegistry broadcasts to every live window and drops destroyed ones", () => {
+  const created = [];
+  const registry = new ShellWindowRegistry({
+    create: (view) => { const window = mockShellWindow(); created.push({ view, window }); return window; },
+    onShellEvent: () => {},
+    eventChannel: "hive-desktop:event",
+    clock: () => now,
+  });
+  const chat = registry.open("chat");
+  const coder = registry.open("coder");
+
+  registry.broadcast({ type: "request.completed", timestamp: now, requestId: "request-1" });
+  assert.equal(chat.sent.length, 1);
+  assert.equal(coder.sent.length, 1);
+  assert.equal(coder.sent[0][0], "hive-desktop:event");
+
+  coder.destroyed = true;
+  registry.broadcast({ type: "request.completed", timestamp: now, requestId: "request-2" });
+  assert.equal(chat.sent.length, 2);
+  assert.equal(coder.sent.length, 1, "destroyed windows stop receiving events");
+  assert.deepEqual(registry.views(), ["chat"]);
+});
+
+test("ShellWindowRegistry refuses to close the last window and republishes after closes", () => {
+  const created = [];
+  const shellEvents = [];
+  const registry = new ShellWindowRegistry({
+    create: (view) => { const window = mockShellWindow(); created.push({ view, window }); return window; },
+    onShellEvent: (event) => shellEvents.push(event),
+    eventChannel: "hive-desktop:event",
+    clock: () => now,
+  });
+  registry.open("chat");
+  assert.throws(() => registry.close("chat"), /last shell window/i);
+
+  registry.open("coder");
+  registry.close("coder");
+  const viewEvents = shellEvents.filter((event) => event.type === "shell.views");
+  assert.deepEqual(viewEvents.at(-1).views, ["chat"]);
+  assert.throws(() => registry.close("coder"), /No shell window/i);
+});
+
+test("shell commands and the views event validate strictly", () => {
+  assert.equal(validateDesktopCommand({ requestId: "request-1", type: "shell.open-view", view: "coder" }).type, "shell.open-view");
+  assert.equal(validateDesktopCommand({ requestId: "request-1", type: "shell.close-view", view: "chat" }).type, "shell.close-view");
+  assert.throws(() => validateDesktopCommand({ requestId: "request-1", type: "shell.open-view", view: "terminal" }), /view is invalid/);
+  assert.throws(() => validateDesktopCommand({ requestId: "request-1", type: "shell.open-view" }), /unexpected or missing fields/);
+  assert.equal(validateDesktopEvent({ type: "shell.views", timestamp: now, views: ["chat", "coder"] }).type, "shell.views");
+  assert.throws(() => validateDesktopEvent({ type: "shell.views", timestamp: now, views: [] }), /views are invalid/);
+  assert.throws(() => validateDesktopEvent({ type: "shell.views", timestamp: now, views: ["chat", "coder", "chat"] }), /views are invalid/);
 });

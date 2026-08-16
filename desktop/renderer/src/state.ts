@@ -68,6 +68,7 @@ export interface DesktopViewState {
   tab: CenterTab;
   mode: DesktopMode;
   chat: DesktopChatState;
+  shellViews: ("chat" | "coder")[];
   providers: DesktopProviderMetadata[];
   selectedProviderId: string;
   runtimeEvents: RuntimeEvent[];
@@ -94,6 +95,7 @@ export function initialDesktopState(): DesktopViewState {
     tab: "conversation",
     mode: "coder",
     chat: initialChatState(),
+    shellViews: ["chat"],
     providers: [],
     selectedProviderId: "",
     runtimeEvents: [],
@@ -215,6 +217,7 @@ export function reduceDesktopEvent(state: DesktopViewState, event: DesktopEvent 
       const run = state.chat.councilByConv[conversationId];
       return { ...state, chat: { ...state.chat, councilByConv: { ...state.chat.councilByConv, [conversationId]: { ...run, failed: event.message } } }, error: event.message };
     }
+    case "shell.views": return { ...state, shellViews: event.views };
   }
 }
 

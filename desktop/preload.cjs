@@ -44,7 +44,11 @@ const COMMANDS = new Set([
   "chat.archive",
   "chat.route",
   "chat.send",
-  "chat.cancel"
+  "chat.cancel",
+  "council.start",
+  "council.cancel",
+  "shell.open-view",
+  "shell.close-view"
 ]);
 
 function validatedCommand(value) {

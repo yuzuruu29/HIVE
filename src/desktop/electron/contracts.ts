@@ -262,6 +262,7 @@ function validateChatRouteInput(value: unknown): void {
 
 const COUNCIL_PRESETS = new Set(["quick", "standard", "deep", "audit"]);
 const COUNCIL_STATUSES = new Set(["COMPLETE", "FAILED", "BLOCKED", "BUDGET_EXCEEDED"]);
+const SHELL_VIEWS = new Set(["chat", "coder"]);
 
 function validateCouncilStage(value: unknown): void {
   const stage = optionalExact(value, ["type", "agent", "attempt"], ["receipt", "output"], "council stage");
@@ -360,6 +361,7 @@ export function validateDesktopCommand(value: unknown): DesktopCommand {
       break;
     }
     case "council.cancel": exact(root, ["requestId", "type", "runId"], "desktop command"); id(root.runId, "council run id"); break;
+    case "shell.open-view": case "shell.close-view": exact(root, ["requestId", "type", "view"], "desktop command"); if (!SHELL_VIEWS.has(String(root.view))) throw new Error("shell view is invalid."); break;
     default: throw new Error(`Unsupported desktop command type: ${type}.`);
   }
   return { ...root, requestId, type } as DesktopCommand;
@@ -379,6 +381,7 @@ const EVENT_KEYS: Record<DesktopEvent["type"], readonly string[]> = {
   "chat.route.resolved": ["type", "timestamp", "role", "providerId", "model", "source", "degraded"],
   "council.started": ["type", "timestamp", "runId", "preset"], "council.stage": ["type", "timestamp", "runId", "stage"],
   "council.completed": ["type", "timestamp", "runId", "summary"], "council.failed": ["type", "timestamp", "runId", "message"],
+  "shell.views": ["type", "timestamp", "views"],
   "request.completed": ["type", "timestamp", "requestId"], "request.failed": ["type", "timestamp", "requestId", "message", "recoverable"],
 };
 
@@ -432,6 +435,10 @@ export function validateDesktopEvent(value: unknown): DesktopEvent {
     case "council.stage": id(candidate.runId, "council run id"); validateCouncilStage(candidate.stage); break;
     case "council.completed": id(candidate.runId, "council run id"); validateCouncilSummary(candidate.summary); break;
     case "council.failed": id(candidate.runId, "council run id"); boundaryString(candidate.message, "council failure", 2_000); break;
+    case "shell.views": {
+      if (!Array.isArray(candidate.views) || candidate.views.length < 1 || candidate.views.length > 2 || candidate.views.some((view) => !SHELL_VIEWS.has(String(view)))) throw new Error("Shell views are invalid.");
+      break;
+    }
     case "request.completed": break;
     case "request.failed": boundaryString(candidate.message, "request failure", 2_000); boolean(candidate.recoverable, "request recoverable flag"); break;
   }

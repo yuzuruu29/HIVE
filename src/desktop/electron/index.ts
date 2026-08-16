@@ -5,5 +5,6 @@ export * from "./preload-api.js";
 export * from "./safe-storage.js";
 export * from "./external-tools.js";
 export * from "./worker-supervisor.js";
+export * from "./shell-windows.js";
 export * from "./router.js";
 export * from "./worker-credential.js";

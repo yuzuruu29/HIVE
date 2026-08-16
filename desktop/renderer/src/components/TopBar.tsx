@@ -8,6 +8,9 @@ export interface TopBarProps {
   activeRun?: boolean;
   mode?: DesktopMode;
   onModeChange?: (mode: DesktopMode) => void;
+  onPopOut?: () => void;
+  onRecombine?: () => void;
+  canRecombine?: boolean;
   onToggleLeftRail?: () => void;
   onToggleRightRail?: () => void;
   onOpenSettings?: () => void;
@@ -19,6 +22,9 @@ export function TopBar({
   activeRun = false,
   mode,
   onModeChange,
+  onPopOut,
+  onRecombine,
+  canRecombine = false,
   onToggleLeftRail,
   onToggleRightRail,
   onOpenSettings,
@@ -35,6 +41,28 @@ export function TopBar({
       </div>
       {mode && onModeChange && <ModeSwitch mode={mode} onModeChange={onModeChange} />}
       <div className="topbar-actions">
+        {mode === "coder" && onPopOut && (
+          <button
+            type="button"
+            className="topbar-btn secondary"
+            aria-label="Pop the coder cockpit out into its own window"
+            title="Pop out Coder window [^]"
+            onClick={onPopOut}
+          >
+            [^]
+          </button>
+        )}
+        {canRecombine && onRecombine && (
+          <button
+            type="button"
+            className="topbar-btn secondary"
+            aria-label="Close the popped-out coder window"
+            title="Recombine windows"
+            onClick={onRecombine}
+          >
+            [v]
+          </button>
+        )}
         {onToggleLeftRail && (
           <button
             type="button"

@@ -7,7 +7,9 @@ import { DefaultGuardedGitService } from "../guarded-git-service.js";
 import { JsonDesktopAppStateStore } from "./app-state.js";
 import { DESKTOP_EVENT_CHANNEL, DESKTOP_REQUEST_CHANNEL } from "./preload-api.js";
 import { DesktopCliForge, DesktopCommandRouter } from "./router.js";
+import { ShellWindowRegistry, type ShellView } from "./shell-windows.js";
 import { DESKTOP_BROWSER_WEB_PREFERENCES, desktopContentSecurityPolicy, isTrustedRendererUrl, redactDesktopFailure, validateIpcSender } from "./security.js";
+import { validateDesktopCommand, validateDesktopEvent } from "./contracts.js";
 import { SafeStorageCredentialCipher } from "./safe-storage.js";
 import { WorkerProcessSupervisor, type WorkerChildLike } from "./worker-supervisor.js";
 import { DesktopExternalToolService, SystemTrustedExecutableResolver } from "./external-tools.js";
@@ -15,7 +17,7 @@ import { execFile as nodeExecFile } from "node:child_process";
 import { WorktreeManager } from "../../worktree.js";
 import { isPackagedSmokeMode, PACKAGED_SMOKE_PROVIDER_ID } from "./packaged-smoke-runtime.js";
 
-let mainWindow: BrowserWindow | null = null;
+let shellWindows: ShellWindowRegistry | null = null;
 let quitting = false;
 
 const preloadFile = fileURLToPath(new URL("./preload.cjs", import.meta.url));
@@ -69,8 +71,7 @@ async function start(): Promise<void> {
   const rendererFile = path.resolve(applicationRoot, "dist-desktop", "renderer", "index.html");
   const locationPolicy = developmentUrl ? { developmentUrl } : { rendererFile };
   const userData = app.getPath("userData");
-  const stateStore = new JsonDesktopAppStateStore(userData);
-  if (isPackagedSmokeMode()) {
+  const stateStore = new JsonDesktopAppStateStore(userData);  if (isPackagedSmokeMode()) {
     await stateStore.mutate((state) => ({
       ...state,
       providers: [...state.providers.filter((provider) => provider.id !== PACKAGED_SMOKE_PROVIDER_ID), {
@@ -98,7 +99,7 @@ async function start(): Promise<void> {
       if (!credential) throw new Error("Desktop provider credential is not configured.");
       return { provider, kind: credential.kind, secret: credential.secret };
     },
-    onEvent: (event) => mainWindow?.webContents.send(DESKTOP_EVENT_CHANNEL, event),
+    onEvent: (event) => shellWindows?.broadcast(event),
   });
   const router = new DesktopCommandRouter({
     stateStore, credentialVault, workerSupervisor,
@@ -123,7 +124,7 @@ async function start(): Promise<void> {
       return service;
     },
     externalTools: new DesktopExternalToolService("vscode", undefined, executables),
-    onEvent: (event) => mainWindow?.webContents.send(DESKTOP_EVENT_CHANNEL, event),
+    onEvent: (event) => shellWindows?.broadcast(event),
   });
 
   const startupState = await stateStore.load();
@@ -138,45 +139,67 @@ async function start(): Promise<void> {
     callback({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [desktopContentSecurityPolicy(developmentUrl)] } });
   });
 
-  mainWindow = new BrowserWindow({
-    width: 1440, height: 900, minWidth: 1060, minHeight: 680, show: false, backgroundColor: "#0b0712",
-    webPreferences: { ...DESKTOP_BROWSER_WEB_PREFERENCES, preload: preloadFile },
-  });
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  mainWindow.webContents.on("will-navigate", (event) => event.preventDefault());
-  mainWindow.webContents.on("will-attach-webview", (event) => event.preventDefault());
-  mainWindow.webContents.once("did-finish-load", () => {
-    for (const failure of startupFailures) mainWindow?.webContents.send(DESKTOP_EVENT_CHANNEL, { type: "worker.failed", timestamp: new Date().toISOString(), message: `Startup reconciliation failed: ${failure}`, recoverable: false });
-  });
-  mainWindow.once("ready-to-show", () => mainWindow?.show());
-  mainWindow.on("close", (event) => {
-    if (quitting || !workerSupervisor.hasActiveRuns()) return;
-    event.preventDefault();
-    void dialog.showMessageBox(mainWindow!, {
-      type: "warning", title: "HIVE is still working", message: "Active repository runs are still in progress.",
-      detail: "Keep HIVE open, or cooperatively cancel the runs before exiting.", buttons: ["Keep HIVE Open", "Cancel Runs and Exit"], defaultId: 0, cancelId: 0, noLink: true,
-    }).then(async ({ response }) => {
-      if (response !== 1) return;
-      quitting = true;
-      try {
-        await workerSupervisor.cancelAll();
-        app.exit(0);
-      } catch (error) {
-        quitting = false;
-        const message = `Exit cancelled because active runs could not be durably cancelled: ${redactDesktopFailure(error)}`;
-        mainWindow?.webContents.send(DESKTOP_EVENT_CHANNEL, { type: "worker.failed", timestamp: new Date().toISOString(), message, recoverable: false });
-        await dialog.showMessageBox(mainWindow!, { type: "error", title: "HIVE kept open", message: "HIVE could not safely cancel every active run.", detail: message, buttons: ["Keep HIVE Open"], defaultId: 0, noLink: true });
-      }
+  function createShellWindow(view: ShellView): BrowserWindow {
+    const window = new BrowserWindow({
+      width: 1440, height: 900, minWidth: 1060, minHeight: 680, show: false, backgroundColor: "#0b0712",
+      title: view === "coder" ? "HIVE Coder" : "HIVE",
+      webPreferences: { ...DESKTOP_BROWSER_WEB_PREFERENCES, preload: preloadFile },
     });
+    window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    window.webContents.on("will-navigate", (event) => event.preventDefault());
+    window.webContents.on("will-attach-webview", (event) => event.preventDefault());
+    window.webContents.once("did-finish-load", () => {
+      for (const failure of startupFailures) window.webContents.send(DESKTOP_EVENT_CHANNEL, { type: "worker.failed", timestamp: new Date().toISOString(), message: `Startup reconciliation failed: ${failure}`, recoverable: false });
+    });
+    window.once("ready-to-show", () => window.show());
+    window.on("close", (event) => {
+      if (quitting || !workerSupervisor.hasActiveRuns()) return;
+      event.preventDefault();
+      void dialog.showMessageBox(window, {
+        type: "warning", title: "HIVE is still working", message: "Active repository runs are still in progress.",
+        detail: "Keep HIVE open, or cooperatively cancel the runs before exiting.", buttons: ["Keep HIVE Open", "Cancel Runs and Exit"], defaultId: 0, cancelId: 0, noLink: true,
+      }).then(async ({ response }) => {
+        if (response !== 1) return;
+        quitting = true;
+        try {
+          await workerSupervisor.cancelAll();
+          app.exit(0);
+        } catch (error) {
+          quitting = false;
+          const message = `Exit cancelled because active runs could not be durably cancelled: ${redactDesktopFailure(error)}`;
+          window.webContents.send(DESKTOP_EVENT_CHANNEL, { type: "worker.failed", timestamp: new Date().toISOString(), message, recoverable: false });
+          await dialog.showMessageBox(window, { type: "error", title: "HIVE kept open", message: "HIVE could not safely cancel every active run.", detail: message, buttons: ["Keep HIVE Open"], defaultId: 0, noLink: true });
+        }
+      });
+    });
+    const search = `?view=${view}`;
+    if (developmentUrl) void window.loadURL(new URL(`${developmentUrl}${search}`).href);
+    else void window.loadFile(rendererFile, { search });
+    return window;
+  }
+
+  shellWindows = new ShellWindowRegistry({
+    create: createShellWindow,
+    onShellEvent: (event) => shellWindows?.broadcast(event),
+    eventChannel: DESKTOP_EVENT_CHANNEL,
   });
 
   ipcMain.handle(DESKTOP_REQUEST_CHANNEL, async (event, payload) => {
     validateIpcSender({ url: event.senderFrame?.url ?? event.sender.getURL() }, locationPolicy);
+    const command = validateDesktopCommand(payload);
+    if (command.type === "shell.open-view" || command.type === "shell.close-view") {
+      try {
+        if (command.type === "shell.open-view") shellWindows?.open(command.view);
+        else shellWindows?.close(command.view);
+        return validateDesktopEvent({ type: "request.completed", timestamp: new Date().toISOString(), requestId: command.requestId });
+      } catch (error) {
+        return validateDesktopEvent({ type: "request.failed", timestamp: new Date().toISOString(), requestId: command.requestId, message: redactDesktopFailure(error), recoverable: true });
+      }
+    }
     return router.handle(payload);
   });
 
-  if (developmentUrl) await mainWindow.loadURL(developmentUrl);
-  else await mainWindow.loadFile(rendererFile);
+  shellWindows.open("chat");
 }
 
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

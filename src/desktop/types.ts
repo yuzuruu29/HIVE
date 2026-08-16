@@ -373,7 +373,9 @@ export type DesktopCommand =
       type: "council.start";
       input: { task: string; preset?: "quick" | "standard" | "deep" | "audit"; providerId?: string; model?: string };
     })
-  | (DesktopCommandBase & { type: "council.cancel"; runId: string });
+  | (DesktopCommandBase & { type: "council.cancel"; runId: string })
+  | (DesktopCommandBase & { type: "shell.open-view"; view: "chat" | "coder" })
+  | (DesktopCommandBase & { type: "shell.close-view"; view: "chat" | "coder" });
 
 type DesktopEventBase = { timestamp: string; requestId?: string; repositoryRoot?: string };
 
@@ -455,6 +457,7 @@ export type DesktopEvent =
     })
   | (DesktopEventBase & { type: "council.completed"; runId: string; summary: DesktopCouncilSummary })
   | (DesktopEventBase & { type: "council.failed"; runId: string; message: string })
+  | (DesktopEventBase & { type: "shell.views"; views: ("chat" | "coder")[] })
   | (DesktopEventBase & { type: "request.completed"; requestId: string })
   | (DesktopEventBase & {
       type: "request.failed";
