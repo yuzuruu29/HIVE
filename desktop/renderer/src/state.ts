@@ -42,10 +42,12 @@ export interface DesktopChatState {
   streaming: Record<string, { turnId: string; text: string } | undefined>;
   routes: Record<string, ChatRouteInfo>;
   councilByConv: Record<string, CouncilStage[]>;
+  /** Last failed turn, so the composer can restore the sent draft. */
+  lastFailed: { conversationId: string; turnId: string; message: string } | null;
 }
 
 export function initialChatState(): DesktopChatState {
-  return { conversations: [], activeId: null, active: null, streaming: {}, routes: {}, councilByConv: {} };
+  return { conversations: [], activeId: null, active: null, streaming: {}, routes: {}, councilByConv: {}, lastFailed: null };
 }
 
 export interface DesktopViewState {
@@ -166,7 +168,7 @@ export function reduceDesktopEvent(state: DesktopViewState, event: DesktopEvent 
     case "credential.listed": return state;
     case "chat.listed": return { ...state, chat: { ...state.chat, conversations: event.conversations }, error: null };
     case "chat.changed": return { ...state, chat: { ...state.chat, active: event.conversation, activeId: event.conversation.id }, error: null };
-    case "chat.started": return { ...state, chat: { ...state.chat, streaming: { ...state.chat.streaming, [event.conversationId]: { turnId: event.turnId, text: "" } } }, error: null };
+    case "chat.started": return { ...state, chat: { ...state.chat, streaming: { ...state.chat.streaming, [event.conversationId]: { turnId: event.turnId, text: "" } }, lastFailed: null }, error: null };
     case "chat.chunk": {
       const stream = state.chat.streaming[event.conversationId];
       if (!stream || stream.turnId !== event.turnId) return state;
@@ -178,7 +180,7 @@ export function reduceDesktopEvent(state: DesktopViewState, event: DesktopEvent 
     }
     case "chat.failed": {
       const { [event.conversationId]: _cleared, ...streaming } = state.chat.streaming;
-      return { ...state, chat: { ...state.chat, streaming }, error: event.message };
+      return { ...state, chat: { ...state.chat, streaming, lastFailed: { conversationId: event.conversationId, turnId: event.turnId, message: event.message } }, error: event.message };
     }
     case "chat.route.resolved": return { ...state, chat: { ...state.chat, routes: { ...state.chat.routes, [event.role]: { providerId: event.providerId, model: event.model, source: event.source, degraded: event.degraded } } } };
   }

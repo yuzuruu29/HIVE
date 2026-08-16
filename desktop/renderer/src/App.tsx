@@ -361,7 +361,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
 
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         event.preventDefault();
-        void submitMessage();
+        if (state.mode === "coder") void submitMessage();
         return;
       }
 
