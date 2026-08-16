@@ -2,6 +2,7 @@ import { execFile as nodeExecFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { JsonThreadStore } from "../thread-store.js";
+import { DesktopChatService, type DesktopChatServiceOptions } from "../chat-service.js";
 import type { DesktopCredentialVaultService } from "../credential-vault.js";
 import type { DesktopCommand, DesktopEvent, DesktopProviderMetadata, GuardedGitService, ThreadStore } from "../types.js";
 import { validateDesktopCommand, validateDesktopEvent } from "./contracts.js";
@@ -19,6 +20,9 @@ export interface DesktopCommandRouterOptions {
   threadStoreFactory?: (repositoryRoot: string) => ThreadStore;
   codingSessionStoreFactory?: (repositoryRoot: string) => Pick<CodingSessionStore, "load">;
   externalTools?: DesktopExternalToolService;
+  /** Injectable chat service for tests; defaults to a DesktopChatService bound to the open repository. */
+  chatService?: DesktopChatService;
+  chatServiceOptions?: DesktopChatServiceOptions;
   onEvent?: (event: DesktopEvent) => void;
   clock?: () => string;
   canonicalize?: (repositoryRoot: string) => Promise<string>;
@@ -32,6 +36,7 @@ export class DesktopCommandRouter {
   readonly #clock: () => string;
   readonly #canonicalize: (repositoryRoot: string) => Promise<string>;
   readonly #repositoryMutationTails = new Map<string, Promise<void>>();
+  readonly #chatService: DesktopChatService;
   #repositoryRoot: string | null = null;
   #repositoryOpenEpoch = 0;
 
@@ -40,6 +45,15 @@ export class DesktopCommandRouter {
     this.#externalTools = options.externalTools ?? new DesktopExternalToolService();
     this.#clock = options.clock ?? (() => new Date().toISOString());
     this.#canonicalize = options.canonicalize ?? ((root) => fs.realpath(root));
+    this.#chatService = options.chatService ?? new DesktopChatService(
+      () => this.#requiredRepository(),
+      (event) => this.#emitServiceEvent(event),
+      options.chatServiceOptions,
+    );
+  }
+
+  #emitServiceEvent(event: DesktopEvent): void {
+    this.options.onEvent?.(validateDesktopEvent(event));
   }
 
   public async handle(untrusted: unknown): Promise<DesktopEvent> {
@@ -48,7 +62,7 @@ export class DesktopCommandRouter {
     try {
       const command = validateDesktopCommand(untrusted);
       requestId = command.requestId;
-      const repositoryCommands = new Set(["repository.open", "thread.list", "thread.create", "thread.load", "thread.message.append", "thread.archive", "run.start", "run.pause", "run.resume", "run.cancel", "run.report", "git.inspect", "changes.diff", "git.commit.preview", "git.commit.confirm", "git.push.preview", "git.push.confirm", "git.pull-request.preview", "git.pull-request.confirm", "git.discard.preview", "git.discard.confirm", "external.open-editor", "external.open-terminal", "external.open-explorer"]);
+      const repositoryCommands = new Set(["repository.open", "thread.list", "thread.create", "thread.load", "thread.message.append", "thread.archive", "run.start", "run.pause", "run.resume", "run.cancel", "run.report", "git.inspect", "changes.diff", "git.commit.preview", "git.commit.confirm", "git.push.preview", "git.push.confirm", "git.pull-request.preview", "git.pull-request.confirm", "git.discard.preview", "git.discard.confirm", "external.open-editor", "external.open-terminal", "external.open-explorer", "chat.list", "chat.create", "chat.load", "chat.archive", "chat.route", "chat.send", "chat.cancel"]);
       if (repositoryCommands.has(command.type)) provenanceRoot = command.type === "repository.open" ? command.repositoryRoot : this.#repositoryRoot;
       const dispatched = await this.#dispatch(command);
       const repositoryScoped = new Set(["desktop.ready", "thread.changed", "thread.listed", "run.changed", "run.pause-requested", "run.reported", "runtime.event", "worker.starting", "worker.started", "worker.stopped", "git.changed", "git.previewed", "git.action-completed", "changes.diffed", "request.completed"]);
@@ -148,6 +162,13 @@ export class DesktopCommandRouter {
       case "external.open-editor": { const root = await this.#selected(command.input.repositoryRoot); await this.#externalTools.openEditor({ ...command.input, repositoryRoot: root }); return { type: "request.completed", timestamp, requestId: command.requestId }; }
       case "external.open-terminal": { const root = await this.#selected(command.repositoryRoot); await this.#externalTools.openTerminal(root); return { type: "request.completed", timestamp, requestId: command.requestId }; }
       case "external.open-explorer": { const root = await this.#selected(command.input.repositoryRoot); await this.#externalTools.openExplorer({ ...command.input, repositoryRoot: root }); return { type: "request.completed", timestamp, requestId: command.requestId }; }
+      case "chat.list": return { type: "chat.listed", timestamp, conversations: await this.#chatService.list() };
+      case "chat.create": return { type: "chat.changed", timestamp, conversation: await this.#chatService.create(command.input) };
+      case "chat.load": return { type: "chat.changed", timestamp, conversation: await this.#chatService.load(command.conversationId) };
+      case "chat.archive": return { type: "chat.listed", timestamp, conversations: await this.#chatService.archive(command.conversationId) };
+      case "chat.route": { void this.#chatService.route(command.input).catch((error) => this.#emitServiceEvent({ type: "request.failed", timestamp: this.#clock(), requestId: command.requestId, message: redactDesktopFailure(error), recoverable: true })); return { type: "request.completed", timestamp, requestId: command.requestId }; }
+      case "chat.send": { await this.#chatService.send(command.input); return { type: "request.completed", timestamp, requestId: command.requestId }; }
+      case "chat.cancel": { this.#chatService.cancel(command.conversationId); return { type: "request.completed", timestamp, requestId: command.requestId }; }
     }
   }
 

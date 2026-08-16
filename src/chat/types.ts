@@ -43,3 +43,39 @@ export interface ChatSessionRecord {
   /** Whether Scout grounding was enabled; the pack itself is rebuilt on resume. */
   grounded?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Desktop-safe DTOs (payload-serializable only — no classes, no node types)
+// ---------------------------------------------------------------------------
+
+/** Conversation list entry for the desktop chat rail. */
+export interface DesktopChatSummary {
+  id: string;
+  /** First 80 chars of the first user message, derived service-side. */
+  title: string;
+  role: string;
+  updatedAt: string;
+  messageCount: number;
+  /** True when the conversation was archived out of the active rail. */
+  archived?: boolean;
+}
+
+/** One chat message crossing the desktop IPC boundary. */
+export interface DesktopChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  at: string;
+  receipt?: ChatReceipt;
+}
+
+/** Full chat conversation snapshot for the desktop chat surface. */
+export interface DesktopChatConversation {
+  id: string;
+  cwd: string;
+  role: string;
+  ground: boolean;
+  createdAt: string;
+  updatedAt: string;
+  messages: DesktopChatMessage[];
+}

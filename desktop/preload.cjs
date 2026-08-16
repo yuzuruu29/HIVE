@@ -37,7 +37,14 @@ const COMMANDS = new Set([
   "git.discard.confirm",
   "external.open-editor",
   "external.open-terminal",
-  "external.open-explorer"
+  "external.open-explorer",
+  "chat.list",
+  "chat.create",
+  "chat.load",
+  "chat.archive",
+  "chat.route",
+  "chat.send",
+  "chat.cancel"
 ]);
 
 function validatedCommand(value) {

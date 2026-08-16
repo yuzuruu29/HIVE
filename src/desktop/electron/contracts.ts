@@ -1,6 +1,8 @@
 import path from "node:path";
 import type { DesktopCommand, DesktopEvent, ThreadRecordV1 } from "../types.js";
 import { containsKnownSecret, isCredentialFieldName } from "../../security/secrets.js";
+import { CHAT_SESSION_ID_PATTERN } from "../../chat/session-store.js";
+import { normalizeChatRole } from "../../chat/roles.js";
 import { DESKTOP_COMMAND_TYPE_SET } from "./command-manifest.js";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -191,12 +193,79 @@ function validateGitConfirmation(value: unknown, action: string): void {
   validateGitProposal(input.proposal, action);
 }
 
+const MAX_CHAT_CONTENT_CHARS = 24_000;
+const MAX_CHAT_CHUNK_CHARS = 2_048;
+
+function chatConversationId(value: unknown, label: string): string {
+  const result = string(value, label, 64);
+  if (!CHAT_SESSION_ID_PATTERN.test(result)) throw new Error(`${label} is invalid.`);
+  return result;
+}
+
+/** Accepts `auto` plus kebab-case or camelCase chat binding roles. */
+function chatRole(value: unknown, label: string): string {
+  const result = string(value, label, 64);
+  if (result !== "auto" && normalizeChatRole(result) === null) throw new Error(`${label} is invalid.`);
+  return result;
+}
+
+function validateChatReceipt(value: unknown): void {
+  const receipt = optionalExact(value, ["role", "providerId", "model"], ["source", "degraded", "promptTokens", "completionTokens", "totalTokens", "latencyMs"], "chat receipt");
+  string(receipt.role, "chat receipt role", 96);
+  providerId(receipt.providerId);
+  string(receipt.model, "chat receipt model", 256);
+  if (receipt.source !== undefined) string(receipt.source, "chat receipt source", 200);
+  if (receipt.degraded !== undefined) boolean(receipt.degraded, "chat receipt degraded flag");
+  for (const key of ["promptTokens", "completionTokens", "totalTokens"] as const) {
+    if (receipt[key] !== undefined && (!Number.isSafeInteger(receipt[key]) || Number(receipt[key]) < 0 || Number(receipt[key]) > 1_000_000_000_000)) throw new Error(`Chat receipt ${key} is invalid.`);
+  }
+  if (receipt.latencyMs !== undefined && (!Number.isSafeInteger(receipt.latencyMs) || Number(receipt.latencyMs) < 0 || Number(receipt.latencyMs) > 86_400_000)) throw new Error("Chat receipt latency is invalid.");
+}
+
+function validateChatMessage(value: unknown): void {
+  const message = optionalExact(value, ["id", "role", "content", "at"], ["receipt"], "chat message");
+  id(message.id, "chat message id");
+  if (!["user", "assistant"].includes(String(message.role))) throw new Error("Chat message role is invalid.");
+  string(message.content, "chat message content", MAX_CHAT_CONTENT_CHARS);
+  iso(message.at, "chat message timestamp");
+  if (message.receipt !== undefined) validateChatReceipt(message.receipt);
+}
+
+function validateChatConversation(value: unknown): void {
+  const conversation = exact(value, ["id", "cwd", "role", "ground", "createdAt", "updatedAt", "messages"], "chat conversation");
+  chatConversationId(conversation.id, "chat conversation id");
+  absolutePath(conversation.cwd, "chat conversation cwd");
+  chatRole(conversation.role, "chat conversation role");
+  boolean(conversation.ground, "chat conversation ground flag");
+  iso(conversation.createdAt, "chat conversation createdAt");
+  iso(conversation.updatedAt, "chat conversation updatedAt");
+  if (!Array.isArray(conversation.messages) || conversation.messages.length > 10_000) throw new Error("Chat conversation messages are invalid.");
+  conversation.messages.forEach(validateChatMessage);
+}
+
+function validateChatSummary(value: unknown): void {
+  const summary = optionalExact(value, ["id", "title", "role", "updatedAt", "messageCount"], ["archived"], "chat summary");
+  chatConversationId(summary.id, "chat conversation id");
+  string(summary.title, "chat summary title", 200);
+  chatRole(summary.role, "chat summary role");
+  iso(summary.updatedAt, "chat summary updatedAt");
+  if (!Number.isSafeInteger(summary.messageCount) || Number(summary.messageCount) < 0 || Number(summary.messageCount) > 1_000_000) throw new Error("Chat summary message count is invalid.");
+  if (summary.archived !== undefined) boolean(summary.archived, "chat summary archived flag");
+}
+
+function validateChatRouteInput(value: unknown): void {
+  const input = optionalExact(value, [], ["role", "providerId", "model"], "chat route input");
+  if (input.role !== undefined) chatRole(input.role, "chat route role");
+  if (input.providerId !== undefined) providerId(input.providerId);
+  if (input.model !== undefined) string(input.model, "chat route model", 256);
+}
+
 export function validateDesktopCommand(value: unknown): DesktopCommand {
   const root = record(value, "desktop command");
   const type = string(root.type, "desktop command type", 80);
   if (!DESKTOP_COMMAND_TYPE_SET.has(type)) throw new Error(`Unsupported desktop command type: ${type}.`);
   const requestId = id(root.requestId, "request id");
-  const noPayload = new Set(["repository.list", "thread.list", "provider.list", "credential.list"]);
+  const noPayload = new Set(["repository.list", "thread.list", "provider.list", "credential.list", "chat.list"]);
   if (noPayload.has(type)) exact(root, ["requestId", "type"], "desktop command");
   else switch (type) {
     case "repository.open": exact(root, ["requestId", "type", "repositoryRoot"], "desktop command"); absolutePath(root.repositoryRoot, "repository root"); break;
@@ -233,6 +302,20 @@ export function validateDesktopCommand(value: unknown): DesktopCommand {
     case "external.open-terminal": exact(root, ["requestId", "type", "repositoryRoot"], "desktop command"); absolutePath(root.repositoryRoot, "repository root"); break;
     case "external.open-editor": { exact(root, ["requestId", "type", "input"], "desktop command"); const input = optionalExact(root.input, ["repositoryRoot"], ["path", "line", "column"], "editor request"); absolutePath(input.repositoryRoot, "repository root"); if (input.path !== undefined) relativePath(input.path, "editor path"); for (const key of ["line", "column"] as const) if (input[key] !== undefined && (!Number.isSafeInteger(input[key]) || Number(input[key]) < 1 || Number(input[key]) > 10_000_000)) throw new Error(`${key} is invalid.`); break; }
     case "external.open-explorer": { exact(root, ["requestId", "type", "input"], "desktop command"); const input = optionalExact(root.input, ["repositoryRoot"], ["path"], "explorer request"); absolutePath(input.repositoryRoot, "repository root"); if (input.path !== undefined) relativePath(input.path, "explorer path"); break; }
+    case "chat.create": { exact(root, ["requestId", "type", "input"], "desktop command"); const input = optionalExact(root.input, [], ["role", "ground"], "chat create input"); if (input.role !== undefined) chatRole(input.role, "chat create role"); if (input.ground !== undefined) boolean(input.ground, "chat create ground flag"); break; }
+    case "chat.load": case "chat.archive": case "chat.cancel": exact(root, ["requestId", "type", "conversationId"], "desktop command"); chatConversationId(root.conversationId, "chat conversation id"); break;
+    case "chat.route": { optionalExact(root, ["requestId", "type"], ["input"], "desktop command"); if (root.input !== undefined) validateChatRouteInput(root.input); break; }
+    case "chat.send": {
+      exact(root, ["requestId", "type", "input"], "desktop command");
+      const input = optionalExact(root.input, ["conversationId", "content"], ["role", "providerId", "model", "ground"], "chat send input");
+      chatConversationId(input.conversationId, "chat conversation id");
+      string(input.content, "chat send content", MAX_CHAT_CONTENT_CHARS);
+      if (input.role !== undefined) chatRole(input.role, "chat send role");
+      if (input.providerId !== undefined) providerId(input.providerId);
+      if (input.model !== undefined) string(input.model, "chat send model", 256);
+      if (input.ground !== undefined) boolean(input.ground, "chat send ground flag");
+      break;
+    }
     default: throw new Error(`Unsupported desktop command type: ${type}.`);
   }
   return { ...root, requestId, type } as DesktopCommand;
@@ -246,7 +329,11 @@ const EVENT_KEYS: Record<DesktopEvent["type"], readonly string[]> = {
   "provider.changed": ["type", "timestamp", "provider"], "credential.listed": ["type", "timestamp", "credentials"], "credential.changed": ["type", "timestamp", "credential"],
   "credential.tested": ["type", "timestamp", "result"], "git.changed": ["type", "timestamp", "status"], "git.previewed": ["type", "timestamp", "preview"],
   "git.action-completed": ["type", "timestamp", "action", "head", "summary", "url"],
-  "changes.diffed": ["type", "timestamp", "diff"], "request.completed": ["type", "timestamp", "requestId"], "request.failed": ["type", "timestamp", "requestId", "message", "recoverable"],
+  "changes.diffed": ["type", "timestamp", "diff"], "chat.listed": ["type", "timestamp", "conversations"], "chat.changed": ["type", "timestamp", "conversation"],
+  "chat.started": ["type", "timestamp", "conversationId", "turnId"], "chat.chunk": ["type", "timestamp", "conversationId", "turnId", "chunk", "seq"],
+  "chat.completed": ["type", "timestamp", "conversationId", "turnId", "message"], "chat.failed": ["type", "timestamp", "conversationId", "turnId", "message", "recoverable"],
+  "chat.route.resolved": ["type", "timestamp", "role", "providerId", "model", "source", "degraded"],
+  "request.completed": ["type", "timestamp", "requestId"], "request.failed": ["type", "timestamp", "requestId", "message", "recoverable"],
 };
 
 export function validateDesktopEvent(value: unknown): DesktopEvent {
@@ -283,6 +370,18 @@ export function validateDesktopEvent(value: unknown): DesktopEvent {
     case "git.previewed": validateGitPreview(candidate.preview); break;
     case "git.action-completed": if (!["commit", "push", "pull-request", "discard"].includes(String(candidate.action))) throw new Error("Git action result is invalid."); if (candidate.head !== undefined && candidate.head !== null) boundaryString(candidate.head, "Git head", 128); if (candidate.summary !== undefined) boundaryString(candidate.summary, "Git summary", 2_000); if (candidate.url !== undefined) { const url = new URL(boundaryString(candidate.url, "pull request URL", 2_048)); if (url.protocol !== "https:") throw new Error("Pull request URL is invalid."); } break;
     case "changes.diffed": { const diff = exact(candidate.diff, ["repositoryRoot", "codingSessionId", "patch", "truncated", "recordedFiles", "reviewedFiles", "commitEligibility"], "desktop diff"); absolutePath(diff.repositoryRoot, "repository root"); id(diff.codingSessionId, "coding session id"); boundaryText(diff.patch, "diff patch", 1024 * 1024); boolean(diff.truncated, "diff truncated flag"); for (const key of ["recordedFiles", "reviewedFiles"] as const) { if (!Array.isArray(diff[key]) || diff[key].length > 10_000) throw new Error(`Desktop diff ${key} is invalid.`); diff[key].forEach((file) => relativePath(file, `desktop diff ${key} path`)); } if (!["eligible", "session-not-completed", "validation-required", "review-required", "no-recorded-files"].includes(String(diff.commitEligibility))) throw new Error("Desktop diff commit eligibility is invalid."); break; }
+    case "chat.listed": if (!Array.isArray(candidate.conversations) || candidate.conversations.length > 10_000) throw new Error("Chat conversation list is invalid."); candidate.conversations.forEach(validateChatSummary); break;
+    case "chat.changed": validateChatConversation(candidate.conversation); break;
+    case "chat.started": chatConversationId(candidate.conversationId, "chat conversation id"); id(candidate.turnId, "chat turn id"); break;
+    case "chat.chunk": {
+      chatConversationId(candidate.conversationId, "chat conversation id"); id(candidate.turnId, "chat turn id");
+      string(candidate.chunk, "chat chunk", MAX_CHAT_CHUNK_CHARS);
+      if (!Number.isSafeInteger(candidate.seq) || Number(candidate.seq) < 0 || Number(candidate.seq) > Number.MAX_SAFE_INTEGER) throw new Error("Chat chunk sequence is invalid.");
+      break;
+    }
+    case "chat.completed": chatConversationId(candidate.conversationId, "chat conversation id"); id(candidate.turnId, "chat turn id"); validateChatMessage(candidate.message); break;
+    case "chat.failed": chatConversationId(candidate.conversationId, "chat conversation id"); id(candidate.turnId, "chat turn id"); boundaryString(candidate.message, "chat failure", 2_000); boolean(candidate.recoverable, "chat failure recoverable flag"); break;
+    case "chat.route.resolved": chatRole(candidate.role, "chat route role"); providerId(candidate.providerId); string(candidate.model, "chat route model", 256); string(candidate.source, "chat route source", 200); boolean(candidate.degraded, "chat route degraded flag"); break;
     case "request.completed": break;
     case "request.failed": boundaryString(candidate.message, "request failure", 2_000); boolean(candidate.recoverable, "request recoverable flag"); break;
   }

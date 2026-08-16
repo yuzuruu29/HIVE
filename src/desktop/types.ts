@@ -6,6 +6,13 @@ import type {
   RuntimeEvent,
 } from "../coding/types.js";
 import type { ProviderKind } from "../providers/types.js";
+import type {
+  DesktopChatConversation,
+  DesktopChatMessage,
+  DesktopChatSummary,
+} from "../chat/types.js";
+
+export type { DesktopChatConversation, DesktopChatMessage, DesktopChatSummary };
 
 export const DESKTOP_THREAD_SCHEMA_VERSION = 1 as const;
 export const MAX_THREAD_MESSAGE_CHARS = 20_000;
@@ -318,7 +325,27 @@ export type DesktopCommand =
   | (DesktopCommandBase & { type: "git.discard.confirm"; input: GuardedGitDiscardConfirmationInput })
   | (DesktopCommandBase & { type: "external.open-editor"; input: DesktopOpenEditorRequest })
   | (DesktopCommandBase & { type: "external.open-terminal"; repositoryRoot: string })
-  | (DesktopCommandBase & { type: "external.open-explorer"; input: DesktopOpenExplorerRequest });
+  | (DesktopCommandBase & { type: "external.open-explorer"; input: DesktopOpenExplorerRequest })
+  | (DesktopCommandBase & { type: "chat.list" })
+  | (DesktopCommandBase & { type: "chat.create"; input: { role?: string; ground?: boolean } })
+  | (DesktopCommandBase & { type: "chat.load"; conversationId: string })
+  | (DesktopCommandBase & { type: "chat.archive"; conversationId: string })
+  | (DesktopCommandBase & {
+      type: "chat.route";
+      input?: { role?: string; providerId?: string; model?: string };
+    })
+  | (DesktopCommandBase & {
+      type: "chat.send";
+      input: {
+        conversationId: string;
+        content: string;
+        role?: string;
+        providerId?: string;
+        model?: string;
+        ground?: boolean;
+      };
+    })
+  | (DesktopCommandBase & { type: "chat.cancel"; conversationId: string });
 
 type DesktopEventBase = { timestamp: string; requestId?: string; repositoryRoot?: string };
 
@@ -361,6 +388,37 @@ export type DesktopEvent =
       url?: string;
     })
   | (DesktopEventBase & { type: "changes.diffed"; diff: DesktopChangesDiff })
+  | (DesktopEventBase & { type: "chat.listed"; conversations: DesktopChatSummary[] })
+  | (DesktopEventBase & { type: "chat.changed"; conversation: DesktopChatConversation })
+  | (DesktopEventBase & { type: "chat.started"; conversationId: string; turnId: string })
+  | (DesktopEventBase & {
+      type: "chat.chunk";
+      conversationId: string;
+      turnId: string;
+      chunk: string;
+      seq: number;
+    })
+  | (DesktopEventBase & {
+      type: "chat.completed";
+      conversationId: string;
+      turnId: string;
+      message: DesktopChatMessage;
+    })
+  | (DesktopEventBase & {
+      type: "chat.failed";
+      conversationId: string;
+      turnId: string;
+      message: string;
+      recoverable: boolean;
+    })
+  | (DesktopEventBase & {
+      type: "chat.route.resolved";
+      role: string;
+      providerId: string;
+      model: string;
+      source: string;
+      degraded: boolean;
+    })
   | (DesktopEventBase & { type: "request.completed"; requestId: string })
   | (DesktopEventBase & {
       type: "request.failed";
