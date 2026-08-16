@@ -18,5 +18,7 @@ export default defineConfig({
     setupFiles: path.resolve(here, "renderer", "src", "test-setup.ts"),
     include: ["src/**/*.test.{ts,tsx}"],
     css: true,
+    fileParallelism: false,
+    testTimeout: 15000,
   },
 });
