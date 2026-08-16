@@ -1,7 +1,7 @@
 import type { DesktopEvent } from "../../../../../src/desktop/types";
 import type { DesktopCommandInput } from "../../bridge";
 import type { DesktopViewState } from "../../state";
-import { formatTime } from "../../utils";
+import { ChatStream } from "./ChatStream";
 import { SessionRail } from "./SessionRail";
 import { Welcome } from "./Welcome";
 
@@ -37,6 +37,11 @@ export function ChatView({ state, send }: ChatViewProps) {
     await send({ type: "chat.send", input: { conversationId: created.conversation.id, content: text } });
   }
 
+  async function retryMessage(content: string): Promise<void> {
+    if (!chat.active) return;
+    await send({ type: "chat.send", input: { conversationId: chat.active.id, content } });
+  }
+
   return (
     <div className={`chat-grid${!state.rails.left ? " hide-left" : ""}`}>
       <aside className="chat-rail" aria-label="Conversations" hidden={!state.rails.left}>
@@ -67,29 +72,13 @@ export function ChatView({ state, send }: ChatViewProps) {
                 archive
               </button>
             </header>
-            <ol className="chat-messages">
-              {chat.active.messages.map((message) => (
-                <li key={message.id} className={`message message-${message.role} anim-in`}>
-                  <header>
-                    <strong>{message.role === "user" ? "You" : "HIVE"}</strong>
-                    <time dateTime={message.at}>{formatTime(message.at)}</time>
-                  </header>
-                  <div className="message-body">
-                    <p>{message.content}</p>
-                  </div>
-                </li>
-              ))}
-              {streaming && (
-                <li className="message message-assistant message-streaming anim-in" aria-label="Streaming reply">
-                  <header>
-                    <strong>HIVE</strong>
-                  </header>
-                  <div className="message-body">
-                    <p>{streaming.text}</p>
-                  </div>
-                </li>
-              )}
-            </ol>
+            <ChatStream
+              conversation={chat.active}
+              streaming={streaming}
+              route={chat.routes[chat.active.role] ?? chat.routes.auto}
+              disabled={Boolean(streaming)}
+              onRetry={(content) => void retryMessage(content)}
+            />
           </div>
         )}
       </section>
