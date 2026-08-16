@@ -15,7 +15,9 @@ import {
 import type { ChatBindingRole, SubagentTask } from "../coding/types.js";
 import type { AgentCompletionClient } from "../coding/agent-loop.js";
 import { StructuredAgentLoop } from "../coding/agent-loop.js";
-import type { ChatMessage, ChatReceipt, SessionProviderOverride } from "./types.js";
+import type { ChatMessage, ChatReceipt, ChatRoleSelection, ChatSessionRecord, SessionProviderOverride } from "./types.js";
+import { compactHistory } from "./history.js";
+import { ChatSessionStore, newChatSessionId } from "./session-store.js";
 import { locateSkillRoot } from "./skill-locate.js";
 import { createReadOnlyToolExecutor, describeReadOnlyTools } from "./agent-tools.js";
 
@@ -140,20 +142,15 @@ export const HISTORY_CHAR_BUDGET = 48_000;
 /**
  * Returns the most recent messages that together fit within `maxChars` total
  * content length, preserving order. Always keeps at least the newest message.
+ *
+ * Kept for backward compatibility with the Task-2 test surface; the canonical
+ * implementation is {@link compactHistory} in ./history.ts.
  */
 export function trimHistoryBudget(
   history: ChatMessage[],
   maxChars = HISTORY_CHAR_BUDGET,
 ): ChatMessage[] {
-  const kept: ChatMessage[] = [];
-  let total = 0;
-  for (let i = history.length - 1; i >= 0; i -= 1) {
-    const size = history[i].content.length;
-    if (kept.length > 0 && total + size > maxChars) break;
-    kept.unshift(history[i]);
-    total += size;
-  }
-  return kept;
+  return compactHistory(history, maxChars).kept;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +166,15 @@ function bindingToSlug(binding: ChatBindingRole): ChatRoleSlug {
     if (slugToBinding(slug) === binding) return slug;
   }
   return "coding";
+}
+
+/**
+ * Converts a persisted role selection (binding or "auto") back to a REPL
+ * role slug. Sessions store bindings, while the REPL works in user-facing
+ * kebab-case slugs.
+ */
+function recordRoleToSlug(role: ChatRoleSelection): ChatRoleSlug | "auto" {
+  return role === "auto" ? "auto" : bindingToSlug(role);
 }
 
 function formatTokens(n: number): string {
@@ -202,7 +208,7 @@ interface TurnInput {
 /** Single (non-agent) completion through the engine. */
 async function completeTurn(input: TurnInput): Promise<{ output: string; receipt: ChatReceipt }> {
   const systemPrompt = CHAT_ROLE_META[input.role].systemPrompt;
-  const context = renderHistory(trimHistoryBudget(input.history));
+  const context = renderHistory(compactHistory(input.history, HISTORY_CHAR_BUDGET).kept);
   const prompt = context ? `${context}\n\nUser: ${input.message}` : input.message;
   return input.engine.complete({
     role: slugToBinding(input.role),
@@ -278,7 +284,7 @@ async function completeAgentTurn(input: TurnInput): Promise<{ output: string; re
   const result = await loop.run({
     task,
     cwd: agentCwd,
-    sharedContext: renderHistory(trimHistoryBudget(input.history)),
+    sharedContext: renderHistory(compactHistory(input.history, HISTORY_CHAR_BUDGET).kept),
     completionClient,
     tools: createReadOnlyToolExecutor(agentCwd),
     signal: input.signal ?? new AbortController().signal,
@@ -302,6 +308,8 @@ function receiptTokens(receipt: ChatReceipt): number {
 export interface ChatOptions {
   cwd?: string;
   signal?: AbortSignal;
+  /** Resume an existing chat session by id before the first prompt. */
+  resumeSessionId?: string;
   /** Injectable engine factory for tests; defaults to createChatEngine. */
   createEngine?: (projectRoot: string, sessionId: string, options?: ChatEngineOptions) => ChatEngine;
 }
@@ -312,12 +320,12 @@ export async function runChat(
 ): Promise<{ exitCode: number; output: string }> {
   const cwd = options.cwd || process.cwd();
   const parsed = parseChatArgs(args);
-  const sessionId = `chat-${Date.now()}`;
+  const store = new ChatSessionStore(cwd);
   const makeEngine =
     options.createEngine ??
     ((projectRoot: string, sid: string, opts?: ChatEngineOptions) =>
       createChatEngine(projectRoot, sid, opts));
-  const engine = makeEngine(cwd, sessionId);
+  const engine = makeEngine(cwd, newChatSessionId());
 
   let currentRole: ChatRoleSlug | "auto";
   if (parsed.role) {
@@ -334,7 +342,7 @@ export async function runChat(
   }
   let override: SessionOverride | undefined = parsed.override;
   let agentMode = parsed.agent;
-  const history: ChatMessage[] = [];
+  let history: ChatMessage[] = [];
   let sessionTokens = 0;
 
   const message = parsed.positionals.join(" ");
@@ -360,7 +368,7 @@ export async function runChat(
 
   // ---- Interactive REPL ----
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const HELP = `Commands: /role <slug>, /auto, /model <providerId>/<model>, /list, /skill, /clear, /agent on|off, /exit, /help`;
+  const HELP = `Commands: /role <slug>, /auto, /model <providerId>/<model>, /list, /skill, /agent on|off, /sessions, /resume <id>, /clear, /exit, /help`;
   console.log("HIVE Chat — type a message. " + HELP);
   console.log(`Current role: ${currentRole}  (auto picks a model per message)\n`);
 
@@ -371,6 +379,51 @@ export async function runChat(
   let turnInFlight = false;
   let sigintCount = 0;
   let running = true;
+
+  // ---- Chat session (persistence via ChatSessionStore) ----
+  let sessionId = "";
+  let createdAt = "";
+  const sessionRole = (): ChatRoleSelection =>
+    currentRole === "auto" ? "auto" : slugToBinding(currentRole);
+
+  const persistSession = async (): Promise<void> => {
+    const base: ChatSessionRecord = {
+      id: sessionId || newChatSessionId(),
+      createdAt: createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      cwd,
+      messages: history,
+      role: sessionRole(),
+      override,
+    };
+    if (!sessionId) {
+      sessionId = base.id;
+      createdAt = base.createdAt;
+    }
+    await store.save(base);
+  };
+
+  const applySession = (record: ChatSessionRecord): void => {
+    sessionId = record.id;
+    createdAt = record.createdAt;
+    history = record.messages.slice();
+    currentRole = recordRoleToSlug(record.role);
+    override = record.override;
+    sessionTokens = record.messages.reduce(
+      (sum, message) => sum + (message.receipt ? receiptTokens(message.receipt) : 0),
+      0,
+    );
+  };
+
+  if (options.resumeSessionId) {
+    const record = await store.load(options.resumeSessionId);
+    if (record) {
+      applySession(record);
+      console.log(`Resumed session ${record.id} (${record.messages.length} messages).`);
+    } else {
+      console.log(`Session ${options.resumeSessionId} not found; starting a new session.`);
+    }
+  }
 
   // Ctrl+C once cancels the in-flight turn; Ctrl+C twice exits the REPL.
   rl.on("SIGINT", () => {
@@ -417,6 +470,32 @@ export async function runChat(
           history.length = 0;
           sessionTokens = 0;
           console.log("Conversation cleared.");
+          continue;
+        }
+        if (cmd === "sessions" || cmd === "ls") {
+          const sessions = await store.list();
+          if (sessions.length === 0) {
+            console.log("No saved chat sessions yet.");
+            continue;
+          }
+          for (const s of sessions) {
+            console.log(`${s.id}  [${s.role}]  ${s.messageCount} msgs  updated ${s.updatedAt}`);
+          }
+          continue;
+        }
+        if (cmd === "resume") {
+          const id = rest[0];
+          if (!id) {
+            console.log("Usage: /resume <id> (see /sessions)");
+            continue;
+          }
+          const record = await store.load(id);
+          if (!record) {
+            console.log(`No such session: ${id}`);
+            continue;
+          }
+          applySession(record);
+          console.log(`Resumed session ${record.id} (${record.messages.length} messages).`);
           continue;
         }
         if (cmd === "role") {
@@ -488,6 +567,7 @@ export async function runChat(
         sessionTokens += receiptTokens(result.receipt);
         process.stderr.write(`${formatReceiptLine(role, result.receipt)}\n`);
         console.log(`\n${result.output}\n`);
+        await persistSession();
       } catch (error) {
         if (turnController.signal.aborted) {
           console.log("\nTurn cancelled.\n");
