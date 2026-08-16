@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "v1/adapter-manifest.schema.json",
+  "title": "HIVE Adapter Manifest",
+  "description": "Schema for adapter manifests — declares an adapter's conformance to the HIVE protocol",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path to the adapter manifest schema"
+    },
+    "adapter": {
+      "type": "string",
+      "description": "Adapter identifier"
+    },
+    "adapter_version": {
+      "type": "string",
+      "description": "Version of the adapter"
+    },
+    "supported_protocol_versions": {
+      "type": "object",
+      "properties": {
+        "minimum": {
+          "type": "string",
+          "description": "Minimum supported protocol version"
+        },
+        "maximum": {
+          "type": "string",
+          "description": "Maximum supported protocol version"
+        }
+      },
+      "required": ["minimum", "maximum"],
+      "additionalProperties": false
+    },
+    "declared_conformance_level": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4,
+      "description": "Self-declared conformance level (0-4)"
+    },
+    "runtime_capabilities": {
+      "type": "string",
+      "description": "Path to the runtime capabilities JSON file"
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "last_tested_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of the last validation test"
+        },
+        "test_status": {
+          "type": "string",
+          "enum": ["untested", "structural_only", "live_tested", "live_tested_with_limitations", "failed"],
+          "description": "Status of the last validation test"
+        },
+        "report": {
+          "type": "string",
+          "description": "Path to the validation report"
+        }
+      },
+      "required": ["last_tested_at", "test_status", "report"],
+      "additionalProperties": false
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Known limitations of this adapter"
+    }
+  },
+  "required": [
+    "$schema",
+    "adapter",
+    "adapter_version",
+    "supported_protocol_versions",
+    "declared_conformance_level",
+    "runtime_capabilities",
+    "validation",
+    "limitations"
+  ],
+  "additionalProperties": false
+}

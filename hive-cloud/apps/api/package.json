@@ -1,0 +1,29 @@
+{
+  "name": "@hive-cloud/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1087.0",
+    "@aws-sdk/s3-request-presigner": "^3.1087.0",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/helmet": "^13.1.0",
+    "@fastify/rate-limit": "^11.1.0",
+    "@hive-cloud/contracts": "*",
+    "@hive-cloud/database": "*",
+    "@hive-cloud/router": "*",
+    "@hive-cloud/security": "*",
+    "@sentry/node": "^10.65.0",
+    "bullmq": "^5.80.2",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.10.0",
+    "ioredis": "^5.11.1",
+    "zod": "^4.4.3"
+  }
+}

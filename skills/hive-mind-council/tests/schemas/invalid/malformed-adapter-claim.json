@@ -1,0 +1,17 @@
+{
+  "$schema": "../../schemas/v1/adapter-manifest.schema.json",
+  "adapter": "test-adapter",
+  "adapter_version": "1.0.0",
+  "supported_protocol_versions": {
+    "minimum": "1.0.0",
+    "maximum": "1.x"
+  },
+  "declared_conformance_level": 5,
+  "runtime_capabilities": "runtime-capabilities.json",
+  "validation": {
+    "last_tested_at": "2026-07-20T10:00:00Z",
+    "test_status": "structural_only",
+    "report": "report.md"
+  },
+  "limitations": []
+}

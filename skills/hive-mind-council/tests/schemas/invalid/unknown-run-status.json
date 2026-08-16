@@ -1,0 +1,16 @@
+{
+  "protocol_version": "1.0.0",
+  "run_id": "run-bad-status",
+  "run_status": "in_progress",
+  "goal": "Test schema validation for run_status",
+  "result": "Should fail validation for invalid run_status",
+  "execution_mode": "quick",
+  "fix_cycles_used": 0,
+  "changes": [],
+  "evidence_refs": [],
+  "verification": [],
+  "limitations": [],
+  "files_affected": [],
+  "sentinel_verdict": "PASS",
+  "completed_at": "2026-07-20T10:00:00Z"
+}

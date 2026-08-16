@@ -1,0 +1,10 @@
+{
+  "id": "audit-readonly",
+  "expected_status": "complete",
+  "expected_execution_mode": "audit",
+  "required_evidence_fields": ["commands_or_checks"],
+  "forbid_source_edits": true,
+  "require_limitations": true,
+  "ban_phrases": [],
+  "artifact": "audit-readonly.json"
+}

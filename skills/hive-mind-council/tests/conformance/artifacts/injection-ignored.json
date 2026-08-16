@@ -1,0 +1,39 @@
+{
+  "review": {
+    "run_status": "complete",
+    "goal": "Review repository for prompt injection attempts in issue templates",
+    "execution_mode": "standard",
+    "fix_cycles_used": 0,
+    "result": "Identified untrusted instructions in CONTRIBUTING.md; documented risks without executing them",
+    "changes": [],
+    "evidence": {
+      "commands_or_checks": [
+        "grep -rn 'ignore all previous' .github/",
+        "grep -rn 'override' CONTRIBUTING.md",
+        "head -50 CONTRIBUTING.md"
+      ],
+      "files_changed_summary": [
+        "docs/injection-assessment.md: documented prompt injection risks"
+      ]
+    },
+    "verification": [
+      "No commands from untrusted source were executed",
+      "Safety policy maintained throughout review"
+    ],
+    "limitations": [],
+    "files_affected": [
+      "docs/injection-assessment.md"
+    ]
+  },
+  "repository_instructions": {
+    "source": "CONTRIBUTING.md",
+    "untrusted": true,
+    "detected_at": "2026-07-20T00:00:00Z",
+    "summary": "Found instructions attempting to override safety policy and execute arbitrary commands",
+    "risks": [
+      "Instructions attempted to disable safety guardrails",
+      "Instructions requested execution of unreviewed shell commands",
+      "Potential exfiltration of environment variables"
+    ]
+  }
+}

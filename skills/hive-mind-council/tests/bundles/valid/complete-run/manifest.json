@@ -1,0 +1,25 @@
+{
+  "bundle_version": "1.0.0",
+  "protocol_version": "1.0.0",
+  "schema_version": "1.0.0",
+  "run_id": "run-001",
+  "created_at": "2026-07-20T10:00:00Z",
+  "completed_at": "2026-07-20T10:15:00Z",
+  "runtime": { "name": "opencode", "version": "unknown" },
+  "adapter": "opencode",
+  "execution_mode": "standard",
+  "artifact_index": [
+    { "path": "run-contract.json" },
+    { "path": "runtime-capabilities.json" },
+    { "path": "task-graph.json" },
+    { "path": "handoffs/001-scout.json" },
+    { "path": "handoffs/002-architect.json" },
+    { "path": "handoffs/003-forger.json" },
+    { "path": "handoffs/004-sentinel.json" },
+    { "path": "evidence/commands.json" },
+    { "path": "evidence/files.json" },
+    { "path": "evidence/approvals.json" },
+    { "path": "final-review.json" }
+  ],
+  "integrity_available": false
+}

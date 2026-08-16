@@ -1,0 +1,14 @@
+{
+  "$schema": "../../schemas/v1/adapter-manifest.schema.json",
+  "adapter": "codex",
+  "adapter_version": "0.3.0",
+  "supported_protocol_versions": { "minimum": "1.0.0", "maximum": "1.x" },
+  "declared_conformance_level": 1,
+  "runtime_capabilities": "../../runtime/codex.json",
+  "validation": {
+    "last_tested_at": "2026-07-20",
+    "test_status": "structural_only",
+    "report": "../../docs/adapter-validation/codex.md"
+  },
+  "limitations": ["No parallel execution support"]
+}

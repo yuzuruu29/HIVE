@@ -1,0 +1,18 @@
+{
+  "$schema": "../../schemas/v1/adapter-manifest.schema.json",
+  "adapter": "generic-agents",
+  "adapter_version": "0.3.0",
+  "supported_protocol_versions": { "minimum": "1.0.0", "maximum": "1.x" },
+  "declared_conformance_level": 0,
+  "runtime_capabilities": "../../runtime/generic-agents.json",
+  "validation": {
+    "last_tested_at": "2026-07-20",
+    "test_status": "structural_only",
+    "report": "../../docs/adapter-validation/generic-agents.md"
+  },
+  "limitations": [
+    "Limited tool access",
+    "No native subagent support",
+    "Sequential role simulation only"
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "protocol_version": "1.0.0",
+  "run_id": "run-001",
+  "evidence": [
+    {
+      "evidence_id": "ev-cmd-001",
+      "type": "command",
+      "command": "grep -rn 'NullPointerException' --include='*.java' src/",
+      "working_directory": "/workspace",
+      "executed": true,
+      "exit_code": 0,
+      "output_excerpt": "src/main/java/com/app/auth/AuthService.java:42: throws NullPointerException when username is null",
+      "created_at": "2026-07-20T10:02:00Z"
+    },
+    {
+      "evidence_id": "ev-cmd-002",
+      "type": "command",
+      "command": "npm test",
+      "working_directory": "/workspace",
+      "executed": true,
+      "exit_code": 0,
+      "output_excerpt": "142 tests passed, 0 failed",
+      "created_at": "2026-07-20T10:08:00Z"
+    },
+    {
+      "evidence_id": "ev-cmd-003",
+      "type": "command",
+      "command": "cd /workspace && mvn compile",
+      "working_directory": "/workspace",
+      "executed": true,
+      "exit_code": 0,
+      "output_excerpt": "BUILD SUCCESS in 3.2s",
+      "created_at": "2026-07-20T10:09:00Z"
+    },
+    {
+      "evidence_id": "ev-cmd-004",
+      "type": "command",
+      "command": "cd /workspace && mvn test",
+      "working_directory": "/workspace",
+      "executed": true,
+      "exit_code": 0,
+      "output_excerpt": "Tests run: 142, Failures: 0, Errors: 0, Skipped: 0",
+      "created_at": "2026-07-20T10:12:00Z"
+    }
+  ]
+}

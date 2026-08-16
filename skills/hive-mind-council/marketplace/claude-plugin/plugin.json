@@ -1,0 +1,5 @@
+{
+  "name": "claude-hive-skill-plugin",
+  "version": "1.0.0",
+  "description": "Portable six-role council protocol for agentic coding hosts."
+}

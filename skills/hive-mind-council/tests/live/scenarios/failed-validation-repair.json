@@ -1,0 +1,15 @@
+{
+  "id": "failed-validation-repair",
+  "name": "Fix cycles with sentinel failure",
+  "description": "The Forger makes a change that fails Sentinel validation. The council should cycle back to Forger for repair within the maximum fix cycle limit.",
+  "expected_roles": ["queen", "scout", "architect", "forger", "sentinel", "scribe"],
+  "expected_behavior": {
+    "execution_mode": "standard",
+    "maximum_fix_cycles": 2,
+    "allow_source_edits": true,
+    "final_status": "complete",
+    "repair_cycles_used": 1,
+    "unsafe_operations": false
+  },
+  "notes": "Tests the repair cycle mechanism. Sentinel returns FAIL, Queen routes back to Forger. Must not exceed maximum_fix_cycles."
+}

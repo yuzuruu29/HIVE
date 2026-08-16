@@ -1,0 +1,15 @@
+{
+  "id": "quick-doc-fix",
+  "name": "Quick documentation fix",
+  "description": "Fix a deliberate typo in a documentation file. The council should complete with minimal role invocation and only the intended file changed.",
+  "expected_roles": ["queen", "forger", "sentinel"],
+  "expected_behavior": {
+    "execution_mode": "quick",
+    "maximum_fix_cycles": 1,
+    "allow_source_edits": true,
+    "final_status": "complete",
+    "files_changed": 1,
+    "unsafe_operations": false
+  },
+  "notes": "Quick mode selects only Queen, Forger, and Sentinel. No Scout or Architect needed for a trivial doc fix."
+}

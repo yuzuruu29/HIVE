@@ -1,0 +1,8 @@
+{
+  "scenario": "Standard bug fix",
+  "preset": "standard",
+  "input": "The login form does not show error messages when invalid credentials are submitted",
+  "expected_roles": ["queen", "scout", "architect", "forger", "sentinel", "scribe"],
+  "expected_fix_cycles": 2,
+  "expected_status": "complete"
+}

@@ -1,0 +1,8 @@
+{
+  "scenario": "Quick documentation change",
+  "preset": "quick",
+  "input": "Fix a typo in README.md: change 'teh' to 'the'",
+  "expected_roles": ["queen", "forger", "sentinel"],
+  "expected_fix_cycles": 1,
+  "expected_status": "complete"
+}

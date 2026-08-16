@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "protocol-manifest.schema.json",
+  "title": "HIVE Protocol Manifest",
+  "description": "Schema for the root protocol.json manifest file",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path to this schema file"
+    },
+    "name": {
+      "type": "string",
+      "const": "hive-mind-council",
+      "description": "The skill name — must be exactly 'hive-mind-council'"
+    },
+    "skill_version": {
+      "type": "string",
+      "description": "Version of the hive-mind-council skill"
+    },
+    "protocol_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+",
+      "description": "Semver-like protocol version identifier"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+",
+      "description": "Semver-like schema version identifier"
+    },
+    "artifact_format_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+",
+      "description": "Semver-like artifact format version identifier"
+    },
+    "supported_execution_modes": {
+      "type": "array",
+      "items": {
+        "$ref": "v1/definitions.schema.json#/$defs/ExecutionMode"
+      },
+      "description": "Execution modes this protocol version supports"
+    },
+    "supported_run_statuses": {
+      "type": "array",
+      "items": {
+        "$ref": "v1/definitions.schema.json#/$defs/RunStatus"
+      },
+      "description": "Run status values this protocol version supports"
+    }
+  },
+  "required": [
+    "name",
+    "skill_version",
+    "protocol_version",
+    "schema_version",
+    "artifact_format_version",
+    "supported_execution_modes",
+    "supported_run_statuses"
+  ],
+  "additionalProperties": false
+}

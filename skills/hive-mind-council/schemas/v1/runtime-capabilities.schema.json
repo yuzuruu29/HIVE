@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "v1/runtime-capabilities.schema.json",
+  "title": "HIVE Runtime Capabilities",
+  "description": "Schema for runtime capability documents — declares what a runtime environment can do",
+  "type": "object",
+  "properties": {
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the runtime"
+        },
+        "version": {
+          "type": "string",
+          "description": "Version of the runtime"
+        }
+      },
+      "required": ["name", "version"],
+      "additionalProperties": false
+    },
+    "protocol_versions": {
+      "type": "object",
+      "properties": {
+        "minimum": {
+          "type": "string",
+          "description": "Minimum supported protocol version"
+        },
+        "maximum": {
+          "type": "string",
+          "description": "Maximum supported protocol version"
+        }
+      },
+      "required": ["minimum", "maximum"],
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "native_subagents": { "type": "boolean" },
+        "isolated_subagents": { "type": "boolean" },
+        "parallel_execution": { "type": "boolean" },
+        "structured_output": { "type": "boolean" },
+        "file_editing": { "type": "boolean" },
+        "command_execution": { "type": "boolean" },
+        "approval_prompts": { "type": "boolean" },
+        "git_operations": { "type": "boolean" },
+        "network_access": { "type": "boolean" },
+        "persistent_sessions": { "type": "boolean" },
+        "cancellation": { "type": "boolean" }
+      },
+      "required": [
+        "native_subagents",
+        "isolated_subagents",
+        "parallel_execution",
+        "structured_output",
+        "file_editing",
+        "command_execution",
+        "approval_prompts",
+        "git_operations",
+        "network_access",
+        "persistent_sessions",
+        "cancellation"
+      ],
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "maximum_parallel_workers": {
+          "type": ["integer", "null"],
+          "description": "Maximum number of parallel workers, or null if unlimited"
+        },
+        "maximum_context_tokens": {
+          "type": ["integer", "null"],
+          "description": "Maximum context tokens, or null if unlimited"
+        }
+      },
+      "required": ["maximum_parallel_workers", "maximum_context_tokens"],
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "tested_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of the last capability test"
+        },
+        "test_type": {
+          "type": "string",
+          "enum": ["structural", "automated", "manual", "ci"],
+          "description": "Type of test performed"
+        },
+        "notes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Additional notes about capability testing"
+        }
+      },
+      "required": ["tested_at", "test_type", "notes"],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "runtime",
+    "protocol_versions",
+    "capabilities",
+    "limits",
+    "evidence"
+  ],
+  "additionalProperties": false
+}

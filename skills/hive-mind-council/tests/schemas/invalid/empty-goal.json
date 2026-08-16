@@ -1,0 +1,14 @@
+{
+  "protocol_version": "1.0.0",
+  "run_id": "run-empty-goal",
+  "goal": "",
+  "deliverables": ["Deliverable one"],
+  "constraints": [],
+  "exclusions": [],
+  "success_criteria": ["Criterion one"],
+  "approval_requirements": [],
+  "execution_mode": "quick",
+  "maximum_fix_cycles": 1,
+  "status": "complete",
+  "created_at": "2026-07-20T10:00:00Z"
+}

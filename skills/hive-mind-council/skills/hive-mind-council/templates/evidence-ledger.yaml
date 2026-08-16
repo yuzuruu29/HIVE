@@ -1,0 +1,49 @@
+# Evidence Ledger Template
+
+```yaml
+evidence_ledger:
+  files_examined:
+    - path: "path/to/file"
+      hash_or_version: "optional — git SHA or content hash"
+  files_modified:
+    - path: "path/to/file"
+      change_summary: "What changed"
+  commands_executed:
+    - command: "command run"
+      exit_code: 0
+      output_summary: "Key output lines or summary"
+  test_results:
+    - suite: "test suite name"
+      passed: 10
+      failed: 0
+      skipped: 1
+      command: "command used to run"
+  build_results:
+    - target: "build target"
+      result: passed | failed
+      command: "command used"
+  behavioral_checks:
+    - check: "What was verified"
+      method: "How it was verified"
+      result: passed | failed | inconclusive
+  assumptions:
+    - assumption: "Assumption made"
+      impact: "What depends on this being true"
+  unverified_claims:
+    - claim: "Unsupported statement"
+      why_not_verified: "Reason verification was not possible"
+  approvals:
+    - action: "Approval requested"
+      status: granted | denied | pending
+  remaining_risks:
+    - risk: "Risk description"
+      mitigation: "Mitigation or acceptance rationale"
+```
+
+## Instructions
+
+1. Record every command executed and its result.
+2. Do not omit failures or partial results.
+3. Mark behavioral checks as inconclusive when they cannot be fully verified.
+4. Assumptions must be explicit — hidden assumptions cause bugs.
+5. Unverified claims should be minimized; flag them when unavoidable.

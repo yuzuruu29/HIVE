@@ -1,0 +1,14 @@
+{
+  "protocol_version": "1.0.0",
+  "run_id": "run-audit-forger",
+  "execution_mode": "audit",
+  "tasks": [
+    {
+      "task_id": "task-001",
+      "assigned_role": "forger",
+      "objective": "This should not exist in audit mode",
+      "status": "complete"
+    }
+  ],
+  "created_at": "2026-07-20T10:00:00Z"
+}

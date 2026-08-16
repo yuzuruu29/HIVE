@@ -1,0 +1,12 @@
+asset_inventory:
+  keep:
+    - logos (none yet - would go in assets/brand/)
+    - repository social preview (none yet)
+    - architecture diagrams (in skills/hive-mind-council/references/)
+    - assets/demo/the-hive-skill-demo.gif (261KB - lightweight demo)
+    - assets/demo/the-hive-skill-demo.html (4.8KB - source animation)
+    - assets/demo/README.md
+    - assets/demo/export-instructions.md (documents how to regenerate)
+  move_or_archive:
+    - hive-ad/ (828MB Remotion project - entire promotional production project)
+    - assets/demo/the-hive-skill-demo.mp4 (704KB - large rendered video)

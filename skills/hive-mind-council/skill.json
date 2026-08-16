@@ -1,0 +1,12 @@
+{
+  "name": "hive-mind-council",
+  "displayName": "The Hive Skill",
+  "description": "Portable six-role council protocol for agentic coding hosts. Provides structured handoffs, evidence rules, safety boundaries, orchestration presets, bounded repair cycles, and explicit stop conditions for Claude Code, Codex, OpenCode, and generic agents.",
+  "version": "0.3.0",
+  "author": "Emmanuel Uzziel Malolos",
+  "github": "https://github.com/yuzuruu29/the-hive-skill",
+  "license": "Apache-2.0",
+  "tags": [
+    "agentic-coding", "multi-agent", "orchestration", "opencode", "opencode-go", "claude-code", "codex", "skill-md", "hivemind"
+  ]
+}

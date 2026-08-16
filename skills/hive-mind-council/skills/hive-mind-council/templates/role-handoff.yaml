@@ -1,0 +1,37 @@
+# Role Handoff Template
+
+```yaml
+handoff:
+  role: queen | scout | architect | forger | sentinel | scribe
+  status: complete | blocked | failed | needs_approval
+  summary: "Brief one-line summary of what this role accomplished"
+  findings:
+    - statement: "Key finding or result"
+      evidence: "Source or command output supporting this finding"
+      confidence: high | medium | low
+  files_examined:
+    - path: "path/to/file"
+      purpose: "Why this file was examined"
+  files_changed:
+    - path: "path/to/file"
+      purpose: "What was changed and why"
+  commands_run:
+    - command: "npm test"
+      result: passed | failed | partial
+      output_summary: "Brief note about command output"
+  risks:
+    - description: "Description of a risk or concern"
+      severity: low | medium | high
+  unresolved_questions:
+    - question: "Question that could not be answered"
+      why_unresolved: "Reason the question remains open"
+  recommended_next_action: "Concrete next step for the Queen or next role"
+```
+
+## Instructions
+
+1. Fill every field relevant to the role's work.
+2. If a field has no entries, omit it or state "None".
+3. `status` must match the defined values exactly.
+4. `findings` must include evidence and confidence for each entry.
+5. `recommended_next_action` must be specific and actionable.

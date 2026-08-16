@@ -1,0 +1,15 @@
+{
+  "run_id": "run-missing-protocol",
+  "task_id": "task-001",
+  "role": "scout",
+  "status": "complete",
+  "summary": "Missing protocol_version",
+  "findings": [],
+  "files_examined": [],
+  "files_changed": [],
+  "commands_run": [],
+  "risks": [],
+  "unresolved_questions": [],
+  "recommended_next_action": "Add protocol_version",
+  "created_at": "2026-07-20T10:00:00Z"
+}

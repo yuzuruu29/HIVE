@@ -1,0 +1,22 @@
+{
+  "protocol_version": "1.0.0",
+  "run_id": "run-pass-critical",
+  "run_status": "complete",
+  "goal": "PASS verdict with critical unresolved findings",
+  "result": "Should violate pass-no-critical-findings rule",
+  "execution_mode": "standard",
+  "fix_cycles_used": 0,
+  "changes": [],
+  "evidence_refs": [],
+  "verification": [],
+  "limitations": [],
+  "files_affected": [],
+  "sentinel_verdict": "PASS",
+  "findings": [
+    {
+      "statement": "Critical security vulnerability detected",
+      "confidence": "high"
+    }
+  ],
+  "completed_at": "2026-07-20T10:00:00Z"
+}

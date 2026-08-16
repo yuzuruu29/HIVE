@@ -1,0 +1,16 @@
+{
+  "protocol_version": "1.0.0",
+  "run_id": "run-audit-edits",
+  "run_status": "complete",
+  "goal": "Audit mode with file changes",
+  "result": "Should violate audit-no-source-edits rule",
+  "execution_mode": "audit",
+  "fix_cycles_used": 0,
+  "changes": ["Accidentally modified a file"],
+  "evidence_refs": [],
+  "verification": [],
+  "limitations": [],
+  "files_affected": ["src/important.js"],
+  "sentinel_verdict": "PASS",
+  "completed_at": "2026-07-20T10:00:00Z"
+}

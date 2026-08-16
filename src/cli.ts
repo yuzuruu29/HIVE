@@ -167,6 +167,8 @@ Usage:
   hive agents [show <id>]
   hive report <session-id> [--json|--markdown] [--output <path>]
   hive mode
+  hive chat ["message"]            (interactive chatbot; blank = REPL)
+  hive hivebot "<task>"           (swarm the built-in hive-mind-council)
   hive scout [--task "<task>"] [--json] [--files]
 
 Safety:
@@ -726,7 +728,18 @@ Commands:
       
       return { exitCode: 0, output: formatScoutText(pack) };
     }
-    
+
+    if (command === "chat") {
+      const { runChat } = await import("./chat/chat-cli.js");
+      return await runChat(args.slice(1), { cwd, signal: cliOptions.signal });
+    }
+
+    if (command === "hivebot") {
+      const { runHivebot } = await import("./chat/hivebot.js");
+      const task = rest.join(" ");
+      return await runHivebot(task, { cwd, signal: cliOptions.signal });
+    }
+
     return { exitCode: 1, output: `Unknown command: ${command}` };
     
   } catch (err: any) {

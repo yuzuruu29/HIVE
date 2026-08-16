@@ -1,0 +1,16 @@
+{
+  "protocol_version": "1.0.0",
+  "run_id": "run-complete-fail",
+  "run_status": "complete",
+  "goal": "Complete run but with FAIL verdict",
+  "result": "Should violate complete-no-fail-verdict rule",
+  "execution_mode": "quick",
+  "fix_cycles_used": 0,
+  "changes": [],
+  "evidence_refs": [],
+  "verification": [],
+  "limitations": [],
+  "files_affected": [],
+  "sentinel_verdict": "FAIL",
+  "completed_at": "2026-07-20T10:00:00Z"
+}

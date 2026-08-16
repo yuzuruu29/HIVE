@@ -1,0 +1,10 @@
+{
+  "id": "quick-readme-fix",
+  "expected_status": "complete",
+  "expected_execution_mode": "quick",
+  "required_evidence_fields": ["commands_or_checks", "files_changed_summary"],
+  "forbid_source_edits": false,
+  "require_limitations": false,
+  "ban_phrases": ["production-ready", "guaranteed secure"],
+  "artifact": "quick-readme-fix.json"
+}

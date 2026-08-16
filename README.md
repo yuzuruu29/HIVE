@@ -6,6 +6,13 @@ HIVE (Hyper Intelligence for Verified Engineering) is a verified agentic coding 
 - HIVE CLI uses a queen bee terminal motif.
 - Violet wordmark indicates verified agentic coding.
 
+## Repository Consolidation
+`C:\HIVE` is the single home for the HIVE project. The related `hive-cloud` (web workspace) and `the-hive-skill` (hive-mind-council) repos were consolidated here:
+- `skills/hive-mind-council/` — the built-in **hive skill** (vendored from `the-hive-skill`, Apache-2.0).
+- `hive-cloud/` — the HIVE Cloud web workspace source (AGPL-3.0; vendored as a reference companion; see `NOTICE.md`).
+
+The previous sibling folders (`hive-cloud`, `the-hive-skill`, `HiveMind`, and temp/backup copies) were moved to `C:\_hive_archive_2026-08-16\` as a reversible backup. Nothing was permanently deleted; remove that archive when you no longer need the originals. See [`NOTICE.md`](NOTICE.md) for license details.
+
 ## Provider Setup
 
 HIVE supports multiple model providers (OpenAI, Anthropic, OpenRouter, Ollama, Google). Providers must be configured before they can be used. **Never store raw API keys directly in the CLI commands or configurations.** 
@@ -56,6 +63,17 @@ hive providers roles set builder local-ollama codellama
 hive providers roles set reviewer openrouter-main anthropic/claude-3-sonnet
 ```
 
+HIVE's chatbot and hivebot mode use **BYOK role assignment** so you control which model serves each persona. The chatbot roles are: `planning`, `coding`, `heavy-reasoning`, `game-builder`, `project-coworker`, `study-buddy`, plus an `auto` mode that classifies each message and picks the right role. Assign a model to any of them:
+```bash
+hive providers roles set planning openai gpt-4o
+hive providers roles set coding openrouter-main qwen/qwen3-coder
+hive providers roles set heavyReasoning openai o1
+hive providers roles set gameBuilder anthropic claude-3-5-sonnet
+hive providers roles set projectCoworker openai gpt-4o-mini
+hive providers roles set studyBuddy openai gpt-4o-mini
+```
+Run `hive chat` then `/list` to see current assignments, or `hive providers roles` for the raw JSON.
+
 ### Runtime Provider Overrides
 If you need to quickly override the provider for a specific task without modifying roles:
 ```bash
@@ -88,6 +106,29 @@ hive scout --task "provider setup"
 hive scout --files
 hive scout --json
 ```
+
+## Chatbot & Hivebot
+
+HIVE ships with a built-in chatbot and a **hivebot** swarm mode. Both are built on the same BYOK provider routing as the coding runtime, so your API keys (via env vars) and per-role model assignments apply everywhere.
+
+### Built-in Hive Skill
+The **hive-mind-council** skill (six-role council: Queen, Scout, Architect, Forger, Sentinel, Scribe) is vendored into this repo at [`skills/hive-mind-council/`](skills/hive-mind-council/). It is the protocol the hivebot swarm follows when delegating a task.
+
+### Chatbot (`hive chat`)
+- `hive chat "your message"` — single-turn answer.
+- `hive chat` — interactive REPL. Inline commands: `/role <slug>`, `/auto`, `/model <provider/model>`, `/hivebot <task>`, `/list`, `/skill`, `/clear`, `/exit`.
+- Each message is answered by a persona (`planning`, `coding`, `heavy-reasoning`, `game-builder`, `project-coworker`, `study-buddy`). In `/auto` mode (default), HIVE classifies the message and routes it to the best-fit role automatically.
+
+### Hivebot swarm (`hive hivebot "<task>"`)
+Delegates the task across the built-in six-role council. Each council agent runs as its own LLM turn served by its assigned model (e.g. `planning` for Queen/Architect, `coding` for Scout/Forger, `heavy-reasoning` for Sentinel, `project-coworker` for Scribe). This is the "swarm" delegation: one task, many specialized agents, each on the model you configured.
+
+### Bring Your Own Keys (BYOK)
+Add providers with an env-var reference (keys are never stored in config):
+```bash
+hive providers add --id openai-main --kind openai --api-key-env OPENAI_API_KEY --model gpt-4o
+hive providers approve openai-main
+```
+Then assign a model to each chatbot role (see [Assigning Roles](#assigning-roles)). With no role assigned, HIVE falls back to your first approved provider.
 
 ## What HIVE Is Not
 - Not a full IDE.
@@ -152,6 +193,8 @@ See [Windows desktop release and operator guide](docs/WINDOWS_DESKTOP_RELEASE.md
 - `hive push --confirmed`: Push the approved task to the remote repository.
 - `hive pr --confirmed`: Create a Pull Request for the approved task.
 - `hive scout [--task "<task>"] [--json] [--files]`: Run the Scout context engine to gather intelligence.
+- `hive chat ["message"]`: Start the HIVE chatbot. With no argument it opens an interactive REPL; with a message it answers in one shot.
+- `hive hivebot "<task>"`: Run a **hivebot** swarm — delegates the task to the built-in hive-mind-council (Queen → Scout → Architect → Forger → Sentinel → Scribe), each role served by its assigned BYOK model.
 
 ### Modes & Sessions
 - Coding modes: `hive code "<objective>" --mode <auto|plan|review>`.

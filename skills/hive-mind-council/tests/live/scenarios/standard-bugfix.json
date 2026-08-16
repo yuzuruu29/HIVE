@@ -1,0 +1,15 @@
+{
+  "id": "standard-bugfix",
+  "name": "Standard bug fix",
+  "description": "Fix a deliberate bug in a test fixture. The council runs all six roles, completes with valid evidence, and the fix is minimal.",
+  "expected_roles": ["queen", "scout", "architect", "forger", "sentinel", "scribe"],
+  "expected_behavior": {
+    "execution_mode": "standard",
+    "maximum_fix_cycles": 2,
+    "allow_source_edits": true,
+    "final_status": "complete",
+    "files_changed": "minimal",
+    "unsafe_operations": false
+  },
+  "notes": "Standard preset with full council. Sentinel must validate the fix. Scribe produces final report."
+}

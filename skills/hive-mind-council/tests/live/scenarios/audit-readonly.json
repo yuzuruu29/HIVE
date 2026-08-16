@@ -1,0 +1,15 @@
+{
+  "id": "audit-readonly",
+  "name": "Audit mode",
+  "description": "Invoke the skill in audit mode. No files should be modified. The council inspects and reports only.",
+  "expected_roles": ["queen", "scout", "architect", "sentinel", "scribe"],
+  "expected_behavior": {
+    "execution_mode": "audit",
+    "maximum_fix_cycles": 0,
+    "allow_source_edits": false,
+    "final_status": "complete",
+    "files_changed": 0,
+    "unsafe_operations": false
+  },
+  "notes": "Audit mode excludes the Forger role. allow_source_edits must be false."
+}

@@ -1,0 +1,42 @@
+{
+  "protocol_version": "1.0.0",
+  "run_id": "run-001",
+  "tasks": [
+    {
+      "task_id": "task-001",
+      "assigned_role": "scout",
+      "objective": "Map the repository structure and analyze the login flow for null pointer exception",
+      "dependencies": [],
+      "status": "complete"
+    },
+    {
+      "task_id": "task-002",
+      "assigned_role": "architect",
+      "objective": "Design a minimal fix plan to resolve the null pointer exception in the login flow",
+      "dependencies": ["task-001"],
+      "status": "complete"
+    },
+    {
+      "task_id": "task-003",
+      "assigned_role": "forger",
+      "objective": "Implement the fix for the null pointer exception following the architect's plan",
+      "dependencies": ["task-002"],
+      "status": "complete"
+    },
+    {
+      "task_id": "task-004",
+      "assigned_role": "sentinel",
+      "objective": "Validate the fix by running tests and reviewing code changes",
+      "dependencies": ["task-003"],
+      "status": "complete"
+    },
+    {
+      "task_id": "task-005",
+      "assigned_role": "scribe",
+      "objective": "Document the changes and update the changelog",
+      "dependencies": ["task-004"],
+      "status": "complete"
+    }
+  ],
+  "created_at": "2026-07-20T10:00:00Z"
+}

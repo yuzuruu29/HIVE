@@ -1,0 +1,33 @@
+# HIVE Run Contract Template
+
+```yaml
+run:
+  goal: "Describe the objective in one clear sentence"
+  deliverables:
+    - "List specific outputs (e.g., modified files, test results, documentation)"
+  constraints:
+    - "List boundaries (e.g., must not modify X, must preserve Y)"
+  exclusions:
+    - "List explicitly out-of-scope items"
+  success_criteria:
+    - "Measurable condition 1"
+    - "Measurable condition 2"
+    - "Measurable condition 3"
+  approval_requirements:
+    - "Actions needing user approval (e.g., git commit, destructive ops)"
+  execution_mode: quick | standard | deep | audit
+  maximum_fix_cycles: 2
+  status: planning
+```
+
+## Instructions
+
+1. **goal** — One sentence. Must be specific enough to determine completion.
+2. **deliverables** — Concrete artifacts the run produces.
+3. **constraints** — Non-negotiable boundaries. Every role must respect these.
+4. **exclusions** — Explicitly stated to prevent scope creep.
+5. **success_criteria** — Must be testable. Avoid subjective criteria.
+6. **approval_requirements** — Every item listed here requires explicit user confirmation.
+7. **execution_mode** — Selects the preset from orchestration-presets.md.
+8. **maximum_fix_cycles** — Hard limit on Sentinel→Forger repair loops.
+9. **status** — Starts at `planning`, ends at `complete | partial | blocked | failed`.

@@ -76,4 +76,11 @@ export type ProviderRoles = {
   fixer?: RoleAssignment;
   synthesis?: RoleAssignment;
   fallback?: RoleAssignment;
+  /** HIVE chatbot / hivebot role assignments (BYOK). */
+  planning?: RoleAssignment;
+  coding?: RoleAssignment;
+  heavyReasoning?: RoleAssignment;
+  gameBuilder?: RoleAssignment;
+  projectCoworker?: RoleAssignment;
+  studyBuddy?: RoleAssignment;
 };

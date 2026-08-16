@@ -1,0 +1,27 @@
+{
+  "private": true,
+  "description": "Portable six-role council protocol for agentic coding hosts.",
+  "scripts": {
+    "test": "node tests/run-all.js && node tests/conformance/run-conformance.js && node tests/link-validator-regression.test.js && node tests/schemas/run-schema-tests.js && node tests/semantic/semantic-rules.test.js && node tests/mutation/mutate-valid-artifacts.test.js && node tests/bundles/run-bundle-tests.js && node tests/conformance-report-regression.test.js",
+    "test:contracts": "node tests/contracts/handoff-schema.test.js",
+    "test:templates": "node tests/contracts/yaml-templates.test.js",
+    "test:presets": "node tests/scenarios/preset-selection.test.js",
+    "test:safety": "node tests/scenarios/safety-validation.test.js",
+	    "test:ci": "node tests/run-ci.js",
+	    "test:conformance": "node tests/conformance/run-conformance.js",
+	    "test:schemas": "node tests/schemas/run-schema-tests.js",
+	    "test:semantic": "node tests/semantic/semantic-rules.test.js",
+	    "test:mutation": "node tests/mutation/mutate-valid-artifacts.test.js",
+	    "test:bundles": "node tests/bundles/run-bundle-tests.js",
+	    "render:demo": "cd demo && npm run render",
+    "validate:json": "node -e \"const fs=require('fs');require('path');['package.json','skill.json','plugin.json','protocol.json'].forEach(f=>{try{JSON.parse(fs.readFileSync(f,'utf8'));console.log('OK: '+f)}catch(e){console.error('FAIL: '+f);process.exit(1)}})\"",
+    "validate:links": "node tests/validate-links.js",
+    "validate:artifact": "node tools/hive-validate.js",
+    "validate:schemas": "node tests/schemas/run-schema-tests.js",
+    "generate:conformance-report": "node tools/generate-conformance-report.js",
+    "validate:conformance-report": "node tools/generate-conformance-report.js --check"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0"
+  }
+}

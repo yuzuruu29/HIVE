@@ -1,0 +1,9 @@
+{
+  "scenario": "Read-only Audit run",
+  "preset": "audit",
+  "input": "Review the API design for performance issues",
+  "expected_roles": ["queen", "scout", "architect", "sentinel", "scribe"],
+  "expected_fix_cycles": 0,
+  "allow_source_edits": false,
+  "expected_status": "complete"
+}

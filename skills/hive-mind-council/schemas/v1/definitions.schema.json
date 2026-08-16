@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "v1/definitions.schema.json",
+  "title": "HIVE Protocol Shared Definitions",
+  "description": "Reusable enums and type definitions for HIVE protocol v1",
+  "$defs": {
+    "HiveRole": {
+      "type": "string",
+      "enum": ["queen", "scout", "architect", "forger", "sentinel", "scribe"]
+    },
+    "ExecutionMode": {
+      "type": "string",
+      "enum": ["quick", "standard", "deep", "audit"]
+    },
+    "RunStatus": {
+      "type": "string",
+      "enum": ["complete", "partial", "blocked", "failed"]
+    },
+    "HandoffStatus": {
+      "type": "string",
+      "enum": ["complete", "blocked", "failed", "needs_approval"]
+    },
+    "Confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+    "PermissionLevel": {
+      "type": "string",
+      "enum": ["READ", "WRITE", "EXECUTE", "NETWORK", "GIT_MUTATE", "DESTRUCTIVE"]
+    },
+    "SentinelVerdict": {
+      "type": "string",
+      "enum": ["PASS", "PASS_WITH_LIMITATIONS", "FAIL", "BLOCKED"]
+    },
+    "RiskSeverity": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "CommandEvidence": {
+      "type": "object",
+      "properties": {
+        "command": { "type": "string" },
+        "working_directory": { "type": "string" },
+        "executed": { "type": "boolean" },
+        "exit_code": { "type": "integer" },
+        "output_excerpt": { "type": "string" }
+      },
+      "required": ["command", "executed"]
+    },
+    "FileEvidence": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "action": { "type": "string", "enum": ["created", "modified", "deleted", "examined"] },
+        "checksum": { "type": "string" }
+      },
+      "required": ["path", "action"]
+    },
+    "ValidationEvidence": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["static", "automated", "behavioral", "safety", "portability"] },
+        "result": { "type": "string", "enum": ["pass", "fail", "blocked"] },
+        "details": { "type": "string" }
+      },
+      "required": ["type", "result"]
+    }
+  }
+}

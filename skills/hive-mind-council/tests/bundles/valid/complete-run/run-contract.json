@@ -1,0 +1,31 @@
+{
+  "protocol_version": "1.0.0",
+  "run_id": "run-001",
+  "goal": "Fix null pointer exception in login flow",
+  "deliverables": [
+    "Patched login module with null guard",
+    "Updated unit tests for the fix",
+    "Validation report confirming no regression"
+  ],
+  "constraints": [
+    "Must not change the public API surface",
+    "Must preserve existing error handling behavior"
+  ],
+  "exclusions": [
+    "UI components are out of scope",
+    "Authentication token refresh flow is out of scope"
+  ],
+  "success_criteria": [
+    "Null pointer exception no longer thrown in login flow",
+    "All existing unit tests pass",
+    "At least one new test covers the null input edge case"
+  ],
+  "approval_requirements": [
+    "Code review by senior engineer",
+    "Automated CI must pass"
+  ],
+  "execution_mode": "standard",
+  "maximum_fix_cycles": 2,
+  "status": "complete",
+  "created_at": "2026-07-20T10:00:00Z"
+}

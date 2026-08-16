@@ -1,0 +1,39 @@
+# HIVE Final Review Template
+
+```yaml
+review:
+  run_status: complete | partial | blocked | failed
+  goal: "Original goal from the run contract"
+  execution_mode: quick | standard | deep | audit
+  fix_cycles_used: 0
+  result: "Summary of what was achieved"
+  changes:
+    - "Description of change 1"
+    - "Description of change 2"
+  evidence:
+    - "Evidence reference 1 (e.g., specific command output, test result)"
+    - "Evidence reference 2"
+  verification:
+    - command: "npm test"
+      outcome: "X passed, Y failed"
+  limitations:
+    - "Known limitation 1"
+    - "Known limitation 2"
+  follow_up:
+    - "Recommended follow-up task 1"
+    - "Recommended follow-up task 2"
+  files_affected:
+    - "path/to/file"
+  approval_actions:
+    - action: "Git commit"
+      status: granted | denied | pending
+```
+
+## Instructions
+
+1. `run_status` must match the run contract's final status.
+2. `fix_cycles_used` must not exceed the configured maximum.
+3. Every `evidence` entry should reference a specific command, test, or behavioral check.
+4. `limitations` must be honest — do not omit known issues.
+5. `follow_up` should specify concrete next tasks, not vague suggestions.
+6. `approval_actions` must record whether user approval was requested and the outcome.

@@ -1,0 +1,83 @@
+name: 'Install The Hive Skill'
+description: 'Installs The Hive Skill into your agentic coding environment.'
+author: 'yuzuruu29'
+
+branding:
+  icon: 'users'
+  color: 'purple'
+
+inputs:
+  install-path:
+    description: 'Path where the skill will be installed'
+    required: false
+    default: '.agents/skills/hive-mind-council'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create install directory
+      run: mkdir -p "${{ inputs.install-path }}"
+      shell: bash
+
+    - name: Copy skill files
+      run: |
+        cp -r "$GITHUB_ACTION_PATH/skills/hive-mind-council/"* "${{ inputs.install-path }}/"
+      shell: bash
+
+    - name: Validate SKILL.md exists
+      run: |
+        if [ ! -f "${{ inputs.install-path }}/SKILL.md" ]; then
+          echo "Error: SKILL.md not found in ${{ inputs.install-path }}"
+          exit 1
+        fi
+      shell: bash
+
+    - name: Validate skill name in SKILL.md
+      run: |
+        if ! grep -q 'hive-mind-council' "${{ inputs.install-path }}/SKILL.md"; then
+          echo "Error: Skill name 'hive-mind-council' not found in SKILL.md"
+          exit 1
+        fi
+      shell: bash
+
+    - name: Validate reference files
+      run: |
+        required_refs="council-protocol.md role-contracts.md handoff-schema.md orchestration-presets.md verification-policy.md safety-policy.md"
+        for ref in $required_refs; do
+          if [ ! -f "${{ inputs.install-path }}/references/$ref" ]; then
+            echo "Error: Reference file $ref not found"
+            exit 1
+          fi
+        done
+        echo "All 6 reference files present"
+      shell: bash
+
+    - name: Validate agent files
+      run: |
+        required_agents="Queen.md Scout.md Architect.md Forger.md Sentinel.md Scribe.md"
+        for agent in $required_agents; do
+          if [ ! -f "${{ inputs.install-path }}/agents/$agent" ]; then
+            echo "Error: Agent file $agent not found"
+            exit 1
+          fi
+        done
+        echo "All 6 agent files present"
+      shell: bash
+
+    - name: Validate templates
+      run: |
+        required_templates="council-loop.md final-report.md validation-report.md run-contract.yaml role-handoff.yaml evidence-ledger.yaml final-review.yaml"
+        for tmpl in $required_templates; do
+          if [ ! -f "${{ inputs.install-path }}/templates/$tmpl" ]; then
+            echo "Error: Template file $tmpl not found"
+            exit 1
+          fi
+        done
+        echo "All 7 template files present"
+      shell: bash
+
+    - name: Confirm installation
+      run: |
+        file_count=$(find "${{ inputs.install-path }}" -type f | wc -l)
+        echo "The Hive Skill installed successfully to ${{ inputs.install-path }} ($file_count files)"
+      shell: bash

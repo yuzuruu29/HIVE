@@ -1,0 +1,20 @@
+{
+  "$schema": "./schemas/protocol-manifest.schema.json",
+  "name": "hive-mind-council",
+  "skill_version": "0.3.0",
+  "protocol_version": "1.0.0",
+  "schema_version": "1.0.0",
+  "artifact_format_version": "1.0.0",
+  "supported_execution_modes": [
+    "quick",
+    "standard",
+    "deep",
+    "audit"
+  ],
+  "supported_run_statuses": [
+    "complete",
+    "partial",
+    "blocked",
+    "failed"
+  ]
+}

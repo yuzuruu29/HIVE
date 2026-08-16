@@ -1,0 +1,148 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "v1/evidence-ledger.schema.json",
+  "title": "HIVE Evidence Ledger",
+  "description": "Schema for the evidence ledger — a typed collection of evidence entries produced during a run",
+  "type": "object",
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "description": "Protocol version identifier"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Unique run identifier matching the run contract"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EvidenceEntry"
+      },
+      "description": "Collection of evidence entries"
+    }
+  },
+  "required": [
+    "protocol_version",
+    "run_id",
+    "evidence"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "EvidenceEntry": {
+      "type": "object",
+      "properties": {
+        "evidence_id": {
+          "type": "string",
+          "description": "Unique identifier for this evidence entry"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["command", "file", "test", "build", "inspection", "approval", "runtime", "limitation"],
+          "description": "Type of evidence"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the evidence was created"
+        },
+        "output_digest": {
+          "type": "string",
+          "description": "Optional digest of the evidence output"
+        },
+        "command": {
+          "type": "string",
+          "description": "The command that was executed (command type)"
+        },
+        "working_directory": {
+          "type": "string",
+          "description": "Working directory where the command was executed"
+        },
+        "executed": {
+          "type": "boolean",
+          "description": "Whether the command was actually executed"
+        },
+        "exit_code": {
+          "type": "integer",
+          "description": "Exit code of the command"
+        },
+        "output_excerpt": {
+          "type": "string",
+          "description": "Excerpt of the command output"
+        },
+        "path": {
+          "type": "string",
+          "description": "File path (file type)"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["created", "modified", "deleted", "examined"],
+          "description": "Action performed on the file"
+        },
+        "checksum": {
+          "type": "string",
+          "description": "Optional file checksum"
+        },
+        "test_framework": {
+          "type": "string",
+          "description": "Test framework used (test type)"
+        },
+        "test_count": {
+          "type": "integer",
+          "description": "Total number of tests"
+        },
+        "passed": {
+          "type": "integer",
+          "description": "Number of passed tests"
+        },
+        "failed": {
+          "type": "integer",
+          "description": "Number of failed tests"
+        },
+        "skipped": {
+          "type": "integer",
+          "description": "Number of skipped tests"
+        },
+        "approved_by": {
+          "type": "string",
+          "description": "Who approved (approval type)"
+        },
+        "approved_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the approval occurred"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional notes"
+        }
+      },
+      "required": ["evidence_id", "type"],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "command" } }
+          },
+          "then": {
+            "required": ["command", "executed"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "file" } }
+          },
+          "then": {
+            "required": ["path", "action"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "approval" } }
+          },
+          "then": {
+            "required": ["approved_by", "approved_at"]
+          }
+        }
+      ]
+    }
+  }
+}

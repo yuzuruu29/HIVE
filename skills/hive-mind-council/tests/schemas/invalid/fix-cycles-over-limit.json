@@ -1,0 +1,16 @@
+{
+  "protocol_version": "1.0.0",
+  "run_id": "run-over-cycle",
+  "run_status": "complete",
+  "goal": "Quick mode with too many fix cycles",
+  "result": "Should violate fix-cycles-within-preset rule",
+  "execution_mode": "quick",
+  "fix_cycles_used": 99,
+  "changes": [],
+  "evidence_refs": [],
+  "verification": [],
+  "limitations": [],
+  "files_affected": [],
+  "sentinel_verdict": "PASS",
+  "completed_at": "2026-07-20T10:00:00Z"
+}

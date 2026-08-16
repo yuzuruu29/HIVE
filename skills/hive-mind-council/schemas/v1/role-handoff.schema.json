@@ -1,0 +1,135 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "v1/role-handoff.schema.json",
+  "title": "HIVE Role Handoff",
+  "description": "Schema for role handoff records — captures the output of one agent role before passing control to another",
+  "type": "object",
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "description": "Protocol version identifier"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Unique run identifier matching the run contract"
+    },
+    "task_id": {
+      "type": "string",
+      "description": "Task identifier this handoff belongs to"
+    },
+    "role": {
+      "$ref": "definitions.schema.json#/$defs/HiveRole",
+      "description": "The role that performed this work"
+    },
+    "status": {
+      "$ref": "definitions.schema.json#/$defs/HandoffStatus",
+      "description": "Status of this handoff"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Summary of what was accomplished"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "description": "Detailed findings from this role's work"
+    },
+    "files_examined": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Paths to files that were examined"
+    },
+    "files_changed": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Paths to files that were created or modified"
+    },
+    "commands_run": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Commands that were executed"
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Risk"
+      },
+      "description": "Risks identified during this handoff"
+    },
+    "unresolved_questions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Questions that remain unanswered"
+    },
+    "recommended_next_action": {
+      "type": "string",
+      "description": "Recommended next action for the receiving role"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the handoff was created"
+    }
+  },
+  "required": [
+    "protocol_version",
+    "run_id",
+    "task_id",
+    "role",
+    "status",
+    "summary",
+    "findings",
+    "files_examined",
+    "files_changed",
+    "commands_run",
+    "risks",
+    "unresolved_questions",
+    "recommended_next_action",
+    "created_at"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Finding": {
+      "type": "object",
+      "properties": {
+        "statement": {
+          "type": "string",
+          "description": "Description of the finding"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "References to supporting evidence"
+        },
+        "confidence": {
+          "$ref": "definitions.schema.json#/$defs/Confidence",
+          "description": "Confidence level in this finding"
+        }
+      },
+      "required": ["statement"],
+      "additionalProperties": false
+    },
+    "Risk": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Description of the risk"
+        },
+        "severity": {
+          "$ref": "definitions.schema.json#/$defs/RiskSeverity",
+          "description": "Severity level of the risk"
+        },
+        "affected_files": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Files affected by this risk"
+        }
+      },
+      "required": ["description"],
+      "additionalProperties": false
+    }
+  }
+}

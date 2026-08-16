@@ -1,0 +1,10 @@
+{
+  "scenario": "Deep security audit",
+  "preset": "deep",
+  "input": "Audit the authentication module for security vulnerabilities",
+  "expected_roles": ["queen", "scout", "architect", "forger", "sentinel", "scribe"],
+  "expected_fix_cycles": 2,
+  "expected_risk_analysis": true,
+  "expected_adversarial_validation": true,
+  "expected_status": "complete"
+}

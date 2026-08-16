@@ -1,0 +1,19 @@
+{
+  "runtime": { "name": "claude-code", "version": "unknown" },
+  "protocol_versions": { "minimum": "1.0.0", "maximum": "1.x" },
+  "capabilities": {
+    "native_subagents": true,
+    "isolated_subagents": false,
+    "parallel_execution": true,
+    "structured_output": true,
+    "file_editing": true,
+    "command_execution": true,
+    "approval_prompts": true,
+    "git_operations": true,
+    "network_access": true,
+    "persistent_sessions": false,
+    "cancellation": true
+  },
+  "limits": { "maximum_parallel_workers": 4, "maximum_context_tokens": null },
+  "evidence": { "tested_at": "2026-07-20", "test_type": "structural", "notes": [] }
+}

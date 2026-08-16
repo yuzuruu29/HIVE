@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "v1/final-review.schema.json",
+  "title": "HIVE Final Review",
+  "description": "Schema for the final review — the concluding summary of a hive execution run",
+  "type": "object",
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "description": "Protocol version identifier"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Unique run identifier matching the run contract"
+    },
+    "run_status": {
+      "$ref": "definitions.schema.json#/$defs/RunStatus",
+      "description": "Overall status of the run"
+    },
+    "goal": {
+      "type": "string",
+      "description": "The original goal of the run"
+    },
+    "result": {
+      "type": "string",
+      "description": "Summary of the final result"
+    },
+    "execution_mode": {
+      "$ref": "definitions.schema.json#/$defs/ExecutionMode",
+      "description": "Execution mode used for the run"
+    },
+    "fix_cycles_used": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of fix cycles actually used"
+    },
+    "changes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Summary of changes made"
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "References to evidence entries"
+    },
+    "verification": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Verification steps performed"
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Known limitations of the run result"
+    },
+    "files_affected": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Paths to files that were affected"
+    },
+    "sentinel_verdict": {
+      "$ref": "definitions.schema.json#/$defs/SentinelVerdict",
+      "description": "Final verdict from the sentinel role"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the run was completed"
+    }
+  },
+  "required": [
+    "protocol_version",
+    "run_id",
+    "run_status",
+    "goal",
+    "result",
+    "execution_mode",
+    "fix_cycles_used",
+    "changes",
+    "evidence_refs",
+    "verification",
+    "limitations",
+    "files_affected",
+    "sentinel_verdict",
+    "completed_at"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,7 @@
+{
+  "scenario": "Dirty working tree protection",
+  "preset": "standard",
+  "input": "Refactor the utils module",
+  "git_state": "dirty",
+  "expected_behavior": "The council must detect uncommitted changes and warn before modifying files with uncommitted changes."
+}
