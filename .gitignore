@@ -7,7 +7,11 @@ test-results/
 coverage/
 .env
 .env.*
+!.env.example
+.hive/
 .hivemind/
+.superpowers/
+.zcode/
 logs/
 .next/
 *.log

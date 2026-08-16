@@ -1,6 +1,0 @@
-{
-  "builder": {
-    "provider": "local-ollama",
-    "model": "test-model"
-  }
-}
