@@ -8,6 +8,10 @@ export interface DesktopUiPrefs {
   density?: "comfortable" | "compact";
   accent?: "vivid" | "contrast";
   rails?: { left: boolean; right: boolean };
+  /** Top-level surface: conversational Chat or the coder cockpit. */
+  mode?: "chat" | "coder";
+  /** Enter sends the chat composer message (default true; Ctrl+Enter sends when false). */
+  composerSendWithEnter?: boolean;
 }
 
 const STORAGE_KEY = "hive.desktop.ui.v1";

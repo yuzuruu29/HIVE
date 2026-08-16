@@ -1,9 +1,13 @@
+import { ModeSwitch } from "./ModeSwitch";
+import type { DesktopMode } from "../state";
 import { StatusPill } from "./StatusPill";
 
 export interface TopBarProps {
   worker: string;
   modalOpen: boolean;
   activeRun?: boolean;
+  mode?: DesktopMode;
+  onModeChange?: (mode: DesktopMode) => void;
   onToggleLeftRail?: () => void;
   onToggleRightRail?: () => void;
   onOpenSettings?: () => void;
@@ -13,6 +17,8 @@ export function TopBar({
   worker,
   modalOpen,
   activeRun = false,
+  mode,
+  onModeChange,
   onToggleLeftRail,
   onToggleRightRail,
   onOpenSettings,
@@ -27,6 +33,7 @@ export function TopBar({
         </span>
         <span className="tagline">Hyper Intelligence for Verified Engineering</span>
       </div>
+      {mode && onModeChange && <ModeSwitch mode={mode} onModeChange={onModeChange} />}
       <div className="topbar-actions">
         {onToggleLeftRail && (
           <button

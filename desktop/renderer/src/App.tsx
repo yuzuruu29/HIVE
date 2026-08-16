@@ -3,6 +3,7 @@ import type { DesktopCommand, DesktopCredentialKind, DesktopEvent, DesktopProvid
 import type { HiveDesktopBridge } from "./bridge";
 import { installedBridge } from "./bridge";
 import { CenterStage } from "./components/CenterStage";
+import { ChatView } from "./components/chat/ChatView";
 import { CommandPalette, PaletteCommand } from "./components/CommandPalette";
 import { ConfirmationDialog } from "./components/ConfirmationDialog";
 import { Inspector } from "./components/Inspector";
@@ -14,7 +15,7 @@ import { Toast, ToastItem } from "./components/Toast";
 import { TopBar } from "./components/TopBar";
 import { notifyRunCompleted } from "./notifications";
 import { usePrefs } from "./prefs";
-import { initialDesktopState, latestRun, reduceDesktopEvent, type CenterTab } from "./state";
+import { initialDesktopState, latestRun, reduceDesktopEvent, type CenterTab, type DesktopMode } from "./state";
 import { identifier, terminalStatuses } from "./utils";
 import "./styles.css";
 
@@ -59,6 +60,9 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   useEffect(() => {
     if (prefs.rails) {
       dispatch({ type: "ui.rails.set", rails: prefs.rails });
+    }
+    if (prefs.mode) {
+      dispatch({ type: "ui.mode", mode: prefs.mode });
     }
   }, []);
 
@@ -126,7 +130,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
       if (epoch === openEpochRef.current && ready.type === "desktop.ready") {
         repositoryRef.current = ready.repositoryRoot;
         setRepositoryPath(ready.repositoryRoot);
-        await Promise.all([send({ type: "thread.list" }, { epoch, repositoryRoot: ready.repositoryRoot }), send({ type: "provider.list" }, { epoch }), send({ type: "git.inspect", repositoryRoot: ready.repositoryRoot }, { epoch, repositoryRoot: ready.repositoryRoot })]);
+        await Promise.all([send({ type: "thread.list" }, { epoch, repositoryRoot: ready.repositoryRoot }), send({ type: "provider.list" }, { epoch }), send({ type: "git.inspect", repositoryRoot: ready.repositoryRoot }, { epoch, repositoryRoot: ready.repositoryRoot }), send({ type: "chat.list" }, { epoch })]);
       }
     } finally { if (epoch === openEpochRef.current) setBusy(false); }
   }
@@ -230,6 +234,13 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
     updatePrefs({ rails: nextRails });
   };
 
+  const switchMode = (mode: DesktopMode) => {
+    if (state.mode === mode) return;
+    dispatch({ type: "ui.mode", mode });
+    updatePrefs({ mode });
+    if (mode === "chat" && state.repositoryRoot) void send({ type: "chat.list" });
+  };
+
   // Palette Commands
   const paletteCommands: PaletteCommand[] = useMemo(() => {
     const list: PaletteCommand[] = [];
@@ -292,6 +303,19 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
     }
 
     list.push({
+      id: "mode-chat",
+      label: "Switch to Chat",
+      hint: "Ctrl+Shift+1",
+      run: () => switchMode("chat"),
+    });
+    list.push({
+      id: "mode-coder",
+      label: "Switch to Coder",
+      hint: "Ctrl+Shift+2",
+      run: () => switchMode("coder"),
+    });
+
+    list.push({
       id: "help-shortcuts",
       label: "View Keyboard Shortcuts",
       hint: "?",
@@ -305,7 +329,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
     });
 
     return list;
-  }, [state.repositories, activeRun, currentRun, state.rails]);
+  }, [state.repositories, activeRun, currentRun, state.rails, state.mode, state.repositoryRoot]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -329,6 +353,12 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
       if ((event.ctrlKey || event.metaKey) && (event.key === "k" || event.key === "K")) {
         event.preventDefault();
         setPaletteOpen((prev) => !prev);
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.code === "Digit1" || event.code === "Digit2")) {
+        event.preventDefault();
+        switchMode(event.code === "Digit1" ? "chat" : "coder");
         return;
       }
 
@@ -359,7 +389,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [paletteOpen, shortcutHelpOpen, settingsOpen, providerDialog, state.preview, modalOpen, composer, activeThread, state.repositoryRoot, repositoryActiveRun]);
+  }, [paletteOpen, shortcutHelpOpen, settingsOpen, providerDialog, state.preview, modalOpen, composer, activeThread, state.repositoryRoot, repositoryActiveRun, state.mode]);
 
   const cockpitClasses = `cockpit-grid ${!state.rails.left ? "hide-left" : ""} ${!state.rails.right ? "hide-right" : ""}`;
 
@@ -370,11 +400,16 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
         worker={state.worker}
         modalOpen={modalOpen}
         activeRun={Boolean(repositoryActiveRun)}
+        mode={state.mode}
+        onModeChange={switchMode}
         onToggleLeftRail={() => toggleRail("left")}
         onToggleRightRail={() => toggleRail("right")}
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
+      {state.mode === "chat" ? (
+        <ChatView state={state} />
+      ) : (
       <div className={cockpitClasses} aria-hidden={modalOpen || undefined}>
         <LeftRail
           repositoryPath={repositoryPath}
@@ -436,6 +471,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
           onSendExternal={(command) => send(command)}
         />
       </div>
+      )}
 
       <Toast toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />
 

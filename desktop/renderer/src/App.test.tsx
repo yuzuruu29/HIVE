@@ -85,7 +85,8 @@ describe("HIVE desktop cockpit", () => {
     expect(screen.getByRole("tab", { name: /report/i })).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{Home}");
     expect(screen.getByRole("tab", { name: /conversation/i })).toHaveFocus();
-    expect(screen.getAllByRole("tab").filter((tab) => tab.tabIndex === 0)).toHaveLength(1);
+    const centerTabs = within(screen.getByRole("tablist", { name: "Thread views" })).getAllByRole("tab");
+    expect(centerTabs.filter((tab) => tab.tabIndex === 0)).toHaveLength(1);
   });
 
   it("enforces 20,000 characters and only renders a message after thread.changed confirmation", async () => {

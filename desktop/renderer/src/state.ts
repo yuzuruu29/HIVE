@@ -1,18 +1,52 @@
 import type { CodingFinalReport, RuntimeEvent } from "../../../src/coding/types";
 import type {
-  DesktopChangesDiff, DesktopEvent, DesktopProviderMetadata, DesktopRecentRepository,
+  DesktopChangesDiff, DesktopChatConversation, DesktopChatSummary, DesktopEvent, DesktopProviderMetadata, DesktopRecentRepository,
   GuardedGitActionPreview, GuardedGitStatus, ThreadRecordV1, ThreadRunRef,
 } from "../../../src/desktop/types";
+import type { ChatReceipt } from "../../../src/chat/types";
 
 export type CenterTab = "conversation" | "changes" | "report";
+export type DesktopMode = "chat" | "coder";
 export type DesktopUiAction =
   | { type: "ui.tab"; tab: CenterTab }
   | { type: "ui.dismiss-error" }
   | { type: "ui.close-preview" }
   | { type: "ui.repository-opening" }
   | { type: "ui.rails"; side: "left" | "right" }
-  | { type: "ui.rails.set"; rails: { left: boolean; right: boolean } };
+  | { type: "ui.rails.set"; rails: { left: boolean; right: boolean } }
+  | { type: "ui.mode"; mode: DesktopMode };
 export type WorkerState = "idle" | "starting" | "running" | "stopped" | "failed";
+
+/** Resolved provider route for a chat role, for trust chips and pickers. */
+export interface ChatRouteInfo {
+  providerId: string;
+  model: string;
+  source: string;
+  degraded: boolean;
+}
+
+/** One council (hivebot) stage event rendered inside a conversation. */
+export interface CouncilStage {
+  type: "stage-started" | "stage-completed";
+  agent: string;
+  attempt: number;
+  receipt?: ChatReceipt;
+  output?: string;
+}
+
+export interface DesktopChatState {
+  conversations: DesktopChatSummary[];
+  activeId: string | null;
+  active: DesktopChatConversation | null;
+  /** In-flight assistant text per conversation; chunks append only when turnId matches. */
+  streaming: Record<string, { turnId: string; text: string } | undefined>;
+  routes: Record<string, ChatRouteInfo>;
+  councilByConv: Record<string, CouncilStage[]>;
+}
+
+export function initialChatState(): DesktopChatState {
+  return { conversations: [], activeId: null, active: null, streaming: {}, routes: {}, councilByConv: {} };
+}
 
 export interface DesktopViewState {
   repositoryRoot: string | null;
@@ -21,6 +55,8 @@ export interface DesktopViewState {
   activeThreadId: string | null;
   selectedSessionId: string | null;
   tab: CenterTab;
+  mode: DesktopMode;
+  chat: DesktopChatState;
   providers: DesktopProviderMetadata[];
   selectedProviderId: string;
   runtimeEvents: RuntimeEvent[];
@@ -45,6 +81,8 @@ export function initialDesktopState(): DesktopViewState {
     activeThreadId: null,
     selectedSessionId: null,
     tab: "conversation",
+    mode: "coder",
+    chat: initialChatState(),
     providers: [],
     selectedProviderId: "",
     runtimeEvents: [],
@@ -69,14 +107,15 @@ export function reduceDesktopEvent(state: DesktopViewState, event: DesktopEvent 
     case "ui.close-preview": return { ...state, preview: null };
     case "ui.rails": return { ...state, rails: { ...state.rails, [event.side]: !state.rails[event.side] } };
     case "ui.rails.set": return { ...state, rails: event.rails };
-    case "ui.repository-opening": return { ...state, repositoryRoot: null, threads: [], activeThreadId: null, selectedSessionId: null, runtimeEvents: [], run: null, pausingSessionId: null, pausingRequestId: null, worker: "idle", gitStatus: null, diff: null, reports: {}, preview: null, error: null, notice: null };
+    case "ui.mode": return { ...state, mode: event.mode };
+    case "ui.repository-opening": return { ...state, repositoryRoot: null, threads: [], activeThreadId: null, selectedSessionId: null, runtimeEvents: [], run: null, pausingSessionId: null, pausingRequestId: null, worker: "idle", gitStatus: null, diff: null, reports: {}, preview: null, chat: initialChatState(), error: null, notice: null };
     case "request.failed": {
       const failedPause = Boolean(state.pausingRequestId && event.requestId === state.pausingRequestId);
       return { ...state, pausingSessionId: failedPause ? null : state.pausingSessionId, pausingRequestId: failedPause ? null : state.pausingRequestId, error: event.message, notice: null };
     }
     case "request.completed": return { ...state, notice: "Command completed.", error: null };
     case "repository.listed": return { ...state, repositories: event.repositories, error: null };
-    case "desktop.ready": return { ...state, repositoryRoot: event.repositoryRoot, activeThreadId: null, selectedSessionId: null, threads: [], runtimeEvents: [], run: null, pausingSessionId: null, pausingRequestId: null, worker: "idle", gitStatus: null, diff: null, reports: {}, preview: null, error: null, notice: null };
+    case "desktop.ready": return { ...state, repositoryRoot: event.repositoryRoot, activeThreadId: null, selectedSessionId: null, threads: [], runtimeEvents: [], run: null, pausingSessionId: null, pausingRequestId: null, worker: "idle", gitStatus: null, diff: null, reports: {}, preview: null, chat: initialChatState(), error: null, notice: null };
     case "thread.listed": return { ...state, threads: [...event.threads].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), error: null };
     case "thread.changed": {
       const threads = [event.thread, ...state.threads.filter((thread) => thread.id !== event.thread.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -125,6 +164,23 @@ export function reduceDesktopEvent(state: DesktopViewState, event: DesktopEvent 
     case "credential.tested": return { ...state, notice: event.result.message, error: event.result.ok ? null : event.result.message };
     case "credential.changed": return { ...state, notice: event.credential.configured ? "Credential encrypted and stored." : "Credential removed.", error: null };
     case "credential.listed": return state;
+    case "chat.listed": return { ...state, chat: { ...state.chat, conversations: event.conversations }, error: null };
+    case "chat.changed": return { ...state, chat: { ...state.chat, active: event.conversation, activeId: event.conversation.id }, error: null };
+    case "chat.started": return { ...state, chat: { ...state.chat, streaming: { ...state.chat.streaming, [event.conversationId]: { turnId: event.turnId, text: "" } } }, error: null };
+    case "chat.chunk": {
+      const stream = state.chat.streaming[event.conversationId];
+      if (!stream || stream.turnId !== event.turnId) return state;
+      return { ...state, chat: { ...state.chat, streaming: { ...state.chat.streaming, [event.conversationId]: { ...stream, text: stream.text + event.chunk } } } };
+    }
+    case "chat.completed": {
+      const { [event.conversationId]: _cleared, ...streaming } = state.chat.streaming;
+      return { ...state, chat: { ...state.chat, streaming }, error: null };
+    }
+    case "chat.failed": {
+      const { [event.conversationId]: _cleared, ...streaming } = state.chat.streaming;
+      return { ...state, chat: { ...state.chat, streaming }, error: event.message };
+    }
+    case "chat.route.resolved": return { ...state, chat: { ...state.chat, routes: { ...state.chat.routes, [event.role]: { providerId: event.providerId, model: event.model, source: event.source, degraded: event.degraded } } } };
   }
 }
 
