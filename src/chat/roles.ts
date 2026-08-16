@@ -149,3 +149,16 @@ export function normalizeChatRole(input: string): ChatBindingRole | null {
   }
   return null;
 }
+
+/** Desktop-safe persona card copy (labels + descriptions, no prompts). */
+export interface ChatRoleCard {
+  slug: ChatRoleSlug;
+  label: string;
+  description: string;
+}
+
+export const CHAT_ROLE_CARDS: readonly ChatRoleCard[] = CHAT_ROLE_SLUGS.map((slug) => ({
+  slug,
+  label: CHAT_ROLE_META[slug].label,
+  description: CHAT_ROLE_META[slug].description,
+}));

@@ -5,6 +5,11 @@ export interface HiveDesktopBridge {
   subscribe(listener: (event: DesktopEvent) => void): () => void;
 }
 
+/** A desktop command without its request id — App.send fills it in. */
+export type DesktopCommandInput = DesktopCommand extends infer Command
+  ? Command extends { requestId: string } ? Omit<Command, "requestId"> & { requestId?: string } : never
+  : never;
+
 declare global {
   interface Window { hiveDesktop: HiveDesktopBridge }
 }

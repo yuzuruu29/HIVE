@@ -1,8 +1,7 @@
 import { FormEvent, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { DesktopCommand, DesktopCredentialKind, DesktopEvent, DesktopProviderConfigurationInput, DesktopProviderMetadata, GuardedGitActionPreview, ThreadMessage, ThreadRecordV1 } from "../../../src/desktop/types";
 import type { HiveDesktopBridge } from "./bridge";
-import { installedBridge } from "./bridge";
-import { CenterStage } from "./components/CenterStage";
+import { installedBridge, type DesktopCommandInput } from "./bridge";import { CenterStage } from "./components/CenterStage";
 import { ChatView } from "./components/chat/ChatView";
 import { CommandPalette, PaletteCommand } from "./components/CommandPalette";
 import { ConfirmationDialog } from "./components/ConfirmationDialog";
@@ -18,10 +17,6 @@ import { usePrefs } from "./prefs";
 import { initialDesktopState, latestRun, reduceDesktopEvent, type CenterTab, type DesktopMode } from "./state";
 import { identifier, terminalStatuses } from "./utils";
 import "./styles.css";
-
-type DesktopCommandInput = DesktopCommand extends infer Command
-  ? Command extends { requestId: string } ? Omit<Command, "requestId"> & { requestId?: string } : never
-  : never;
 
 export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   const api = suppliedApi ?? installedBridge();
@@ -408,7 +403,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
       />
 
       {state.mode === "chat" ? (
-        <ChatView state={state} />
+        <ChatView state={state} send={send} />
       ) : (
       <div className={cockpitClasses} aria-hidden={modalOpen || undefined}>
         <LeftRail
