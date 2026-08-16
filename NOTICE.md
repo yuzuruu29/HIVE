@@ -10,13 +10,16 @@ as a reversible backup.
 | Path | Source project | Upstream license | Notes |
 |------|----------------|------------------|-------|
 | `skills/hive-mind-council/` | `the-hive-skill` | Apache-2.0 | The built-in **hive skill** (six-role council protocol). |
-| `hive-cloud/` | `hive-cloud` | AGPL-3.0 | HIVE Cloud web workspace source, kept as a reference companion. **AGPL-3.0 is a strong copyleft license**; if you distribute `hive-cloud/` as part of a product, comply with AGPL obligations or keep it separate. |
+
+`hive-cloud` (the HIVE Cloud web workspace, AGPL-3.0) is **not vendored here**.
+Its source lives upstream at <https://github.com/yuzuruu29/hive-cloud>; a local
+snapshot is archived in `C:\_hive_archive_2026-08-16\`. The optional
+`hive-cloud` provider preset in HIVE talks to the deployed cloud API by URL
+and API key and does not depend on that source.
 
 ## License of HIVE core
 
-HIVE core (`src/`, `bin/`, `desktop/`, `docs/` excluding `hive-cloud/`) remains
-**MIT** (see `LICENSE`). The vendored `hive-cloud/` directory retains its own
-`LICENSE.md` (AGPL-3.0) and is conceptually a separate component.
+HIVE core (`src/`, `bin/`, `desktop/`, `docs/`) is **MIT** (see `LICENSE`).
 
 ## Removed sibling folders (archived, recoverable)
 

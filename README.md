@@ -7,9 +7,10 @@ HIVE (Hyper Intelligence for Verified Engineering) is a verified agentic coding 
 - Violet wordmark indicates verified agentic coding.
 
 ## Repository Consolidation
-`C:\HIVE` is the single home for the HIVE project. The related `hive-cloud` (web workspace) and `the-hive-skill` (hive-mind-council) repos were consolidated here:
+`C:\HIVE` is the single home for the HIVE project. The `the-hive-skill` (hive-mind-council) repo was consolidated here:
 - `skills/hive-mind-council/` — the built-in **hive skill** (vendored from `the-hive-skill`, Apache-2.0).
-- `hive-cloud/` — the HIVE Cloud web workspace source (AGPL-3.0; vendored as a reference companion; see `NOTICE.md`).
+
+The `hive-cloud` web workspace (AGPL-3.0) is **not vendored here**; its source lives upstream at [github.com/yuzuruu29/hive-cloud](https://github.com/yuzuruu29/hive-cloud). The optional `hive-cloud` provider preset below talks to the deployed cloud API and needs only its base URL and API key.
 
 The previous sibling folders (`hive-cloud`, `the-hive-skill`, `HiveMind`, and temp/backup copies) were moved to `C:\_hive_archive_2026-08-16\` as a reversible backup. Nothing was permanently deleted; remove that archive when you no longer need the originals. See [`NOTICE.md`](NOTICE.md) for license details.
 

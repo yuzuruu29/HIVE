@@ -1,1 +1,0 @@
-CREATE INDEX "idx_messages_fts" ON "messages" USING gin (to_tsvector('english', COALESCE("content"::text, '')));
