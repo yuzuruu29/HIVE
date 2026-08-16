@@ -167,9 +167,23 @@ Usage:
   hive agents [show <id>]
   hive report <session-id> [--json|--markdown] [--output <path>]
   hive mode
-  hive chat ["message"]            (interactive chatbot; blank = REPL)
-  hive hivebot "<task>"           (swarm the built-in hive-mind-council)
+  hive chat ["message"] [--role <slug>] [--json] [--agent] [--model <provider/model>] [--resume <id>]
+  hive hivebot "<task>" [--preset <quick|standard|deep|audit>] [--provider <id>] [--model <m>]
   hive scout [--task "<task>"] [--json] [--files]
+
+Chat options:
+  --role <slug>               Pick a persona (planning, coding, heavy-reasoning,
+                              game-builder, project-coworker, study-buddy; kebab
+                              or camel cases accepted; "auto" classifies).
+  --agent                     Agentic mode: read-only tools for grounding (no writes).
+  --json                      Emit newline-delimited JSON events (requires a message).
+  --model <provider/model>    Manual provider + model override.
+  --resume <id>               Resume a saved chat session before the first prompt.
+
+Hivebot options:
+  --preset <quick|standard|deep|audit>  Force a council budget preset.
+  --provider <id>             Force the provider for every council stage.
+  --model <m>                 Force the model for every council stage.
 
 Safety:
   worktree isolation - approve-before-commit - no auto-push - secret redaction`;
@@ -731,13 +745,80 @@ Commands:
 
     if (command === "chat") {
       const { runChat } = await import("./chat/chat-cli.js");
-      return await runChat(args.slice(1), { cwd, signal: cliOptions.signal });
+      const chatArgs = args.slice(1);
+      // Extract and forward --resume <id> via ChatOptions.resumeSessionId.
+      // The remaining flags (--role/--json/--agent/--model) are parsed inside
+      // runChat via its own argument parser, so they pass through untouched.
+      let resumeSessionId: string | undefined;
+      const forwarded: string[] = [];
+      for (let i = 0; i < chatArgs.length; i += 1) {
+        if (chatArgs[i] === "--resume") {
+          const value = chatArgs[i + 1];
+          if (value !== undefined && !value.startsWith("--")) {
+            resumeSessionId = value;
+            i += 1;
+            continue;
+          }
+        }
+        forwarded.push(chatArgs[i]);
+      }
+      return await runChat(forwarded, { cwd, signal: cliOptions.signal, resumeSessionId });
     }
 
     if (command === "hivebot") {
       const { runHivebot } = await import("./chat/hivebot.js");
-      const task = rest.join(" ");
-      return await runHivebot(task, { cwd, signal: cliOptions.signal });
+      const hivebotIndex = args.indexOf("hivebot");
+      const hivebotArgs = args.slice(hivebotIndex + 1);
+
+      // Parse --preset/--provider/--model out of the raw args; everything else
+      // joins the delegated task text.
+      let preset: "quick" | "standard" | "deep" | "audit" | undefined;
+      let providerId: string | undefined;
+      let model: string | undefined;
+      const taskParts: string[] = [];
+      for (let i = 0; i < hivebotArgs.length; i += 1) {
+        const arg = hivebotArgs[i];
+        const peek = (): string | undefined => {
+          const v = hivebotArgs[i + 1];
+          return v !== undefined && !v.startsWith("--") ? v : undefined;
+        };
+        if (arg === "--preset") {
+          const v = peek();
+          if (v !== undefined) {
+            if (!["quick", "standard", "deep", "audit"].includes(v)) {
+              return {
+                exitCode: 1,
+                output: `Invalid hivebot preset '${v}'. Choose from: quick, standard, deep, audit`,
+              };
+            }
+            preset = v as "quick" | "standard" | "deep" | "audit";
+            i += 1;
+          }
+        } else if (arg === "--provider") {
+          const v = peek();
+          if (v !== undefined) {
+            providerId = v;
+            i += 1;
+          }
+        } else if (arg === "--model") {
+          const v = peek();
+          if (v !== undefined) {
+            model = v;
+            i += 1;
+          }
+        } else {
+          taskParts.push(arg);
+        }
+      }
+
+      const task = taskParts.join(" ");
+      return await runHivebot(task, {
+        cwd,
+        signal: cliOptions.signal,
+        preset,
+        providerId,
+        model,
+      });
     }
 
     return { exitCode: 1, output: `Unknown command: ${command}` };

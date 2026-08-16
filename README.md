@@ -109,18 +109,36 @@ hive scout --json
 
 ## Chatbot & Hivebot
 
-HIVE ships with a built-in chatbot and a **hivebot** swarm mode. Both are built on the same BYOK provider routing as the coding runtime, so your API keys (via env vars) and per-role model assignments apply everywhere.
-
-### Built-in Hive Skill
-The **hive-mind-council** skill (six-role council: Queen, Scout, Architect, Forger, Sentinel, Scribe) is vendored into this repo at [`skills/hive-mind-council/`](skills/hive-mind-council/). It is the protocol the hivebot swarm follows when delegating a task.
+HIVE ships with a built-in chatbot and a **hivebot** swarm mode. Both are built on the same BYOK provider routing as the coding runtime, so your API keys (via env vars) and per-role model assignments apply everywhere. Chatbot and hivebot roles accept **both kebab-case and camelCase** names interchangeably everywhere (e.g. `heavy-reasoning` and `heavyReasoning`, `game-builder` and `gameBuilder`).
 
 ### Chatbot (`hive chat`)
-- `hive chat "your message"` — single-turn answer.
-- `hive chat` — interactive REPL. Inline commands: `/role <slug>`, `/auto`, `/model <provider/model>`, `/hivebot <task>`, `/list`, `/skill`, `/clear`, `/exit`.
-- Each message is answered by a persona (`planning`, `coding`, `heavy-reasoning`, `game-builder`, `project-coworker`, `study-buddy`). In `/auto` mode (default), HIVE classifies the message and routes it to the best-fit role automatically.
+- `hive chat "your message"` — single-turn answer. Each turn prints a **receipt** to stderr: `[role → provider/model · tokens · latency]`.
+- `hive chat` — interactive REPL. Inline commands: `/role <slug>`, `/auto`, `/model <provider/model>`, `/agent on|off`, `/list`, `/skill`, `/sessions`, `/resume <id>`, `/clear`, `/exit`, `/help`.
+- Personae: `planning`, `coding`, `heavy-reasoning`, `game-builder`, `project-coworker`, `study-buddy`. In `/auto` mode (default), HIVE classifies each message and routes it to the best-fit role.
+
+Flags:
+- `--role <slug>` — force a persona (kebab or camel). Invalid roles error out with the valid list.
+- `--agent` — **agentic mode**: the model may call **read-only tools** (`read_file`, and related safe reads) to ground its answer. It cannot modify anything.
+- `--json` — emit machine-friendly **newline-delimited JSON events** (user, role, receipt, assistant, error). Requires a message: `hive chat --json "your message"`.
+- `--model <provider/model>` — manual provider + model override for the turn.
+- `--resume <id>` — **resume** a saved chat session before the first message, restoring prior messages into context.
+
+### Sessions & resume
+The REPL persists each completed turn to `.hivemind/` via the chat session store. Use `/sessions` to list saved sessions, `/resume <id>` inside the REPL to switch sessions, or pass `--resume <id>` on the command line to load a session up front. Sessions store messages, the active role, and any manual model override.
 
 ### Hivebot swarm (`hive hivebot "<task>"`)
-Delegates the task across the built-in six-role council. Each council agent runs as its own LLM turn served by its assigned model (e.g. `planning` for Queen/Architect, `coding` for Scout/Forger, `heavy-reasoning` for Sentinel, `project-coworker` for Scribe). This is the "swarm" delegation: one task, many specialized agents, each on the model you configured.
+Delegates the task across the built-in six-role council (Queen → Scout → Architect → Forger → Sentinel → Scribe). Each council agent runs as its own LLM turn served by its assigned model (e.g. `planning` for Queen/Architect, `coding` for Scout/Forger, `heavy-reasoning` for Sentinel, `project-coworker` for Scribe).
+
+Flags:
+- `--preset <quick|standard|deep|audit>` — force a **budget preset** (token budget + repair rounds). Without it, the Queen classifies the task and selects a preset. An invalid value errors immediately with the valid list.
+- `--provider <id>` — force the provider for every council stage.
+- `--model <m>` — force the model for every council stage.
+
+Running `hive hivebot` with no task prints usage. The swarm:
+- Runs Scout and Architect in parallel when the preset allows.
+- Sends the Forger's work to the **Sentinel**, which issues a **verdict** (`PASS` / `FAIL` / `BLOCKED`); on `FAIL` it triggers **bounded repair** — up to the preset's `repairRounds`, the Forger addresses the Sentinel's findings and re-validates.
+- Honors the preset's **token budget**; exceeding it stops the run with a `BUDGET_EXCEEDED` status.
+- Writes **artifacts** under `.hivemind/hivebot-runs/<runId>/`: a machine-readable `run.json` and a human-readable `report.md`, plus a summary line with status, preset, stage count, tokens, and run id.
 
 ### Bring Your Own Keys (BYOK)
 Add providers with an env-var reference (keys are never stored in config):
