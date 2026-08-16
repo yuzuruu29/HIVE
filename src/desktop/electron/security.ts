@@ -18,7 +18,12 @@ export function isTrustedRendererUrl(url: string, policy: RendererLocationPolicy
       if (parsed.protocol === expected.protocol && parsed.hostname === expected.hostname && parsed.port === expected.port && parsed.pathname === expected.pathname) return true;
     }
     if (policy.rendererFile && parsed.protocol === "file:") {
-      return normalizedFileUrl(fileURLToPath(parsed)) === normalizedFileUrl(policy.rendererFile);
+      const parsedNormalized = normalizedFileUrl(fileURLToPath(parsed));
+      const policyNormalized = normalizedFileUrl(policy.rendererFile);
+      if (process.platform === "win32") {
+        return parsedNormalized.toLowerCase() === policyNormalized.toLowerCase();
+      }
+      return parsedNormalized === policyNormalized;
     }
     return false;
   } catch { return false; }

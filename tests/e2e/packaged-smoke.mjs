@@ -67,7 +67,7 @@ try {
   if (rendererErrors.length) throw new Error(`Packaged renderer errors:\n${rendererErrors.join("\n")}`);
   console.log("Packaged utility process completed and persisted its deterministic report.");
 } catch (error) {
-  failure = error;
+  failure = new Error(`${error.message}\nRenderer Errors:\n${rendererErrors.join("\n") || "none"}`);
 } finally {
   try {
     if (app) await closeBounded(app, 15_000);
