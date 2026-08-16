@@ -100,7 +100,18 @@ export interface RepositorySnapshot {
   fingerprint?: string;
 }
 
-export type ProviderBindingRole = "queen" | SubagentRole;
+export const CHAT_BINDING_ROLES = [
+  "planning",
+  "coding",
+  "heavyReasoning",
+  "gameBuilder",
+  "projectCoworker",
+  "studyBuddy",
+] as const;
+
+export type ChatBindingRole = (typeof CHAT_BINDING_ROLES)[number];
+
+export type ProviderBindingRole = "queen" | SubagentRole | ChatBindingRole;
 
 export interface ProviderBinding {
   role: ProviderBindingRole;

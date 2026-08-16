@@ -1,4 +1,6 @@
 import type { ProviderRoles } from "../providers/types.js";
+import { CHAT_BINDING_ROLES } from "../coding/types.js";
+import type { ChatBindingRole } from "./types.js";
 
 /**
  * Chatbot / hivebot role slugs exposed to the user.
@@ -128,4 +130,22 @@ export function classifyTask(text: string): ChatRoleSlug {
     }
   }
   return best;
+}
+
+function kebabCase(role: ChatBindingRole): string {
+  return role.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+}
+
+/**
+ * Normalizes a user-supplied role name (kebab-case or camelCase,
+ * case-insensitive) to a {@link ChatBindingRole}. Returns `null` for unknown
+ * input so callers can surface a validation error instead of guessing.
+ */
+export function normalizeChatRole(input: string): ChatBindingRole | null {
+  const key = input.trim().toLowerCase();
+  if (!key) return null;
+  for (const role of CHAT_BINDING_ROLES) {
+    if (key === role.toLowerCase() || key === kebabCase(role)) return role;
+  }
+  return null;
 }
