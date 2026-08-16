@@ -177,16 +177,24 @@ npm run hive -- status
 node bin/hive.mjs run "small task"
 ```
 
-## Windows Desktop Companion
+## Windows Desktop Cockpit
 
-The Windows 10/11 x64 desktop app adds persistent conversation threads, live agent and validation activity, read-only unified diffs, encrypted provider credentials, cooperative pause/resume/cancel controls, and separately confirmed commit, discard, push, and pull-request actions. The existing CLI and TUI remain available and compatible.
+The Windows 10/11 x64 desktop companion is a fast, responsive, verified engineering cockpit built with React and Electron. Key capabilities include:
+
+- **Live Turn Stepper**: 5-phase progress (`plan` → `scout` → `build` → `validate` → `review`) with elapsed timer and accessible event log stream.
+- **Living Agent Cells (Hive View)**: Visual subagent grid displaying assigned roles, active file scopes, completion status badges, and overall swarm settlement progress meter.
+- **Command Palette & Keyboard Shortcuts**: Instant command palette (`Ctrl+K`), tab switching (`Ctrl+1/2/3`), quick composer submission (`Ctrl+Enter`), shortcut help (`?`), and collapsible navigation rails (`[/]` and `[\]`).
+- **Two-Pane Diff Inspector**: Sticky file navigation rail with `+added / -removed` line statistics, per-file accordion collapse, safe truncation handling, and line wrapping toggle.
+- **Rich Message Rendering**: Hand-rolled, zero-dependency, XSS-safe Markdown parser supporting fenced code blocks with 1-click clipboard copy, task checkboxes, headers, and forward-compatible token receipts.
+- **Background Presence & Notifications**: HTML5 system notification integration notifying on turn completion when the application window is inactive.
+- **Preferences & Accessibility**: Layout density options (Comfortable / Compact), color accents (Vivid Violet / High Contrast), full WCAG AA contrast compliance, keyboard focus rings, and automatic reduced-motion integration.
 
 Development and verification:
 
 ```bash
 npm run build:desktop
 npm run desktop:start
-npm run test:desktop
+npm run test:desktop-renderer
 npm run desktop:e2e
 ```
 

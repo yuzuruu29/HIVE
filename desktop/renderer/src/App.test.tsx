@@ -466,6 +466,31 @@ describe("HIVE desktop cockpit", () => {
     expect(contrast("#8b5cf6", "#151021")).toBeGreaterThanOrEqual(3);
     expect(contrast("#ddd6fe", "#08080b")).toBeGreaterThanOrEqual(3);
   });
+
+  it("executes the full golden path: prompt starters, command palette, and settings", async () => {
+    localStorage.clear();
+    const { api: _api, user } = await openRepository();
+
+    // 1. Thread selected with prompt starters
+    expect(screen.getByText(/Fix the failing test in HIVE/i)).toBeInTheDocument();
+    expect(screen.getByText(/Add dark mode support to HIVE/i)).toBeInTheDocument();
+
+    // 2. Command palette opening via Ctrl+K
+    await user.keyboard("{Control>}k{/Control}");
+    expect(screen.getByRole("dialog", { name: /command palette/i })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: /command palette/i })).not.toBeInTheDocument();
+
+    // 3. Open Settings Dialog via TopBar
+    const settingsBtn = screen.getByRole("button", { name: /open settings/i });
+    await user.click(settingsBtn);
+    expect(screen.getByRole("dialog", { name: /preferences & accessibility/i })).toBeInTheDocument();
+    const compactOption = screen.getByLabelText(/compact/i);
+    await user.click(compactOption);
+    const doneBtn = screen.getByRole("button", { name: /done/i });
+    await user.click(doneBtn);
+    expect(screen.queryByRole("dialog", { name: /preferences & accessibility/i })).not.toBeInTheDocument();
+  });
 });
 
 function contrast(foreground: string, background: string): number {

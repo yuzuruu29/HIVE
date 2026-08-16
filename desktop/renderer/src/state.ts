@@ -5,7 +5,13 @@ import type {
 } from "../../../src/desktop/types";
 
 export type CenterTab = "conversation" | "changes" | "report";
-export type DesktopUiAction = { type: "ui.tab"; tab: CenterTab } | { type: "ui.dismiss-error" } | { type: "ui.close-preview" } | { type: "ui.repository-opening" };
+export type DesktopUiAction =
+  | { type: "ui.tab"; tab: CenterTab }
+  | { type: "ui.dismiss-error" }
+  | { type: "ui.close-preview" }
+  | { type: "ui.repository-opening" }
+  | { type: "ui.rails"; side: "left" | "right" }
+  | { type: "ui.rails.set"; rails: { left: boolean; right: boolean } };
 export type WorkerState = "idle" | "starting" | "running" | "stopped" | "failed";
 
 export interface DesktopViewState {
@@ -26,12 +32,34 @@ export interface DesktopViewState {
   diff: DesktopChangesDiff | null;
   reports: Record<string, CodingFinalReport | null>;
   preview: GuardedGitActionPreview | null;
+  rails: { left: boolean; right: boolean };
   error: string | null;
   notice: string | null;
 }
 
 export function initialDesktopState(): DesktopViewState {
-  return { repositoryRoot: null, repositories: [], threads: [], activeThreadId: null, selectedSessionId: null, tab: "conversation", providers: [], selectedProviderId: "", runtimeEvents: [], run: null, pausingSessionId: null, pausingRequestId: null, worker: "idle", gitStatus: null, diff: null, reports: {}, preview: null, error: null, notice: null };
+  return {
+    repositoryRoot: null,
+    repositories: [],
+    threads: [],
+    activeThreadId: null,
+    selectedSessionId: null,
+    tab: "conversation",
+    providers: [],
+    selectedProviderId: "",
+    runtimeEvents: [],
+    run: null,
+    pausingSessionId: null,
+    pausingRequestId: null,
+    worker: "idle",
+    gitStatus: null,
+    diff: null,
+    reports: {},
+    preview: null,
+    rails: { left: true, right: true },
+    error: null,
+    notice: null,
+  };
 }
 
 export function reduceDesktopEvent(state: DesktopViewState, event: DesktopEvent | DesktopUiAction): DesktopViewState {
@@ -39,6 +67,8 @@ export function reduceDesktopEvent(state: DesktopViewState, event: DesktopEvent 
     case "ui.tab": return { ...state, tab: event.tab, notice: null };
     case "ui.dismiss-error": return { ...state, error: null };
     case "ui.close-preview": return { ...state, preview: null };
+    case "ui.rails": return { ...state, rails: { ...state.rails, [event.side]: !state.rails[event.side] } };
+    case "ui.rails.set": return { ...state, rails: event.rails };
     case "ui.repository-opening": return { ...state, repositoryRoot: null, threads: [], activeThreadId: null, selectedSessionId: null, runtimeEvents: [], run: null, pausingSessionId: null, pausingRequestId: null, worker: "idle", gitStatus: null, diff: null, reports: {}, preview: null, error: null, notice: null };
     case "request.failed": {
       const failedPause = Boolean(state.pausingRequestId && event.requestId === state.pausingRequestId);
