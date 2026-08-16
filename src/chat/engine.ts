@@ -30,6 +30,18 @@ export interface ProviderRouterLike {
     output: string;
     usage?: { input?: number; output?: number; total?: number };
   }>;
+  /** Optional streaming path; when absent the engine buffers and emits one chunk. */
+  streamComplete?(request: {
+    role: ProviderBindingRole;
+    prompt: string;
+    systemPrompt?: string;
+    providerId?: string;
+    model?: string;
+    signal?: AbortSignal;
+  }, onChunk: (chunk: string) => void): Promise<{
+    output: string;
+    usage?: { input?: number; output?: number; total?: number };
+  }>;
 }
 
 /** Route metadata exposed to chat callers (no adapter/config leakage). */
@@ -49,6 +61,8 @@ export interface ChatCompletionRequest {
   providerId?: string;
   model?: string;
   signal?: AbortSignal;
+  /** When set, partial output is surfaced as it arrives (streaming path). */
+  onChunk?: (chunk: string) => void;
 }
 
 export interface ChatCompletionResult {
@@ -100,14 +114,21 @@ export function createChatEngine(
         overrideFor(request),
         request.signal,
       );
-      const response = await router.complete({
+      const routedRequest = {
         role: request.role,
         prompt: request.prompt,
         systemPrompt: request.systemPrompt,
         providerId: request.providerId,
         model: request.model,
         signal: request.signal,
-      });
+      };
+      let response: { output: string; usage?: { input?: number; output?: number; total?: number } };
+      if (request.onChunk && typeof router.streamComplete === "function") {
+        response = await router.streamComplete(routedRequest, request.onChunk);
+      } else {
+        response = await router.complete(routedRequest);
+        request.onChunk?.(response.output);
+      }
       const receipt: ChatReceipt = {
         role: request.role,
         providerId: route.providerId,

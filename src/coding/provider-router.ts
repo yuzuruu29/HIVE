@@ -259,6 +259,77 @@ export class ProviderRouter implements AgentCompletionClient {
     throw new Error(`All configured provider routes failed for ${request.role}. ${failures.join(" | ")}`.trim());
   }
 
+  public async streamComplete(
+    request: RoutedProviderCompletionRequest,
+    onChunk: (chunk: string) => void,
+  ): Promise<AgentCompletionResponse> {
+    const explicit: ProviderOverride | undefined = request.providerId || request.model ||
+      request.fallbackProviderId || request.fallbackModel
+      ? {
+          providerId: request.providerId,
+          model: request.model,
+          fallbackProviderId: request.fallbackProviderId,
+          fallbackModel: request.fallbackModel,
+        }
+      : undefined;
+    const { candidates, failures } = await this.#buildCandidates(request.role, explicit);
+
+    // Once chunks have been surfaced to the consumer, switching candidates
+    // would duplicate output, so any later failure is final.
+    let delivered = false;
+    const handleChunk = (chunk: string): void => {
+      delivered = true;
+      onChunk(chunk);
+    };
+
+    for (const [index, candidate] of candidates.entries()) {
+      assertNotAborted(request.signal);
+      try {
+        const route = await this.#resolveCandidate(
+          candidate,
+          index > 0 || candidate.source === "fallback",
+          request.signal,
+        );
+        const input = {
+          prompt: request.prompt,
+          model: route.model,
+          systemPrompt: request.systemPrompt,
+        };
+        let result: ProviderCompletionResult;
+        if (typeof route.adapter.streamComplete === "function") {
+          try {
+            result = await withAbort(
+              route.adapter.streamComplete(route.config, input, handleChunk),
+              request.signal,
+            );
+          } catch (error) {
+            if (request.signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
+            if (delivered) throw error;
+            failures.push(`${candidate.providerId}: stream: ${safeFailure(error)}`);
+            // The adapter is reachable but its streaming path failed before any
+            // output surfaced — retry the same adapter buffered.
+            result = await withAbort(route.adapter.complete(route.config, input), request.signal);
+          }
+        } else {
+          result = await withAbort(route.adapter.complete(route.config, input), request.signal);
+        }
+        if (!result.output || !result.output.trim()) {
+          throw new Error(`Provider ${route.providerId} returned an empty response.`);
+        }
+        if (route.degraded) this.#onDegradedRoute?.(route, failures);
+        // Buffered paths never emitted chunks — emit once for a uniform contract.
+        if (!delivered) handleChunk(result.output);
+        return { output: result.output, usage: completionUsage(result) };
+      } catch (error) {
+        if (request.signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
+        if (delivered) throw error;
+        failures.push(`${candidate.providerId}: ${safeFailure(error)}`);
+      }
+    }
+
+    throw new Error(`All configured provider routes failed for ${request.role}. ${failures.join(" | ")}`.trim());
+  }
+
   public async bindingForRole(
     role: ProviderBindingRole,
     override?: ProviderOverride,

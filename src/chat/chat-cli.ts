@@ -206,7 +206,10 @@ interface TurnInput {
 }
 
 /** Single (non-agent) completion through the engine. */
-async function completeTurn(input: TurnInput): Promise<{ output: string; receipt: ChatReceipt }> {
+async function completeTurn(
+  input: TurnInput,
+  onChunk?: (chunk: string) => void,
+): Promise<{ output: string; receipt: ChatReceipt }> {
   const systemPrompt = CHAT_ROLE_META[input.role].systemPrompt;
   const context = renderHistory(compactHistory(input.history, HISTORY_CHAR_BUDGET).kept);
   const prompt = context ? `${context}\n\nUser: ${input.message}` : input.message;
@@ -217,6 +220,7 @@ async function completeTurn(input: TurnInput): Promise<{ output: string; receipt
     providerId: input.override?.providerId,
     model: input.override?.model,
     signal: input.signal,
+    onChunk,
   });
 }
 
@@ -557,16 +561,29 @@ export async function runChat(
       if (currentRole === "auto") process.stderr.write(`(auto → ${role})\n`);
 
       const myTurn = { cwd, engine, role, message: line, history, override };
-      const runTurn = agentMode ? completeAgentTurn : completeTurn;
 
       turnInFlight = true;
       try {
-        const result = await runTurn({ ...myTurn, signal: turnController.signal });
+        // Non-agent turns stream chunks to the terminal as they arrive; the
+        // engine guarantees at least one chunk (buffered fallback), so the
+        // full output is never printed twice.
+        let delivered = false;
+        const onChunk = (chunk: string): void => {
+          delivered = true;
+          process.stdout.write(chunk);
+        };
+        const result = agentMode
+          ? await completeAgentTurn({ ...myTurn, signal: turnController.signal })
+          : await completeTurn({ ...myTurn, signal: turnController.signal }, onChunk);
         history.push({ role: "user", content: line, at: new Date().toISOString() });
         history.push({ role: "assistant", content: result.output, at: new Date().toISOString(), receipt: result.receipt });
         sessionTokens += receiptTokens(result.receipt);
         process.stderr.write(`${formatReceiptLine(role, result.receipt)}\n`);
-        console.log(`\n${result.output}\n`);
+        if (delivered) {
+          process.stdout.write("\n\n");
+        } else {
+          console.log(`\n${result.output}\n`);
+        }
         await persistSession();
       } catch (error) {
         if (turnController.signal.aborted) {

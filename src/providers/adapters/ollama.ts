@@ -1,4 +1,5 @@
 import { ProviderAdapter, ProviderConfig, ProviderHealthResult, ProviderCompletionInput, ProviderCompletionResult } from '../types.js';
+import { readLineStream } from '../streaming.js';
 
 export class OllamaAdapter implements ProviderAdapter {
   kind = "ollama" as const;
@@ -48,6 +49,59 @@ export class OllamaAdapter implements ProviderAdapter {
         promptTokens: data.prompt_eval_count || 0,
         completionTokens: data.eval_count || 0,
         totalTokens: (data.prompt_eval_count || 0) + (data.eval_count || 0)
+      }
+    };
+  }
+
+  async streamComplete(config: ProviderConfig, input: ProviderCompletionInput, onChunk: (chunk: string) => void): Promise<ProviderCompletionResult> {
+    const baseUrl = config.baseUrl || "http://localhost:11434";
+    const messages = [];
+    if (input.systemPrompt) {
+      messages.push({ role: "system", content: input.systemPrompt });
+    }
+    messages.push({ role: "user", content: input.prompt });
+
+    const res = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: input.model || config.defaultModel,
+        messages,
+        stream: true
+      })
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      let message = text;
+      try { message = (JSON.parse(text) as any)?.error || text; } catch { /* keep raw text */ }
+      throw new Error(message || `Ollama error: ${res.status}`);
+    }
+    if (!res.body) throw new Error("Streaming response has no body.");
+
+    let output = "";
+    let promptTokens = 0;
+    let completionTokens = 0;
+    await readLineStream(res.body, (line) => {
+      let parsed: any;
+      try { parsed = JSON.parse(line); } catch { return; }
+      const content = parsed.message?.content;
+      if (typeof content === "string" && content) {
+        output += content;
+        onChunk(content);
+      }
+      if (parsed.done) {
+        promptTokens = parsed.prompt_eval_count || 0;
+        completionTokens = parsed.eval_count || 0;
+      }
+    });
+
+    return {
+      output,
+      usage: {
+        promptTokens,
+        completionTokens,
+        totalTokens: promptTokens + completionTokens
       }
     };
   }

@@ -1,4 +1,5 @@
 import { ProviderAdapter, ProviderConfig, ProviderHealthResult, ProviderCompletionInput, ProviderCompletionResult, ProviderKind, ProviderRequestCredential } from '../types.js';
+import { readSseStream } from '../streaming.js';
 
 export class OpenAiCompatibleAdapter implements ProviderAdapter {
   kind: ProviderKind = "openai-compatible";
@@ -91,5 +92,59 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
         totalTokens: data.usage.total_tokens
       } : undefined
     };
+  }
+
+  async streamComplete(config: ProviderConfig, input: ProviderCompletionInput, onChunk: (chunk: string) => void, credential?: ProviderRequestCredential): Promise<ProviderCompletionResult> {
+    const baseUrl = config.baseUrl || "https://api.openai.com/v1";
+    const headers = this.getHeaders(config, credential);
+
+    const messages = [];
+    if (input.systemPrompt) {
+      messages.push({ role: "system", content: input.systemPrompt });
+    }
+    messages.push({ role: "user", content: input.prompt });
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: input.model || config.defaultModel,
+        messages,
+        stream: true,
+        // OpenAI-family servers attach usage to the final chunk when asked;
+        // servers that ignore the field simply omit usage.
+        stream_options: { include_usage: true }
+      })
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      let message = text;
+      try { message = (JSON.parse(text) as any)?.error?.message || text; } catch { /* keep raw text */ }
+      throw new Error(message || `Provider error: ${res.status}`);
+    }
+    if (!res.body) throw new Error("Streaming response has no body.");
+
+    let output = "";
+    let usage: ProviderCompletionResult["usage"];
+    await readSseStream(res.body, (event) => {
+      if (!event.data || event.data === "[DONE]") return;
+      let parsed: any;
+      try { parsed = JSON.parse(event.data); } catch { return; }
+      const delta = parsed.choices?.[0]?.delta?.content;
+      if (typeof delta === "string" && delta) {
+        output += delta;
+        onChunk(delta);
+      }
+      if (parsed.usage) {
+        usage = {
+          promptTokens: parsed.usage.prompt_tokens,
+          completionTokens: parsed.usage.completion_tokens,
+          totalTokens: parsed.usage.total_tokens
+        };
+      }
+    });
+
+    return { output, usage };
   }
 }
