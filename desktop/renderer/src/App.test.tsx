@@ -492,6 +492,65 @@ describe("HIVE desktop cockpit", () => {
     await user.click(doneBtn);
     expect(screen.queryByRole("dialog", { name: /preferences & accessibility/i })).not.toBeInTheDocument();
   });
+
+  it("chat golden path: welcome, streaming turn with receipt, and mode switch preserves threads", async () => {
+    localStorage.clear();
+    const conversationId = "chat-1789200000000-ab12";
+    const sentContent = "Explain the architecture of HIVE";
+    const api = bridge({
+      request: async (command) => {
+        if (command.type === "chat.list") return { type: "chat.listed", timestamp: now, conversations: [] };
+        if (command.type === "chat.create") {
+          return { type: "chat.changed", timestamp: now, conversation: { id: conversationId, cwd: "C:\\HIVE", role: "auto", ground: false, createdAt: now, updatedAt: now, messages: [] } };
+        }
+        if (command.type === "chat.send") {
+          expect(command.input.conversationId).toBe(conversationId);
+          expect(command.input.content).toBe(sentContent);
+          return { type: "request.completed", timestamp: now, requestId: command.requestId };
+        }
+        return eventFor(command);
+      },
+    });
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    // Open the repository, then switch to Chat via the topbar segmented control.
+    await user.click(await screen.findByRole("button", { name: /C:\\HIVE/i }));
+    await screen.findByRole("button", { name: /Desktop companion/i });
+    await user.click(screen.getByRole("tab", { name: /^chat$/i }));
+    expect(screen.getByText("HIVE Chat")).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("hive.desktop.ui.v1") ?? "{}").mode).toBe("chat");
+
+    // Welcome surface: suggestion click creates the conversation and sends.
+    await user.click(screen.getByRole("button", { name: new RegExp(sentContent, "i") }));
+    api.emit({ type: "chat.started", timestamp: now, conversationId, turnId: "turn-a-1" });
+    expect(await screen.findByLabelText(/hive is thinking/i)).toBeInTheDocument();
+
+    // Chunks stream into the in-flight message; completion swaps in the receipt.
+    api.emit({ type: "chat.chunk", timestamp: now, conversationId, turnId: "turn-a-1", chunk: "The architecture is layered", seq: 0 });
+    expect(await screen.findByText(/The architecture is layered/)).toBeInTheDocument();
+    expect(document.querySelector(".stream-caret")).toBeInTheDocument();
+    api.emit({
+      type: "chat.changed",
+      timestamp: now,
+      conversation: {
+        id: conversationId, cwd: "C:\\HIVE", role: "auto", ground: false, createdAt: now, updatedAt: now,
+        messages: [
+          { id: "msg-0", role: "user", content: sentContent, at: now },
+          { id: "msg-1", role: "assistant", content: "The architecture is layered, verified, and isolated.", at: now, receipt: { role: "coding", providerId: "ollama", model: "qwen3", source: "role-assignment", degraded: false, promptTokens: 20, completionTokens: 40, totalTokens: 60, latencyMs: 1_800 } },
+        ],
+      },
+    });
+    api.emit({ type: "chat.completed", timestamp: now, conversationId, turnId: "turn-a-1", message: { id: "msg-1", role: "assistant", content: "The architecture is layered, verified, and isolated.", at: now, receipt: { role: "coding", providerId: "ollama", model: "qwen3", source: "role-assignment", degraded: false, promptTokens: 20, completionTokens: 40, totalTokens: 60, latencyMs: 1_800 } } });
+    expect(await screen.findByText(/coding -> ollama\/qwen3 - 60 tok - 1\.8s/)).toBeInTheDocument();
+    expect(document.querySelector(".stream-caret")).not.toBeInTheDocument();
+    expect(screen.getByRole("log", { name: /conversation messages/i })).toBeInTheDocument();
+
+    // Switching back to Coder preserves the thread list.
+    await user.click(screen.getByRole("tab", { name: /^coder$/i }));
+    expect(await screen.findByRole("button", { name: /Desktop companion/i })).toBeInTheDocument();
+    expect(screen.queryByText("HIVE Chat")).not.toBeInTheDocument();
+  });
 });
 
 function contrast(foreground: string, background: string): number {

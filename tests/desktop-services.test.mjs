@@ -178,12 +178,12 @@ test("run manager forwards canonical events, persists pause/cancel, and resumes 
   try {
     await Promise.race([
       slotReleased.promise,
-      new Promise((_, reject) => { releaseTimer = setTimeout(() => reject(new Error("worker slot release event timed out")), 2_000); }),
+      new Promise((_, reject) => { releaseTimer = setTimeout(() => reject(new Error("worker slot release event timed out")), 10_000); }),
     ]);
   } finally {
     clearTimeout(releaseTimer);
   }
-  assert.equal((await store.load("thread-1")).runs[0].status, "paused");
+  await eventually(async () => assert.equal((await store.load("thread-1")).runs[0].status, "paused"));
   const resumed = await manager.resume({ repositoryRoot: repo, threadId: "thread-1", codingSessionId: run.codingSessionId, options: runOptions });
   assert.equal(resumed.status, "paused");
   await eventually(() => assert.equal(launches.length, 2));

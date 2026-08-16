@@ -13,6 +13,12 @@ HIVE - Hyper Intelligence for Verified Engineering - is built incrementally. Cor
 - **Phase 3.5:** CLI Workflow
 - **Phase 4A:** Web-based Editor Client
 - **Phase 4.1:** Editor Client Validation
+- **Desktop Chat & Coder (2026-08-17):** Claude/ChatGPT-parity chat surface in the
+  Windows desktop companion — streaming conversations over the CLI chat engine,
+  persona routing with BYOK trust chips, truthful receipts, session persistence
+  with archiving, opt-in Scout grounding, council (hivebot) mode with a
+  progressive stage transcript, and a pop-out Coder OS window with broadcast
+  event fan-out.
 
 *Note: The features in the completed phases above make up the Verified Core and have passed rigorous automated testing for safety, isolation, and explicit human-in-the-loop validation.*
 

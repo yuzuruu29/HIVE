@@ -177,15 +177,27 @@ npm run hive -- status
 node bin/hive.mjs run "small task"
 ```
 
-## Windows Desktop Cockpit
+## Windows Desktop: Chat & Coder
 
-The Windows 10/11 x64 desktop companion is a fast, responsive, verified engineering cockpit built with React and Electron. Key capabilities include:
+The Windows 10/11 x64 desktop companion ships two top-level surfaces behind one shell, built with React and Electron.
+
+**Chat** is the primary, Claude/ChatGPT-parity conversational surface:
+
+- **Streaming conversations**: batched chunk events render live markdown with a pulsing caret, a typing loader with the resolved route (`auto -> coding - provider/model`), and stick-to-bottom scrolling that yields when you scroll up.
+- **Personas & routing**: the `auto` classifier plus six BYOK personas (Planning, Coding, Heavy Reasoning, Game Builder, Project Co-worker, Study Buddy), each showing its resolved provider/model trust chip; per-conversation provider/model overrides.
+- **Receipts, honestly**: every assistant message carries a truthful provider/model/token/latency chip — no fabricated numbers — with copy and retry actions.
+- **Sessions**: conversations persist per repository under `.hivemind/chat-sessions/` with a filterable rail, derived titles, and archiving.
+- **Opt-in Scout grounding**: prepend a bounded repo context pack to any turn (`[/ground]`).
+- **Council mode**: `[/council]` routes a task through the six-role hivebot council with a progressive stage transcript, per-stage receipts, a summary card, and an "open artifacts folder" action.
+
+**Coder** is the verified harness cockpit (unchanged in function, now poppable into its own OS window):
 
 - **Live Turn Stepper**: 5-phase progress (`plan` → `scout` → `build` → `validate` → `review`) with elapsed timer and accessible event log stream.
 - **Living Agent Cells (Hive View)**: Visual subagent grid displaying assigned roles, active file scopes, completion status badges, and overall swarm settlement progress meter.
-- **Command Palette & Keyboard Shortcuts**: Instant command palette (`Ctrl+K`), tab switching (`Ctrl+1/2/3`), quick composer submission (`Ctrl+Enter`), shortcut help (`?`), and collapsible navigation rails (`[/]` and `[\]`).
+- **Command Palette & Keyboard Shortcuts**: Instant command palette (`Ctrl+K`), mode switching (`Ctrl+Shift+1/2`), tab switching (`Ctrl+1/2/3`), quick composer submission (`Ctrl+Enter`), shortcut help (`?`), and collapsible navigation rails (`[/]` and `[\]`).
 - **Two-Pane Diff Inspector**: Sticky file navigation rail with `+added / -removed` line statistics, per-file accordion collapse, safe truncation handling, and line wrapping toggle.
 - **Rich Message Rendering**: Hand-rolled, zero-dependency, XSS-safe Markdown parser supporting fenced code blocks with 1-click clipboard copy, task checkboxes, headers, and forward-compatible token receipts.
+- **Pop-out window**: the topbar `[^]` button opens (or focuses) a dedicated Coder OS window; every window keeps receiving all events, and a single Coder window is enforced for the one-active-run invariant. `?view=chat|coder` seeds a window's initial surface.
 - **Background Presence & Notifications**: HTML5 system notification integration notifying on turn completion when the application window is inactive.
 - **Preferences & Accessibility**: Layout density options (Comfortable / Compact), color accents (Vivid Violet / High Contrast), full WCAG AA contrast compliance, keyboard focus rings, and automatic reduced-motion integration.
 
