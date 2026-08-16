@@ -10,9 +10,32 @@ import type {
   DesktopChatConversation,
   DesktopChatMessage,
   DesktopChatSummary,
+  ChatReceipt,
 } from "../chat/types.js";
 
 export type { DesktopChatConversation, DesktopChatMessage, DesktopChatSummary };
+
+/** Renderer-safe council run summary (mirrors HivebotRunSummary without node-side imports). */
+export interface DesktopCouncilStageRecord {
+  agent: string;
+  role: string;
+  output: string;
+  receipt: ChatReceipt;
+  phase: string;
+  attempt: number;
+}
+
+export interface DesktopCouncilSummary {
+  status: "COMPLETE" | "FAILED" | "BLOCKED" | "BUDGET_EXCEEDED";
+  reason: string;
+  preset: "quick" | "standard" | "deep" | "audit";
+  runId: string;
+  stages: DesktopCouncilStageRecord[];
+  totalTokens: number;
+  artifactDir: string;
+  runPath: string;
+  reportPath: string;
+}
 
 export const DESKTOP_THREAD_SCHEMA_VERSION = 1 as const;
 export const MAX_THREAD_MESSAGE_CHARS = 20_000;
@@ -345,7 +368,12 @@ export type DesktopCommand =
         ground?: boolean;
       };
     })
-  | (DesktopCommandBase & { type: "chat.cancel"; conversationId: string });
+  | (DesktopCommandBase & { type: "chat.cancel"; conversationId: string })
+  | (DesktopCommandBase & {
+      type: "council.start";
+      input: { task: string; preset?: "quick" | "standard" | "deep" | "audit"; providerId?: string; model?: string };
+    })
+  | (DesktopCommandBase & { type: "council.cancel"; runId: string });
 
 type DesktopEventBase = { timestamp: string; requestId?: string; repositoryRoot?: string };
 
@@ -419,6 +447,14 @@ export type DesktopEvent =
       source: string;
       degraded: boolean;
     })
+  | (DesktopEventBase & { type: "council.started"; runId: string; preset: string })
+  | (DesktopEventBase & {
+      type: "council.stage";
+      runId: string;
+      stage: { type: "stage-started" | "stage-completed"; agent: string; attempt: number; receipt?: ChatReceipt; output?: string };
+    })
+  | (DesktopEventBase & { type: "council.completed"; runId: string; summary: DesktopCouncilSummary })
+  | (DesktopEventBase & { type: "council.failed"; runId: string; message: string })
   | (DesktopEventBase & { type: "request.completed"; requestId: string })
   | (DesktopEventBase & {
       type: "request.failed";

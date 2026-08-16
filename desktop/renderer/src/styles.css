@@ -955,6 +955,32 @@ label { color: #d8d4e3; font-size: .76rem; }
 .stop-btn { border-color: var(--warning); color: var(--warning); background: rgba(251, 191, 36, .08); }
 .stop-btn:hover { background: rgba(251, 191, 36, .18); box-shadow: none; }
 
+/* Council transcript */
+.council-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--violet-line);
+  background: rgba(15, 11, 26, .55);
+  padding: var(--sp-3);
+}
+.council-block.tone-success { border-left-color: var(--success); }
+.council-block.tone-error { border-left-color: var(--error); }
+.council-block.tone-warning { border-left-color: var(--warning); }
+.council-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
+.council-title { color: var(--lavender); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .08em; }
+.council-status { font-size: var(--text-xs); color: var(--dim); }
+.council-status.status-success { color: var(--success); }
+.council-status.status-error { color: var(--error); }
+.council-status.status-warning { color: var(--warning); }
+.council-status.status-running { color: var(--lavender); }
+.council-stages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.council-strip { color: var(--lavender); font-size: var(--text-xs); letter-spacing: .06em; }
+.council-stage.stage-active .council-strip { color: var(--highlight); }
+.council-stage-body { font-size: var(--text-sm); color: var(--muted); max-height: 22rem; overflow: auto; padding-left: var(--sp-2); border-left: 1px solid var(--line); }
+.council-summary { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); border-top: 1px solid var(--line); padding-top: var(--sp-2); font-size: var(--text-xs); color: var(--dim); flex-wrap: wrap; }
+
 @media (max-width: 1120px) {
   .cockpit-grid { grid-template-columns: 230px minmax(400px, 1fr) 250px; }
   .chat-grid { grid-template-columns: 230px 1fr; }

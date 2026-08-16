@@ -34,6 +34,15 @@ export interface CouncilStage {
   output?: string;
 }
 
+/** Renderer view of a council run attached to a conversation. */
+export interface CouncilRunView {
+  runId: string;
+  preset: string;
+  stages: CouncilStage[];
+  summary?: { status: string; reason: string; preset: string; totalTokens: number; artifactDir: string; stageCount: number };
+  failed?: string;
+}
+
 export interface DesktopChatState {
   conversations: DesktopChatSummary[];
   activeId: string | null;
@@ -41,7 +50,7 @@ export interface DesktopChatState {
   /** In-flight assistant text per conversation; chunks append only when turnId matches. */
   streaming: Record<string, { turnId: string; text: string } | undefined>;
   routes: Record<string, ChatRouteInfo>;
-  councilByConv: Record<string, CouncilStage[]>;
+  councilByConv: Record<string, CouncilRunView>;
   /** Last failed turn, so the composer can restore the sent draft. */
   lastFailed: { conversationId: string; turnId: string; message: string } | null;
 }
@@ -183,6 +192,29 @@ export function reduceDesktopEvent(state: DesktopViewState, event: DesktopEvent 
       return { ...state, chat: { ...state.chat, streaming, lastFailed: { conversationId: event.conversationId, turnId: event.turnId, message: event.message } }, error: event.message };
     }
     case "chat.route.resolved": return { ...state, chat: { ...state.chat, routes: { ...state.chat.routes, [event.role]: { providerId: event.providerId, model: event.model, source: event.source, degraded: event.degraded } } } };
+    case "council.started": {
+      const conversationId = state.chat.activeId;
+      if (!conversationId) return state;
+      return { ...state, chat: { ...state.chat, councilByConv: { ...state.chat.councilByConv, [conversationId]: { runId: event.runId, preset: event.preset, stages: [] } } } };
+    }
+    case "council.stage": {
+      const conversationId = Object.keys(state.chat.councilByConv).find((id) => state.chat.councilByConv[id].runId === event.runId);
+      if (!conversationId) return state;
+      const run = state.chat.councilByConv[conversationId];
+      return { ...state, chat: { ...state.chat, councilByConv: { ...state.chat.councilByConv, [conversationId]: { ...run, stages: [...run.stages, event.stage] } } } };
+    }
+    case "council.completed": {
+      const conversationId = Object.keys(state.chat.councilByConv).find((id) => state.chat.councilByConv[id].runId === event.runId);
+      if (!conversationId) return state;
+      const run = state.chat.councilByConv[conversationId];
+      return { ...state, chat: { ...state.chat, councilByConv: { ...state.chat.councilByConv, [conversationId]: { ...run, summary: { status: event.summary.status, reason: event.summary.reason, preset: event.summary.preset, totalTokens: event.summary.totalTokens, artifactDir: event.summary.artifactDir, stageCount: event.summary.stages.length } } } } };
+    }
+    case "council.failed": {
+      const conversationId = Object.keys(state.chat.councilByConv).find((id) => state.chat.councilByConv[id].runId === event.runId);
+      if (!conversationId) return state;
+      const run = state.chat.councilByConv[conversationId];
+      return { ...state, chat: { ...state.chat, councilByConv: { ...state.chat.councilByConv, [conversationId]: { ...run, failed: event.message } } }, error: event.message };
+    }
   }
 }
 

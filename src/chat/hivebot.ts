@@ -23,11 +23,25 @@ export type HivebotStatus =
   | "BLOCKED"
   | "BUDGET_EXCEEDED";
 
+/** Stage lifecycle event surfaced to opt-in observers (desktop council UI). */
+export interface HivebotStageEvent {
+  type: "stage-started" | "stage-completed";
+  agent: string;
+  attempt: number;
+  receipt?: ChatReceipt;
+  /** Stage output; present on stage-completed. */
+  output?: string;
+}
+
 export interface HivebotOptions extends ChatOptions {
   /** Force a preset; otherwise the Queen classifies and selects one. */
   preset?: HivebotPresetName;
   providerId?: string;
   model?: string;
+  /** Explicit run id; defaults to a generated `hivebot-<epoch>-<hex>`. */
+  runId?: string;
+  /** Optional stage observer; `undefined` keeps CLI behavior byte-identical. */
+  onStage?: (event: HivebotStageEvent) => void;
 }
 
 /**
@@ -282,7 +296,7 @@ export async function runHivebot(
       status: "FAILED",
       reason: "empty task",
       preset: options.preset ?? "standard",
-      runId: makeRunId(),
+      runId: options.runId ?? makeRunId(),
       stages: [],
       totalTokens: 0,
       artifactDir: "",
@@ -304,13 +318,15 @@ export async function runHivebot(
   let presetName: HivebotPresetName = options.preset ?? "standard";
   let preset = COUNCIL_PRESETS[presetName];
   const forced = Boolean(options.preset);
-  const runId = makeRunId();
+  const runId = options.runId ?? makeRunId();
+  const onStage = options.onStage;
 
   const streamLines: string[] = [];
   const emitStageStart = (agent: string, attempt: number): void => {
     const line = `──────── ${agent} · attempt ${attempt} ────────`;
     streamLines.push(line);
     if (process.stdout.isTTY) console.log(line);
+    onStage?.({ type: "stage-started", agent, attempt });
   };
   const emitReceipt = (agent: string, receipt: ChatReceipt): void => {
     const line = `[${agent} → ${receipt.providerId}/${receipt.model} · ${receiptTokens(receipt)} tok]`;
@@ -349,6 +365,7 @@ export async function runHivebot(
       signal,
     });
     emitReceipt(agent, result.receipt);
+    onStage?.({ type: "stage-completed", agent, attempt, receipt: result.receipt, output: result.output });
     return {
       agent,
       role: agentRole(agent),

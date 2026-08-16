@@ -339,3 +339,91 @@ test('empty task returns a usage error with exitCode 1', async () => {
   assert.equal(result.exitCode, 1);
   assert.match(result.output, /Usage/);
 });
+
+// ---------------------------------------------------------------------------
+// onStage observer (desktop council UI) — additive, CLI parity preserved
+// ---------------------------------------------------------------------------
+
+test('onStage fires stage-started/stage-completed per stage with receipts and outputs', async () => {
+  const tmp = await makeTempDir();
+  const { engine } = makeStub({
+    Queen: 'PRESET: quick\nanalysis.',
+    Forger: 'patch manifest',
+    Sentinel: 'VERDICT: PASS',
+  });
+  const stages = [];
+  try {
+    const result = await runHivebot('ship it', {
+      cwd: tmp,
+      preset: 'quick',
+      createEngine: () => engine,
+      onStage: (event) => stages.push(event),
+    });
+    assert.equal(result.status, 'COMPLETE');
+
+    const started = stages.filter((s) => s.type === 'stage-started').map((s) => `${s.agent}#${s.attempt}`);
+    const completed = stages.filter((s) => s.type === 'stage-completed');
+    assert.deepEqual(started, ['Queen#1', 'Forger#1', 'Sentinel#1']);
+    assert.equal(completed.length, 3);
+    for (const stage of completed) {
+      assert.ok(stage.receipt, 'completed stages carry receipts');
+      assert.equal(stage.receipt.providerId, 'p1');
+      assert.equal(typeof stage.output, 'string');
+    }
+    assert.equal(stages.length, 6);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('onStage observes repair attempts and honors an explicit runId and abort', async () => {
+  const tmp = await makeTempDir();
+  const { engine } = makeStub({
+    Queen: 'PRESET: quick',
+    Forger: 'attempt output',
+    Sentinel: ['VERDICT: FAIL', 'VERDICT: PASS'],
+  });
+  const controller = new AbortController();
+  const stages = [];
+  try {
+    const result = await runHivebot('fix then pass', {
+      cwd: tmp,
+      preset: 'quick',
+      createEngine: () => engine,
+      runId: 'hivebot-1789200000000-ab12',
+      signal: controller.signal,
+      onStage: (event) => stages.push(event),
+    });
+    assert.equal(result.status, 'COMPLETE');
+    assert.equal(result.runId, 'hivebot-1789200000000-ab12');
+    const attempts = stages.filter((s) => s.agent === 'Forger').map((s) => s.attempt);
+    assert.deepEqual(attempts, [1, 1, 2, 2], 'repair round runs Forger attempt 2');
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+
+  // Abort mid-run: the engine rejects, the run finalizes FAILED, no crash.
+  const controller2 = new AbortController();
+  const rejecting = {
+    async complete(request) {
+      if (request.signal.aborted) throw new Error('aborted');
+      controller2.abort();
+      if (request.signal.aborted) throw new Error('aborted');
+      return { output: 'ok', receipt: { role: request.role, providerId: 'p', model: 'm' } };
+    },
+    resolveRoute() { return { providerId: 'p', model: 'm', source: 'project', degraded: false }; },
+  };
+  const tmp2 = await makeTempDir();
+  try {
+    const result = await runHivebot('abort me', {
+      cwd: tmp2,
+      preset: 'quick',
+      createEngine: () => rejecting,
+      signal: controller2.signal,
+    });
+    assert.equal(result.status, 'FAILED');
+    assert.match(result.reason, /run error/);
+  } finally {
+    await fs.rm(tmp2, { recursive: true, force: true });
+  }
+});

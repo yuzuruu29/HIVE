@@ -26,7 +26,7 @@ const conversation: DesktopChatConversation = {
 
 describe("ChatStream", () => {
   it("renders a polite log with completed messages and truthful receipt chips", () => {
-    render(<ChatStream conversation={conversation} streaming={undefined} disabled={false} onRetry={() => {}} />);
+    render(<ChatStream conversation={conversation} streaming={undefined} disabled={false} onRetry={() => {}} repositoryRoot="C:\HIVE" onOpenArtifacts={() => {}} />);
     expect(screen.getByRole("log", { name: /conversation messages/i })).toHaveAttribute("aria-live", "polite");
     expect(screen.getByText("Write a hello function")).toBeInTheDocument();
     expect(document.querySelector(".code-block .block-code")).toBeInTheDocument();
@@ -34,19 +34,19 @@ describe("ChatStream", () => {
   });
 
   it("shows the typing loader before the first chunk and the caret while streaming", () => {
-    const { rerender } = render(<ChatStream conversation={conversation} streaming={{ turnId: "turn-a-1", text: "" }} disabled route={{ providerId: "ollama", model: "qwen3", source: "role-assignment", degraded: false }} onRetry={() => {}} />);
+    const { rerender } = render(<ChatStream conversation={conversation} streaming={{ turnId: "turn-a-1", text: "" }} disabled route={{ providerId: "ollama", model: "qwen3", source: "role-assignment", degraded: false }} onRetry={() => {}} repositoryRoot="C:\HIVE" onOpenArtifacts={() => {}} />);
     expect(screen.getByLabelText(/hive is thinking/i)).toBeInTheDocument();
     expect(screen.getByText(/auto -> ollama\/qwen3/)).toBeInTheDocument();
 
-    rerender(<ChatStream conversation={conversation} streaming={{ turnId: "turn-a-1", text: "Partial **markdown** reply" }} disabled route={undefined} onRetry={() => {}} />);
+    rerender(<ChatStream conversation={conversation} streaming={{ turnId: "turn-a-1", text: "Partial **markdown** reply" }} disabled route={undefined} onRetry={() => {}} repositoryRoot="C:\HIVE" onOpenArtifacts={() => {}} />);
     expect(screen.queryByLabelText(/hive is thinking/i)).not.toBeInTheDocument();
     expect(screen.getByText("markdown").tagName).toBe("STRONG");
     expect(document.querySelector(".stream-caret")).toBeInTheDocument();
   });
 
   it("appends streamed chunks into the in-flight assistant message", () => {
-    const { rerender } = render(<ChatStream conversation={conversation} streaming={{ turnId: "turn-a-1", text: "Hel" }} disabled onRetry={() => {}} />);
-    rerender(<ChatStream conversation={conversation} streaming={{ turnId: "turn-a-1", text: "Hello world" }} disabled onRetry={() => {}} />);
+    const { rerender } = render(<ChatStream conversation={conversation} streaming={{ turnId: "turn-a-1", text: "Hel" }} disabled onRetry={() => {}} repositoryRoot="C:\HIVE" onOpenArtifacts={() => {}} />);
+    rerender(<ChatStream conversation={conversation} streaming={{ turnId: "turn-a-1", text: "Hello world" }} disabled onRetry={() => {}} repositoryRoot="C:\HIVE" onOpenArtifacts={() => {}} />);
     expect(screen.getByText("Hello world")).toBeInTheDocument();
   });
 
@@ -54,7 +54,7 @@ describe("ChatStream", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, writable: true, configurable: true });
     const onRetry = vi.fn();
-    render(<ChatStream conversation={conversation} streaming={undefined} disabled={false} onRetry={onRetry} />);
+    render(<ChatStream conversation={conversation} streaming={undefined} disabled={false} onRetry={onRetry} repositoryRoot="C:\HIVE" onOpenArtifacts={() => {}} />);
 
     fireEvent.click(screen.getByRole("button", { name: /^copy$/i }));
     await waitFor(() => {

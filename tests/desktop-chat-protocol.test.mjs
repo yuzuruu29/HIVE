@@ -105,3 +105,41 @@ test("chat commands are registered in the canonical manifest and existing comman
   assert.equal(validateDesktopEvent(event("thread.listed", { threads: [] })).type, "thread.listed");
   assert.throws(() => validateDesktopCommand(command("chat.scaffold")), /Unsupported desktop command type/);
 });
+
+// ---------------------------------------------------------------------------
+// Council commands + events
+// ---------------------------------------------------------------------------
+
+const councilSummary = {
+  status: "COMPLETE",
+  reason: "All criteria satisfied; Sentinel PASS.",
+  preset: "quick",
+  runId: "hivebot-1789200000000-ab12",
+  stages: [{ agent: "Queen", role: "queen", output: "analysis", receipt: { role: "queen", providerId: "p1", model: "m1", promptTokens: 3, completionTokens: 4, totalTokens: 7, latencyMs: 5 }, phase: "Orchestrate & classify", attempt: 1 }],
+  totalTokens: 7,
+  artifactDir: "C:\\repo\\.hivemind\\hivebot-runs\\hivebot-1789200000000-ab12",
+  runPath: "C:\\repo\\.hivemind\\hivebot-runs\\hivebot-1789200000000-ab12\\run.json",
+  reportPath: "C:\\repo\\.hivemind\\hivebot-runs\\hivebot-1789200000000-ab12\\report.md",
+};
+
+test("council commands and events validate with strict shapes", () => {
+  assert.equal(validateDesktopCommand(command("council.start", { input: { task: "refactor the parser" } })).type, "council.start");
+  assert.equal(validateDesktopCommand(command("council.start", { input: { task: "t", preset: "deep", providerId: "ollama", model: "qwen3" } })).type, "council.start");
+  assert.equal(validateDesktopCommand(command("council.cancel", { runId: "hivebot-1-ab" })).type, "council.cancel");
+
+  assert.throws(() => validateDesktopCommand(command("council.start", { input: { task: "t", preset: "turbo" } })), /preset is invalid/);
+  assert.throws(() => validateDesktopCommand(command("council.start", { input: {} })), /unexpected or missing fields/);
+  assert.throws(() => validateDesktopCommand(command("council.cancel", { runId: "bad id!" })), /invalid/);
+
+  assert.equal(validateDesktopEvent(event("council.started", { runId: "hivebot-1-ab", preset: "quick" })).type, "council.started");
+  assert.equal(validateDesktopEvent(event("council.stage", { runId: "hivebot-1-ab", stage: { type: "stage-started", agent: "Scout", attempt: 1 } })).type, "council.stage");
+  assert.equal(validateDesktopEvent(event("council.stage", { runId: "hivebot-1-ab", stage: { type: "stage-completed", agent: "Scout", attempt: 1, receipt: { role: "coding", providerId: "p", model: "m" }, output: "context map" } })).type, "council.stage");
+  assert.equal(validateDesktopEvent(event("council.completed", { runId: "hivebot-1-ab", summary: councilSummary })).type, "council.completed");
+  assert.equal(validateDesktopEvent(event("council.failed", { runId: "hivebot-1-ab", message: "artifacts unwritable" })).type, "council.failed");
+
+  assert.throws(() => validateDesktopEvent(event("council.stage", { runId: "hivebot-1-ab", stage: { type: "stage-skipped", agent: "Scout", attempt: 1 } })), /stage type is invalid/);
+  assert.throws(() => validateDesktopEvent(event("council.stage", { runId: "hivebot-1-ab", stage: { type: "stage-started", agent: "Scout", attempt: 0 } })), /attempt is invalid/);
+  assert.throws(() => validateDesktopEvent(event("council.completed", { runId: "hivebot-1-ab", summary: { ...councilSummary, status: "MAYBE" } })), /status is invalid/);
+  assert.throws(() => validateDesktopEvent(event("council.completed", { runId: "hivebot-1-ab", summary: { ...councilSummary, extra: true } })), /unexpected or missing fields/);
+  assert.ok(DESKTOP_COMMAND_TYPES.includes("council.start") && DESKTOP_COMMAND_TYPES.includes("council.cancel"));
+});

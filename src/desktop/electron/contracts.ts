@@ -260,6 +260,40 @@ function validateChatRouteInput(value: unknown): void {
   if (input.model !== undefined) string(input.model, "chat route model", 256);
 }
 
+const COUNCIL_PRESETS = new Set(["quick", "standard", "deep", "audit"]);
+const COUNCIL_STATUSES = new Set(["COMPLETE", "FAILED", "BLOCKED", "BUDGET_EXCEEDED"]);
+
+function validateCouncilStage(value: unknown): void {
+  const stage = optionalExact(value, ["type", "agent", "attempt"], ["receipt", "output"], "council stage");
+  if (!["stage-started", "stage-completed"].includes(String(stage.type))) throw new Error("Council stage type is invalid.");
+  string(stage.agent, "council stage agent", 64);
+  if (!Number.isSafeInteger(stage.attempt) || Number(stage.attempt) < 1 || Number(stage.attempt) > 1_000) throw new Error("Council stage attempt is invalid.");
+  if (stage.receipt !== undefined) validateChatReceipt(stage.receipt);
+  if (stage.output !== undefined) boundaryText(stage.output, "council stage output", 100_000);
+}
+
+function validateCouncilSummary(value: unknown): void {
+  const summary = exact(value, ["status", "reason", "preset", "runId", "stages", "totalTokens", "artifactDir", "runPath", "reportPath"], "council summary");
+  if (!COUNCIL_STATUSES.has(String(summary.status))) throw new Error("Council summary status is invalid.");
+  boundaryString(summary.reason, "council summary reason", 2_000);
+  if (!COUNCIL_PRESETS.has(String(summary.preset))) throw new Error("Council summary preset is invalid.");
+  id(summary.runId, "council summary run id");
+  if (!Array.isArray(summary.stages) || summary.stages.length > 128) throw new Error("Council summary stages are invalid.");
+  for (const record of summary.stages) {
+    const stage = optionalExact(record, ["agent", "role", "output", "receipt", "phase", "attempt"], [], "council stage record");
+    string(stage.agent, "council stage record agent", 64);
+    string(stage.role, "council stage record role", 64);
+    boundaryText(stage.output, "council stage record output", 100_000);
+    validateChatReceipt(stage.receipt);
+    boundaryString(stage.phase, "council stage record phase", 200);
+    if (!Number.isSafeInteger(stage.attempt) || Number(stage.attempt) < 1 || Number(stage.attempt) > 1_000) throw new Error("Council stage record attempt is invalid.");
+  }
+  if (!Number.isSafeInteger(summary.totalTokens) || Number(summary.totalTokens) < 0 || Number(summary.totalTokens) > 1_000_000_000_000) throw new Error("Council summary token total is invalid.");
+  for (const key of ["artifactDir", "runPath", "reportPath"] as const) {
+    if (typeof summary[key] !== "string" || summary[key].length > 32_768 || summary[key].includes("\0")) throw new Error(`Council summary ${key} is invalid.`);
+  }
+}
+
 export function validateDesktopCommand(value: unknown): DesktopCommand {
   const root = record(value, "desktop command");
   const type = string(root.type, "desktop command type", 80);
@@ -316,6 +350,16 @@ export function validateDesktopCommand(value: unknown): DesktopCommand {
       if (input.ground !== undefined) boolean(input.ground, "chat send ground flag");
       break;
     }
+    case "council.start": {
+      exact(root, ["requestId", "type", "input"], "desktop command");
+      const input = optionalExact(root.input, ["task"], ["preset", "providerId", "model"], "council start input");
+      string(input.task, "council task", MAX_CHAT_CONTENT_CHARS);
+      if (input.preset !== undefined && !COUNCIL_PRESETS.has(String(input.preset))) throw new Error("council preset is invalid.");
+      if (input.providerId !== undefined) providerId(input.providerId);
+      if (input.model !== undefined) string(input.model, "council model", 256);
+      break;
+    }
+    case "council.cancel": exact(root, ["requestId", "type", "runId"], "desktop command"); id(root.runId, "council run id"); break;
     default: throw new Error(`Unsupported desktop command type: ${type}.`);
   }
   return { ...root, requestId, type } as DesktopCommand;
@@ -333,6 +377,8 @@ const EVENT_KEYS: Record<DesktopEvent["type"], readonly string[]> = {
   "chat.started": ["type", "timestamp", "conversationId", "turnId"], "chat.chunk": ["type", "timestamp", "conversationId", "turnId", "chunk", "seq"],
   "chat.completed": ["type", "timestamp", "conversationId", "turnId", "message"], "chat.failed": ["type", "timestamp", "conversationId", "turnId", "message", "recoverable"],
   "chat.route.resolved": ["type", "timestamp", "role", "providerId", "model", "source", "degraded"],
+  "council.started": ["type", "timestamp", "runId", "preset"], "council.stage": ["type", "timestamp", "runId", "stage"],
+  "council.completed": ["type", "timestamp", "runId", "summary"], "council.failed": ["type", "timestamp", "runId", "message"],
   "request.completed": ["type", "timestamp", "requestId"], "request.failed": ["type", "timestamp", "requestId", "message", "recoverable"],
 };
 
@@ -382,6 +428,10 @@ export function validateDesktopEvent(value: unknown): DesktopEvent {
     case "chat.completed": chatConversationId(candidate.conversationId, "chat conversation id"); id(candidate.turnId, "chat turn id"); validateChatMessage(candidate.message); break;
     case "chat.failed": chatConversationId(candidate.conversationId, "chat conversation id"); id(candidate.turnId, "chat turn id"); boundaryString(candidate.message, "chat failure", 2_000); boolean(candidate.recoverable, "chat failure recoverable flag"); break;
     case "chat.route.resolved": chatRole(candidate.role, "chat route role"); providerId(candidate.providerId); string(candidate.model, "chat route model", 256); string(candidate.source, "chat route source", 200); boolean(candidate.degraded, "chat route degraded flag"); break;
+    case "council.started": id(candidate.runId, "council run id"); if (!COUNCIL_PRESETS.has(String(candidate.preset))) throw new Error("council preset is invalid."); break;
+    case "council.stage": id(candidate.runId, "council run id"); validateCouncilStage(candidate.stage); break;
+    case "council.completed": id(candidate.runId, "council run id"); validateCouncilSummary(candidate.summary); break;
+    case "council.failed": id(candidate.runId, "council run id"); boundaryString(candidate.message, "council failure", 2_000); break;
     case "request.completed": break;
     case "request.failed": boundaryString(candidate.message, "request failure", 2_000); boolean(candidate.recoverable, "request recoverable flag"); break;
   }

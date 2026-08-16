@@ -65,6 +65,17 @@ export function ChatView({ state, send }: ChatViewProps) {
     if (!active || !draft.trim()) return;
     const content = draft.trim();
     setDraft("");
+    if (council) {
+      await send({
+        type: "council.start",
+        input: {
+          task: content,
+          preset: councilPreset as "quick" | "standard" | "deep" | "audit",
+          ...(override?.providerId || override?.model ? { providerId: override.providerId, model: override.model } : {}),
+        },
+      });
+      return;
+    }
     await send({
       type: "chat.send",
       input: {
@@ -79,7 +90,17 @@ export function ChatView({ state, send }: ChatViewProps) {
 
   async function stopStreaming(): Promise<void> {
     if (!active) return;
+    const councilRun = chat.councilByConv[active.id];
+    if (!streaming && councilRun && !councilRun.summary && !councilRun.failed) {
+      await send({ type: "council.cancel", runId: councilRun.runId });
+      return;
+    }
     await send({ type: "chat.cancel", conversationId: active.id });
+  }
+
+  async function openArtifacts(relativeDir: string): Promise<void> {
+    if (!state.repositoryRoot) return;
+    await send({ type: "external.open-explorer", input: { repositoryRoot: state.repositoryRoot, path: relativeDir } });
   }
 
   return (
@@ -116,14 +137,17 @@ export function ChatView({ state, send }: ChatViewProps) {
               conversation={active}
               streaming={streaming}
               route={chat.routes[roleChoice ?? active.role] ?? chat.routes.auto}
+              councilRun={chat.councilByConv[active.id]}
+              repositoryRoot={state.repositoryRoot}
               disabled={Boolean(streaming)}
               onRetry={(content) => void retryMessage(content)}
+              onOpenArtifacts={(relativeDir) => void openArtifacts(relativeDir)}
             />
             <ChatComposer
               conversation={active}
               draft={draft}
               setDraft={setDraft}
-              streaming={Boolean(streaming)}
+              streaming={Boolean(streaming) || Boolean(chat.councilByConv[active.id] && !chat.councilByConv[active.id]!.summary && !chat.councilByConv[active.id]!.failed)}
               providers={state.providers}
               routes={chat.routes}
               role={roleChoice ?? active.role}
