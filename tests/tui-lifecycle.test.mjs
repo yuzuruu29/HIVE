@@ -255,3 +255,25 @@ test("terminal frames erase old row tails and rows below a shorter redraw", asyn
   } finally { process.stdout.write = write; }
   assert.equal(output, "\x1b[Jstatus\n> _");
 });
+
+test("stop restores the main screen before leaving raw mode so the shell can redraw its prompt", () => {
+  const app = quietApp();
+  const write = process.stdout.write;
+  const isTTY = process.stdin.isTTY;
+  const setRawMode = process.stdin.setRawMode;
+  const steps = [];
+  try {
+    process.stdout.write = (chunk) => { steps.push(JSON.stringify(String(chunk))); return true; };
+    process.stdin.isTTY = true;
+    process.stdin.setRawMode = (mode) => { steps.push(`raw:${mode}`); return process.stdin; };
+    app.stop();
+  } finally {
+    process.stdout.write = write;
+    process.stdin.isTTY = isTTY;
+    process.stdin.setRawMode = setRawMode;
+  }
+  const leaveScreen = steps.findIndex((step) => step.includes("[?1049l"));
+  const cooked = steps.indexOf("raw:false");
+  assert.ok(leaveScreen >= 0 && cooked >= 0, JSON.stringify(steps));
+  assert.ok(leaveScreen < cooked, `alternate screen must close before raw mode ends: ${JSON.stringify(steps)}`);
+});

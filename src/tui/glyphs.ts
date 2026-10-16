@@ -14,7 +14,10 @@ export interface Glyphs {
   ellipsis: string;
   mode: string;
   box: { tl: string; tr: string; bl: string; br: string; h: string; v: string };
-  spinner: readonly string[];
+  /** The working line's bee: wings flap between open and folded around the body. */
+  bee: { open: readonly [string, string]; folded: readonly [string, string]; body: string; trail: string };
+  /** Marks where streamed text is arriving. */
+  caret: string;
 }
 
 export const UNICODE_GLYPHS: Glyphs = {
@@ -27,7 +30,8 @@ export const UNICODE_GLYPHS: Glyphs = {
   ellipsis: "…",
   mode: "⏵⏵",
   box: { tl: "╭", tr: "╮", bl: "╰", br: "╯", h: "─", v: "│" },
-  spinner: ["·", "✢", "✶", "✻", "✽", "✻", "✶", "✢"],
+  bee: { open: ["ʚ", "ɞ"], folded: ["ε", "з"], body: "●", trail: "·" },
+  caret: "▍",
 };
 
 export const ASCII_GLYPHS: Glyphs = {
@@ -40,7 +44,8 @@ export const ASCII_GLYPHS: Glyphs = {
   ellipsis: "...",
   mode: ">>",
   box: { tl: "+", tr: "+", bl: "+", br: "+", h: "-", v: "|" },
-  spinner: ["-", "\\", "|", "/"],
+  bee: { open: ["{", "}"], folded: ["-", "-"], body: "o", trail: "." },
+  caret: "_",
 };
 
 /**

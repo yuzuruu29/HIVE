@@ -38,11 +38,13 @@ function rep(char: string, count: number): string {
 
 type Rgb = { r: number; g: number; b: number };
 
+type Palette = Record<Tone, { fg: Rgb; bg?: Rgb; band?: boolean }>;
+
 /**
  * Semantic colors: violet for HIVE, gold for the queen's crown, green and red
  * only for change and outcome. Banded tones paint a background to the row's end.
  */
-const TONE_COLORS: Record<Tone, { fg: Rgb; bg?: Rgb; band?: boolean }> = {
+const DARK: Palette = {
   text: { fg: BRAND_COLORS.text },
   muted: { fg: BRAND_COLORS.muted },
   dim: { fg: BRAND_COLORS.dim },
@@ -62,24 +64,51 @@ const TONE_COLORS: Record<Tone, { fg: Rgb; bg?: Rgb; band?: boolean }> = {
   cursor: { fg: BRAND_COLORS.text, bg: { r: 167, g: 139, b: 250 } },
 };
 
-function sgr(text: string, tone: Tone): string {
-  const { fg, bg } = TONE_COLORS[tone];
-  const fore = `\x1b[38;2;${fg.r};${fg.g};${fg.b}m`;
-  const back = bg ? `\x1b[48;2;${bg.r};${bg.g};${bg.b}m` : "";
-  return `${fore}${back}${text}\x1b[0m`;
+/** Same roles on a light background: deeper inks, pastel bands. "pale" becomes the darkest violet. */
+const LIGHT: Palette = {
+  text: { fg: { r: 31, g: 41, b: 55 } },
+  muted: { fg: { r: 75, g: 85, b: 99 } },
+  dim: { fg: { r: 107, g: 114, b: 128 } },
+  accent: { fg: { r: 109, g: 40, b: 217 } },
+  user: { fg: { r: 76, g: 29, b: 149 }, bg: { r: 237, g: 233, b: 254 }, band: true },
+  code: { fg: { r: 109, g: 40, b: 217 } },
+  add: { fg: { r: 22, g: 101, b: 52 }, bg: { r: 220, g: 252, b: 231 }, band: true },
+  del: { fg: { r: 153, g: 27, b: 27 }, bg: { r: 254, g: 226, b: 226 }, band: true },
+  hunk: { fg: { r: 14, g: 116, b: 144 } },
+  warn: { fg: { r: 180, g: 83, b: 9 } },
+  error: { fg: { r: 220, g: 38, b: 38 } },
+  ok: { fg: { r: 21, g: 128, b: 61 } },
+  violet: { fg: { r: 109, g: 40, b: 217 } },
+  lavender: { fg: { r: 139, g: 92, b: 246 } },
+  pale: { fg: { r: 91, g: 33, b: 182 } },
+  gold: { fg: { r: 183, g: 121, b: 31 } },
+  cursor: { fg: { r: 255, g: 255, b: 255 }, bg: { r: 124, g: 58, b: 237 } },
+};
+
+/** No palette means plain text. */
+function paletteFor(state: Pick<TuiState, "colorEnabled" | "lightTheme">): Palette | undefined {
+  if (!state.colorEnabled) return undefined;
+  return state.lightTheme ? LIGHT : DARK;
+}
+
+function sgr(text: string, tone: Tone, palette: Palette): string {
+  const { fg, bg } = palette[tone];
+  const fore = `[38;2;${fg.r};${fg.g};${fg.b}m`;
+  const back = bg ? `[48;2;${bg.r};${bg.g};${bg.b}m` : "";
+  return `${fore}${back}${text}[0m`;
 }
 
 /**
- * Plain text when color is off. With color and a width, a row ending in a
+ * Plain text without a palette. With one and a width, a row ending in a
  * banded tone (diff lines, user turns) carries that background to the edge.
  */
-function paintRow(row: Row, enabled: boolean, width?: number): string {
-  if (!enabled) return row.map((part) => part.text).join("");
+function paintRow(row: Row, palette: Palette | undefined, width?: number): string {
+  if (!palette) return row.map((part) => part.text).join("");
   const last = row[row.length - 1];
-  const painted = row.map(({ text, tone }) => (text ? sgr(text, tone) : "")).join("");
-  if (width === undefined || !last || !TONE_COLORS[last.tone].band) return painted;
+  const painted = row.map(({ text, tone }) => (text ? sgr(text, tone, palette) : "")).join("");
+  if (width === undefined || !last || !palette[last.tone].band) return painted;
   const gap = width - row.reduce((cells, part) => cells + terminalCellWidth(part.text), 0);
-  return gap > 0 ? painted + sgr(" ".repeat(gap), last.tone) : painted;
+  return gap > 0 ? painted + sgr(" ".repeat(gap), last.tone, palette) : painted;
 }
 
 // -- Picker --------------------------------------------------------------------
@@ -91,8 +120,8 @@ export function renderPickerRows(state: TuiState): string[] {
   const width = sessionFrameWidth(state.width);
   const g = glyphsFor(state);
   if (picker.items.length === 0) {
-    if (picker.loading) return [paintRow([{ text: "  Searching files", tone: "dim" }], state.colorEnabled)];
-    return [paintRow([{ text: picker.kind === "file" ? "  No matching files" : "  No matching commands", tone: "dim" }], state.colorEnabled)];
+    if (picker.loading) return [paintRow([{ text: "  Searching files", tone: "dim" }], paletteFor(state))];
+    return [paintRow([{ text: picker.kind === "file" ? "  No matching files" : "  No matching commands", tone: "dim" }], paletteFor(state))];
   }
   return picker.items.map((item, index) => {
     const selected = index === picker.selected;
@@ -100,7 +129,7 @@ export function renderPickerRows(state: TuiState): string[] {
       { text: selected ? `  ${g.focus} ` : "    ", tone: "accent" },
       { text: item.label, tone: selected ? "accent" : "text" },
       { text: item.detail ? `  ${item.detail}` : "", tone: "dim" },
-    ], width), state.colorEnabled);
+    ], width), paletteFor(state));
   });
 }
 
@@ -109,12 +138,13 @@ export function renderPickerRows(state: TuiState): string[] {
 /** Visible transcript rows, colored by tone when color is on. */
 export function renderMainPanel(
   state: TuiState,
-  availableRows: number
+  availableRows: number,
+  now = Date.now(),
 ): string[] {
   const width = sessionFrameWidth(state.width);
-  const rows = renderTranscriptRows(state, width);
+  const rows = renderTranscriptRows(state, width, motionFrame(state, now));
   return windowTranscript<Row>(rows, Math.max(0, availableRows), state.scrollOffset, [])
-    .map((row) => paintRow(row, state.colorEnabled, width));
+    .map((row) => paintRow(row, paletteFor(state), width));
 }
 
 /** Private, transient display rows. They are never appended to the transcript. */
@@ -241,7 +271,7 @@ export function renderStatusBar(state: TuiState, width: number): string {
   const withHint = fitSpans(left, width);
   const leftFit = width - rowWidth(withHint) - 3 >= 24 ? withHint : fitSpans(left.slice(0, 1), width);
   const room = width - rowWidth(leftFit) - 3;
-  if (room < 8) return paintRow(leftFit, state.colorEnabled);
+  if (room < 8) return paintRow(leftFit, paletteFor(state));
   // Drop whole trailing segments rather than cutting one mid-word; only the first may be truncated.
   const sep = ` ${g.dot} `;
   let right = parts[0] ? fitVisible(parts[0], room) : "";
@@ -252,7 +282,7 @@ export function renderStatusBar(state: TuiState, width: number): string {
   }
   const rightText = right + " ";
   const gap = width - rowWidth(leftFit) - terminalCellWidth(rightText);
-  return paintRow([...leftFit, { text: " ".repeat(Math.max(1, gap)), tone: "text" }, { text: rightText, tone: "muted" }], state.colorEnabled);
+  return paintRow([...leftFit, { text: " ".repeat(Math.max(1, gap)), tone: "text" }, { text: rightText, tone: "muted" }], paletteFor(state));
 }
 
 // -- Composer band -------------------------------------------------------------
@@ -282,7 +312,7 @@ function boxRows(body: Row[], width: number, g: Glyphs, tone: Tone, title?: stri
   const label = title ? fitVisible(` ${title} `, Math.max(0, width - 4)) : "";
   const top: Row = [
     { text: tl + (label ? h : ""), tone },
-    { text: label, tone: tone === "warn" ? "warn" : "text" },
+    { text: label, tone: tone === "warn" || tone === "gold" ? "warn" : "text" },
     { text: h.repeat(Math.max(0, width - 2 - (label ? 1 : 0) - terminalCellWidth(label))) + tr, tone },
   ];
   return [
@@ -298,10 +328,51 @@ function formatTurnElapsed(ms: number): string {
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-/** "✻ Working… (12s · 3 agents · esc to interrupt)". Spins only when motion is on. */
+/** Animation clock. The app redraws on this interval while something moves. */
+export const FRAME_MS = 150;
+const BEE_LANE = 7;
+const FLIGHT = [0, 1, 2, 3, 4, 3, 2, 1];
+
+export function motionFrame(state: Pick<TuiState, "motionEnabled">, now: number): number | undefined {
+  return state.motionEnabled ? Math.floor(now / FRAME_MS) : undefined;
+}
+
+/**
+ * A 3-cell bee that flies back and forth across a 7-cell lane, flapping each
+ * frame and leaving a dot where it just was. Without motion it rests in place.
+ */
+function flyingBee(g: Glyphs, frame: number | undefined): Row {
+  const { open, folded, body, trail } = g.bee;
+  const wings = frame === undefined || frame % 2 === 0 ? open : folded;
+  const bee: Row = [{ text: wings[0], tone: "pale" }, { text: body, tone: "gold" }, { text: wings[1], tone: "pale" }];
+  if (frame === undefined) return bee;
+  const step = frame % FLIGHT.length;
+  const at = FLIGHT[step];
+  const from = FLIGHT[(step + FLIGHT.length - 1) % FLIGHT.length];
+  const before = " ".repeat(at).split("");
+  const after = " ".repeat(BEE_LANE - 3 - at).split("");
+  if (from < at) before[at - 1] = trail;
+  else if (from > at) after[0] = trail;
+  return [{ text: before.join(""), tone: "dim" }, ...bee, { text: after.join(""), tone: "dim" }];
+}
+
+/** A two-cell highlight that sweeps across the label, then pauses off the end. */
+function shimmer(text: string, frame: number | undefined): Row {
+  if (frame === undefined) return [{ text, tone: "lavender" }];
+  const chars = [...text];
+  const at = (frame % (chars.length + 6)) - 2;
+  const lo = Math.max(0, at);
+  const hi = Math.max(lo, Math.min(chars.length, at + 2));
+  return [
+    { text: chars.slice(0, lo).join(""), tone: "lavender" },
+    { text: chars.slice(lo, hi).join(""), tone: "pale" },
+    { text: chars.slice(hi).join(""), tone: "lavender" },
+  ];
+}
+
+/** "ʚ●ɞ Working… (12s · 3 agents · esc to interrupt)". The bee flies only when motion is on. */
 function workingRow(state: TuiState, g: Glyphs, now: number): Row {
-  const frames = g.spinner;
-  const glyph = state.motionEnabled ? frames[Math.floor(now / 250) % frames.length] : g.bullet === "*" ? "*" : "✻";
+  const frame = motionFrame(state, now);
   const details: string[] = [];
   if (state.turnStartedAt !== undefined) details.push(formatTurnElapsed(now - state.turnStartedAt));
   const agents = state.subagents?.length ?? 0;
@@ -310,10 +381,19 @@ function workingRow(state: TuiState, g: Glyphs, now: number): Row {
   if (usage) details.push(usage);
   details.push("esc to interrupt");
   return [
-    { text: `${glyph} `, tone: "accent" },
-    { text: `${state.taskStatus === "verifying" ? "Verifying" : "Working"}${g.ellipsis} `, tone: "lavender" },
-    { text: `(${details.join(` ${g.dot} `)})`, tone: "dim" },
+    ...flyingBee(g, frame),
+    { text: " ", tone: "text" },
+    ...shimmer(`${state.taskStatus === "verifying" ? "Verifying" : "Working"}${g.ellipsis}`, frame),
+    { text: ` (${details.join(` ${g.dot} `)})`, tone: "dim" },
   ];
+}
+
+const PERMISSION_PULSE_MS = 1200;
+
+/** The selector border flashes gold twice when it opens, then holds amber. */
+export function permissionPulsing(state: Pick<TuiState, "motionEnabled" | "pendingPermission" | "permissionAskedAt">, now: number): boolean {
+  const since = state.permissionAskedAt === undefined ? Infinity : now - state.permissionAskedAt;
+  return Boolean(state.motionEnabled && state.pendingPermission) && since < PERMISSION_PULSE_MS;
 }
 
 /** Numbered allow / decline options. Typing still works and is echoed in the box. */
@@ -337,7 +417,7 @@ function selectorBody(state: TuiState, g: Glyphs): Row[] {
  */
 export function renderComposerBand(state: TuiState, width: number, composerRows: number, now = Date.now()): string[] {
   const g = glyphsFor(state);
-  const paint = (row: Row) => paintRow(fitSpans(row, width), state.colorEnabled);
+  const paint = (row: Row) => paintRow(fitSpans(row, width), paletteFor(state));
   const prompt = boxPrompt(state);
   const activity: Row[] = [];
   if (state.taskStatus === "running" || state.taskStatus === "verifying") activity.push(workingRow(state, g, now));
@@ -352,7 +432,9 @@ export function renderComposerBand(state: TuiState, width: number, composerRows:
 
   if (state.pendingPermission && !state.mcpInput) {
     const title = (state.permissionPrompt ?? "Allow this action?").replace(/\s*\[y\/n\]\s*$/i, "");
-    const box = boxRows(selectorBody(state, g), width, g, "warn", title);
+    const since = now - (state.permissionAskedAt ?? now);
+    const flash = permissionPulsing(state, now) && Math.floor(since / 300) % 2 === 0;
+    const box = boxRows(selectorBody(state, g), width, g, flash ? "gold" : "warn", title);
     return [...activity, ...box].slice(-composerRows).map(paint);
   }
 
@@ -365,7 +447,7 @@ export function renderComposerBand(state: TuiState, width: number, composerRows:
 
 // -- Full Screen Render --------------------------------------------------------
 
-export function renderTuiScreen(state: TuiState): string {
+export function renderTuiScreen(state: TuiState, now = Date.now()): string {
   const termWidth = state.width > 0 ? state.width : 40;
   const width = sessionFrameWidth(termWidth);
   const height = sessionFrameHeight(state.height);
@@ -378,8 +460,8 @@ export function renderTuiScreen(state: TuiState): string {
   const lines: string[] = [];
   const modalRows = state.mcpInput ? renderMcpInputRows(state, width) : undefined;
   const mainRows = modalRows
-    ? modalRows.slice(state.mcpInput?.scrollOffset ?? 0, (state.mcpInput?.scrollOffset ?? 0) + plan.transcriptRows).map((line) => paintRow([{ text: fitVisible(line, width), tone: "text" }], colorEnabled))
-    : renderMainPanel(state, plan.transcriptRows);
+    ? modalRows.slice(state.mcpInput?.scrollOffset ?? 0, (state.mcpInput?.scrollOffset ?? 0) + plan.transcriptRows).map((line) => paintRow([{ text: fitVisible(line, width), tone: "text" }], paletteFor(state)))
+    : renderMainPanel(state, plan.transcriptRows, now);
   for (const line of mainRows) {
     lines.push(fitStyledTerminalText(line, width));
   }
@@ -387,7 +469,7 @@ export function renderTuiScreen(state: TuiState): string {
   for (const line of subagentLines.slice(0, plan.subagentRows)) {
     lines.push(fitStyledTerminalText(line, width));
   }
-  for (const line of renderComposerBand(state, width, plan.composerRows).slice(0, plan.composerRows)) {
+  for (const line of renderComposerBand(state, width, plan.composerRows, now).slice(0, plan.composerRows)) {
     lines.push(fitStyledTerminalText(line, width));
   }
   for (const line of pickerLines.slice(0, plan.pickerRows)) {

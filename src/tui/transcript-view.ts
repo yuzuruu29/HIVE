@@ -338,12 +338,14 @@ const USER_PREFIX = "[User] ";
 const ERROR_PREFIX = "[Error] ";
 
 /** "● tool(summary)" with a right-aligned status, then "⎿" results. */
-function renderToolCardRows(card: ToolCard, width: number, focused: boolean, g: Glyphs): Row[] {
+function renderToolCardRows(card: ToolCard, width: number, focused: boolean, g: Glyphs, frame?: number): Row[] {
   const status = fitVisible(card.status, 16);
   const tone = statusTone(card.status);
   const statusSpan: Span = { text: status, tone };
+  // A running card's bullet breathes between bright and dim.
+  const bulletTone: Tone = tone === "accent" && frame !== undefined && Math.floor(frame / 3) % 2 === 1 ? "dim" : tone;
   const left = fitSpans([
-    focused ? { text: `${g.focus} `, tone: "accent" } : { text: `${g.bullet} `, tone },
+    focused ? { text: `${g.focus} `, tone: "accent" } : { text: `${g.bullet} `, tone: bulletTone },
     { text: card.tool, tone: focused ? "accent" : "text" },
     { text: `(${card.summary})`, tone: "muted" },
   ], Math.max(0, width - terminalCellWidth(status) - 1));
@@ -372,9 +374,9 @@ function renderToolCardRows(card: ToolCard, width: number, focused: boolean, g: 
  * Message content without its bullet. Prose wraps to the column width; a
  * fenced block keeps its fence and a left bar so code stands apart.
  */
-export function renderEntryRows(entry: string, width: number, focused = false, g: Glyphs = glyphsFor({})): Row[] {
+export function renderEntryRows(entry: string, width: number, focused = false, g: Glyphs = glyphsFor({}), frame?: number): Row[] {
   const card = parseToolCard(entry);
-  if (card) return renderToolCardRows(card, width, focused, g);
+  if (card) return renderToolCardRows(card, width, focused, g, frame);
   const normalized = sanitizeTerminalText(entry);
   if (!normalized.includes("```")) return proseRows(normalized, width);
 
@@ -422,47 +424,67 @@ function marked(marker: Span, rows: Row[], width: number): Row[] {
   return rows.map((row, index) => fitSpans([index === 0 ? marker : { text: " ".repeat(lead), tone: "text" }, ...row], width));
 }
 
-/** Gold crown, pale wings, violet-and-pale striped body. Every row is 11 cells. */
-function queenBee(g: Glyphs): Row[] {
-  if (g.bullet === "*") {
+/** Bee positions along the sky row: it flies left over the hive and back. */
+const SKY_PATH = [10, 8, 6, 4, 2, 0, 2, 4, 6, 8];
+
+/**
+ * A purple skep hive in ringed bands with an arched door, under a sky row
+ * where a gold bee hovers. Every row is 13 cells. At rest the bee sits top
+ * right; while a turn runs it flies back and forth over the hive, flapping.
+ */
+function beeHive(g: Glyphs, frame?: number): Row[] {
+  const ascii = g.bullet === "*";
+  const at = frame === undefined ? SKY_PATH[0] : SKY_PATH[frame % SKY_PATH.length];
+  const wings = frame === undefined || frame % 2 === 0 ? g.bee.open : g.bee.folded;
+  const sky: Row = [
+    { text: " ".repeat(at), tone: "text" },
+    { text: wings[0], tone: "pale" }, { text: g.bee.body, tone: "gold" }, { text: wings[1], tone: "pale" },
+    { text: " ".repeat(10 - at), tone: "text" },
+  ];
+  if (ascii) {
     return [
-      [{ text: "    ", tone: "text" }, { text: "^^^", tone: "gold" }, { text: "    ", tone: "text" }],
-      [{ text: " ", tone: "text" }, { text: "/\\", tone: "pale" }, { text: "(o o)", tone: "accent" }, { text: "/\\", tone: "pale" }, { text: " ", tone: "text" }],
-      [{ text: " ", tone: "text" }, { text: "\\/", tone: "pale" }, { text: "(", tone: "accent" }, { text: "=", tone: "pale" }, { text: "#", tone: "accent" }, { text: "=", tone: "pale" }, { text: ")", tone: "accent" }, { text: "\\/", tone: "pale" }, { text: " ", tone: "text" }],
-      [{ text: "     ", tone: "text" }, { text: "v", tone: "violet" }, { text: "     ", tone: "text" }],
+      sky,
+      [{ text: "   .-===-.   ", tone: "lavender" }],
+      [{ text: "  (=======)  ", tone: "accent" }],
+      [{ text: " (=========) ", tone: "lavender" }],
+      [{ text: "(=====", tone: "accent" }, { text: "n", tone: "dim" }, { text: "=====)", tone: "accent" }],
     ];
   }
   return [
-    [{ text: "    ", tone: "text" }, { text: "▲▲▲", tone: "gold" }, { text: "    ", tone: "text" }],
-    [{ text: " ", tone: "text" }, { text: "▄▖", tone: "pale" }, { text: "▐▛█▜▌", tone: "accent" }, { text: "▗▄", tone: "pale" }, { text: " ", tone: "text" }],
-    [{ text: " ", tone: "text" }, { text: "▀▘", tone: "pale" }, { text: "█", tone: "accent" }, { text: "█", tone: "pale" }, { text: "█", tone: "accent" }, { text: "█", tone: "pale" }, { text: "█", tone: "accent" }, { text: "▝▀", tone: "pale" }, { text: " ", tone: "text" }],
-    [{ text: "     ", tone: "text" }, { text: "▼", tone: "violet" }, { text: "     ", tone: "text" }],
+    sky,
+    [{ text: "   ▄▄███▄▄   ", tone: "lavender" }],
+    [{ text: " ▄█████████▄ ", tone: "accent" }],
+    [{ text: " ███████████ ", tone: "lavender" }],
+    [{ text: "▄████▀ ▀████▄", tone: "accent" }],
   ];
 }
 
 const WELCOME_CAP = 78;
-const BEE_CELLS = 11;
+const MASCOT_CELLS = 13;
 
 function shown(value: unknown): string {
   return value === undefined || value === null || value === "" ? "none" : String(value);
 }
 
-/** Bordered card with the queen bee, product line, runtime and workspace, then a tips line. */
-function welcomeRows(state: TuiState, width: number, g: Glyphs): Row[] {
+/** Bordered card with the hive mascot, product line, runtime and workspace, then a tips line. */
+function welcomeRows(state: TuiState, width: number, g: Glyphs, frame?: number): Row[] {
   const place = [state.workspaceName, state.gitBranch ? `(${state.gitBranch})` : undefined].filter(Boolean).join(" ");
   const text: Row[] = [
     [{ text: "HIVE", tone: "pale" }],
     [{ text: "Hyper Intelligence for Verified Engineering", tone: "muted" }],
     [{ text: `${shown(state.provider)} ${g.dot} ${shown(state.model)} ${g.dot} ${state.sessionMode || "guarded"}`, tone: "text" }],
     [{ text: place || "no workspace", tone: "muted" }],
+    [],
   ];
   const tips: Row = [{ text: `  /help for commands ${g.dot} @ for files ${g.dot} shift+tab for modes`, tone: "dim" }];
   if (width < 24) return [[{ text: "HIVE", tone: "pale" }], []];
   const boxWidth = Math.min(width, WELCOME_CAP);
   const inner = boxWidth - 4;
-  const withBee = inner >= BEE_CELLS + 2 + 20;
-  const bee = withBee ? queenBee(g) : [];
-  const body = text.map((row, index): Row => padRow(withBee ? [...bee[index], { text: "  ", tone: "text" }, ...row] : row, inner));
+  const withMascot = inner >= MASCOT_CELLS + 2 + 20;
+  const mascot = withMascot ? beeHive(g, frame) : [];
+  // The fifth text row only exists to sit beside the hive's base.
+  const lines = withMascot ? text : text.slice(0, 4);
+  const body = lines.map((row, index): Row => padRow(withMascot ? [...mascot[index], { text: "  ", tone: "text" }, ...row] : row, inner));
   const { tl, tr, bl, br, h, v } = g.box;
   return [
     [{ text: tl + h.repeat(boxWidth - 2) + tr, tone: "violet" }],
@@ -487,13 +509,14 @@ type EntryKind = "user" | "card" | "error" | "note" | "diff" | "prose";
  * to the block above. Unified diffs arrive one line per entry, so a "--- " or
  * "diff " entry starts a numbered diff run.
  */
-export function renderTranscriptRows(state: TuiState, width = sessionFrameWidth(state.width)): Row[] {
+export function renderTranscriptRows(state: TuiState, width = sessionFrameWidth(state.width), frame?: number): Row[] {
   const inner = Math.max(1, width);
   const g = glyphsFor(state);
   const entries = transcriptEntries(state);
   const cards = entries.filter((entry) => parseToolCard(entry)).length;
   const focus = focusedToolCardPosition(cards, state.toolCardFocus);
-  const rows: Row[] = welcomeRows(state, inner, g);
+  const active = state.taskStatus === "running" || state.taskStatus === "verifying";
+  const rows: Row[] = welcomeRows(state, inner, g, active ? frame : undefined);
   let seen = 0;
   let previous: EntryKind | undefined;
   let inDiff = false;
@@ -529,11 +552,18 @@ export function renderTranscriptRows(state: TuiState, width = sessionFrameWidth(
         rows.push(...marked({ text: `${g.bullet} `, tone: "error" }, proseRows(`Error: ${entry.slice(ERROR_PREFIX.length)}`, body, "error"), inner));
         break;
       case "card":
-        rows.push(...renderEntryRows(entry, inner, seen++ === focus, g));
+        rows.push(...renderEntryRows(entry, inner, seen++ === focus, g, frame));
         break;
       default:
         rows.push(...marked({ text: `${g.bullet} `, tone: "text" }, renderEntryRows(entry, body, false, g), inner));
     }
+  }
+  // A caret trails text that is still streaming; it blinks with motion. It
+  // never adds a row, so scroll math is the same whether it shows or not.
+  const streaming = active && Boolean(state.liveText?.trim()) && entries[entries.length - 1] === state.liveText;
+  const last = rows[rows.length - 1];
+  if (streaming && last && rowWidth(last) < inner && (frame === undefined || Math.floor(frame / 4) % 2 === 0)) {
+    rows[rows.length - 1] = [...last, { text: g.caret, tone: "accent" }];
   }
   return rows;
 }

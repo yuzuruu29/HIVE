@@ -41,22 +41,24 @@ import {
   appendTranscriptLine,
   replaceTranscript,
   setTaskStatus,
+  themeFromBackgroundReply,
+  themeFromEnvironment,
+  withLightTheme,
 } from "./state.js";
 import { parseTuiCommand, executeTuiCommand, type ExecuteTuiCommandOptions } from "./commands.js";
 import type { TuiRuntimeHandle, TuiSessionRunner } from "./runtime-adapter.js";
-import { parseGitBranch, renderMcpInputRows, renderTuiScreen } from "./renderer.js";
+import { FRAME_MS, parseGitBranch, permissionPulsing, renderMcpInputRows, renderTuiScreen } from "./renderer.js";
 import {
   enterAlternateScreen,
   exitAlternateScreen,
   hideCursor,
   showCursor,
-  cursorHome,
   enableRawMode,
   disableRawMode,
   enableMouseTracking,
   disableMouseTracking,
+  frameUpdate,
   getTerminalSize,
-  writeFrame,
 } from "./terminal-control.js";
 import { composerCursor, nextScrollOffset, planSessionFrame, sessionFrameWidth } from "./transcript-view.js";
 import { graphemeColumnOffset, graphemeCursor, graphemes, moveGraphemeCursor, moveWordCursor } from "./text.js";
@@ -98,6 +100,8 @@ export class TuiApp {
   private readonly inputDecoder = new StringDecoder("utf8");
   private escapeTimer?: ReturnType<typeof setTimeout>;
   private workingTick?: ReturnType<typeof setInterval>;
+  /** Rows on screen now. Undefined forces a full redraw (start, resize). */
+  private shownRows?: string[];
   private pasteBuffer: string | undefined;
   private historyDraft?: { input: string; cursor: number };
   private boundOnData: ((chunk: Buffer) => void) | null = null;
@@ -182,6 +186,9 @@ export class TuiApp {
 
       // Enable raw mode
       enableRawMode();
+      // Ask for the background color when the environment does not say; the
+      // reply arrives on stdin and is consumed before key handling.
+      if (this.state.colorEnabled && themeFromEnvironment() === undefined) process.stdout.write("\x1b]11;?\x1b\\");
 
       // Set up stdin
       this.boundOnData = this.onData.bind(this);
@@ -254,7 +261,12 @@ export class TuiApp {
       process.stdout.removeListener("resize", this.boundOnResize);
     }
 
+    // Restore the screen while raw mode is still on. Leaving the alternate
+    // screen after cooked input returns leaves Windows ConPTY shells unable
+    // to draw their prompt, so the terminal looks hung after exit.
     disableMouseTracking();
+    exitAlternateScreen();
+    showCursor();
     disableRawMode();
 
     // Pause stdin so process can exit
@@ -263,9 +275,6 @@ export class TuiApp {
     } catch {
       // Ignore
     }
-
-    exitAlternateScreen();
-    showCursor();
 
     const resolve = this.resolveStop;
     this.resolveStop = null;
@@ -285,6 +294,7 @@ export class TuiApp {
   // -- Resize ------------------------------------------------------------------
 
   private onResize(): void {
+    this.shownRows = undefined;
     const { cols, rows } = getTerminalSize();
     this.setState(withSize(this.state, cols, rows));
   }
@@ -300,17 +310,22 @@ export class TuiApp {
 
   private render(): void {
     if (this.stopped) return;
-    this.syncWorkingTick();
-    const frame = renderTuiScreen(this.state);
-    cursorHome();
-    writeFrame(frame);
+    const now = Date.now();
+    this.syncWorkingTick(now);
+    const rows = renderTuiScreen(this.state, now).split("\n");
+    const update = frameUpdate(this.shownRows, rows);
+    if (update) process.stdout.write(update);
+    this.shownRows = rows;
   }
 
-  /** Redraw while a turn runs so the working line's timer and spinner advance between events. */
-  private syncWorkingTick(): void {
-    const active = this.state.taskStatus === "running" || this.state.taskStatus === "verifying";
+  /**
+   * Redraw on a clock while something moves: a running turn (timer, bee,
+   * tool pulse, caret) or a permission selector that just opened.
+   */
+  private syncWorkingTick(now: number): void {
+    const active = this.state.taskStatus === "running" || this.state.taskStatus === "verifying" || permissionPulsing(this.state, now);
     if (active && !this.workingTick) {
-      this.workingTick = setInterval(() => this.render(), this.state.motionEnabled ? 250 : 1000);
+      this.workingTick = setInterval(() => this.render(), this.state.motionEnabled ? FRAME_MS : 1000);
       this.workingTick.unref?.();
     } else if (!active && this.workingTick) {
       clearInterval(this.workingTick);
@@ -323,7 +338,14 @@ export class TuiApp {
   private onData(chunk: Buffer): void {
     if (this.escapeTimer) clearTimeout(this.escapeTimer);
     this.escapeTimer = undefined;
-    this.inputBuffer += this.inputDecoder.write(chunk);
+    // ponytail: assumes the short OSC 11 reply arrives in one chunk; a split reply would reach the key parser.
+    let theme: "light" | "dark" | undefined;
+    const text = this.inputDecoder.write(chunk).replace(OSC_BACKGROUND_REPLY, (reply) => {
+      theme = themeFromBackgroundReply(reply) ?? theme;
+      return "";
+    });
+    if (theme && (theme === "light") !== Boolean(this.state.lightTheme)) this.setState(withLightTheme(this.state, theme === "light"));
+    this.inputBuffer += text;
     this.processInputBuffer(true);
   }
 
@@ -1371,6 +1393,9 @@ function readWorkspaceBranch(cwd: string): Promise<string | undefined> {
       (error, stdout) => resolve(error ? undefined : stdout));
   });
 }
+
+/** A terminal's reply to the OSC 11 background-color query, BEL- or ST-terminated. */
+const OSC_BACKGROUND_REPLY = /\x1b\]11;[^\x07\x1b]*(?:\x07|\x1b\\)/g;
 
 // Helper - avoid importing clearScreen from terminal-control to keep this local
 function clearAndHome(): void {

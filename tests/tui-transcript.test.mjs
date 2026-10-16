@@ -402,9 +402,10 @@ test("transcript rows separate turns and tone user text, cards, and diffs", asyn
   const rows = renderTranscriptRows({ ...initialState(), width: 60, asciiGlyphs: false, transcript }, 60);
   const plain = rows.map(plainRow);
   const toneOf = (text) => rows.find((row) => plainRow(row).includes(text))?.at(-1)?.tone;
-  const bee = plain.findIndex((line) => line.includes("▲▲▲"));
-  assert.ok(bee > 0 && plain[bee + 1].includes("▐▛█▜▌"), "the welcome card carries the queen bee");
-  assert.equal(rows[bee].find((part) => part.text === "▲▲▲").tone, "gold");
+  const hive = plain.findIndex((line) => line.includes("▄▄███▄▄"));
+  assert.ok(hive > 1 && plain[hive + 3].includes("▄████▀ ▀████▄"), "the welcome card carries the hive");
+  assert.match(plain[hive - 1], /^│ {11}ʚ●ɞ  HIVE/, "the bee rests top right at idle");
+  assert.equal(rows[hive - 1].find((part) => part.text === "●").tone, "gold");
   const user = plain.indexOf("› fix it");
   assert.ok(user > 0);
   assert.equal(plain[user - 1], "", "a blank row opens each user turn");
@@ -429,7 +430,7 @@ test("transcript rows separate turns and tone user text, cards, and diffs", asyn
 
   const ascii = renderTranscriptRows({ ...initialState(), width: 60, asciiGlyphs: true, transcript }, 60).map(plainRow).join("\n");
   assert.equal(/[^\x00-\x7f]/.test(ascii), false, "the ASCII fallback draws only ASCII");
-  assert.match(ascii, /\(o o\)/);
+  assert.match(ascii, /\(=====n=====\)/);
   assert.match(ascii, /^\* On it\.$/m);
 });
 
@@ -462,4 +463,95 @@ test("the permission selector moves with arrows and an empty Enter confirms the 
   } finally {
     process.stdout.write = originalWrite;
   }
+});
+
+test("the working bee rests without motion and flies across a fixed lane with it", async () => {
+  const { renderComposerBand, FRAME_MS } = await import("../dist/tui/renderer.js");
+  const { initialState } = await import("../dist/tui/state.js");
+  const { terminalCellWidth } = await import("../dist/tui/display-text.js");
+  const base = { ...initialState(), ...session(), taskStatus: "running", turnStartedAt: 0 };
+  assert.match(renderComposerBand({ ...base, motionEnabled: false }, 80, 6, 12_000)[0], /^ʚ●ɞ Working… \(12s · esc to interrupt\)/);
+  const lanes = [];
+  for (let frame = 0; frame < 8; frame += 1) {
+    const row = renderComposerBand({ ...base, motionEnabled: true }, 80, 6, frame * FRAME_MS)[0];
+    const lane = [...row].slice(0, 7).join("");
+    assert.equal(terminalCellWidth(lane), 7, lane);
+    assert.match(lane, frame % 2 === 0 ? /ʚ●ɞ/ : /ε●з/);
+    assert.equal(row.slice(lane.length, lane.length + 9), " Working…");
+    lanes.push(lane.indexOf("●"));
+  }
+  assert.deepEqual(lanes, [1, 2, 3, 4, 5, 4, 3, 2], "the bee flies right, then back");
+  const ascii = renderComposerBand({ ...base, motionEnabled: false, asciiGlyphs: true }, 80, 6, 0)[0];
+  assert.match(ascii, /^\{o\} Working\.\.\./);
+});
+
+test("motion pulses a running card, circles the hive bee and blinks a streaming caret", async () => {
+  const { renderTranscriptRows, plainRow } = await import("../dist/tui/transcript-view.js");
+  const { serializeToolCard } = await import("../dist/tui/tool-card.js");
+  const card = serializeToolCard({ id: "r", kind: "command", tool: "run_command", summary: "npm test", status: "running", expanded: false, mutating: false, prompt: false, body: [] });
+  // The last card takes focus by default, so the running card goes first.
+  const done = serializeToolCard({ id: "d", kind: "read", tool: "read_file", summary: "a.ts", status: "done", expanded: false, mutating: false, prompt: false, body: [] });
+  const state = { ...session({ asciiGlyphs: false }), taskStatus: "running", transcript: [card, done], liveText: "Streaming now" };
+  const at = (frame) => renderTranscriptRows(state, 100, frame);
+  const cardRow = (rows) => rows.find((row) => plainRow(row).includes("run_command("));
+  assert.equal(cardRow(at(0))[0].tone, "accent");
+  assert.equal(cardRow(at(3))[0].tone, "dim");
+  // The sky row follows the card's top border; "│ " leads, then the bee's left wing.
+  const beeAt = (frame) => plainRow(at(frame)[1]).indexOf("●") - 3;
+  assert.deepEqual(Array.from({ length: 10 }, (_, frame) => beeAt(frame)), [10, 8, 6, 4, 2, 0, 2, 4, 6, 8], "the bee flies over the hive and back");
+  assert.match(plainRow(at(1)[1]), /ε●з/, "the wings fold on odd frames");
+  assert.equal(at(0).length, at(4).length, "moving the bee never changes the row count");
+  assert.match(plainRow(at(0).at(-1)), /Streaming now▍$/);
+  assert.doesNotMatch(plainRow(at(4).at(-1)), /▍/);
+  assert.equal(at(0).length, at(4).length, "the caret never adds a row");
+  assert.doesNotMatch(plainRow(renderTranscriptRows({ ...state, taskStatus: "idle" }, 100, 0).at(-1)), /▍/);
+});
+
+test("the permission border pulses gold right after it opens, then holds amber", async () => {
+  const { renderComposerBand } = await import("../dist/tui/renderer.js");
+  const { initialState, withPendingPermission } = await import("../dist/tui/state.js");
+  const { decidePermission } = await import("../dist/tui/interaction.js");
+  const decision = decidePermission("guarded", { kind: "edit", target: "workspace", inWorkspace: true, confirmed: false });
+  const asked = { ...withPendingPermission({ ...initialState(), ...session(), colorEnabled: true, motionEnabled: true }, decision), permissionAskedAt: 1_000 };
+  const border = (now) => renderComposerBand(asked, 80, 6, now).find((row) => row.includes("╭"));
+  const gold = "\x1b[38;2;245;197;66m";
+  assert.ok(border(1_000).startsWith(gold));
+  assert.ok(!border(1_300).startsWith(gold));
+  assert.ok(!border(2_500).startsWith(gold), "the pulse stops after the opening window");
+});
+
+test("frame updates rewrite only changed rows and redraw fully when the height changes", async () => {
+  const { frameUpdate } = await import("../dist/tui/terminal-control.js");
+  const full = frameUpdate(undefined, ["a", "b"]);
+  assert.equal(full, "\x1b[?2026h\x1b[H\x1b[Ja\nb\x1b[?2026l");
+  assert.equal(frameUpdate(["a", "b"], ["a", "b"]), "");
+  assert.equal(frameUpdate(["a", "b", "c"], ["a", "B", "c"]), "\x1b[?2026h\x1b[2;1H\x1b[2KB\x1b[?2026l");
+  assert.equal(frameUpdate(["a"], ["a", "b"]), "\x1b[?2026h\x1b[H\x1b[Ja\nb\x1b[?2026l");
+});
+
+test("theme detection honors HIVE_THEME, COLORFGBG and the terminal's background reply", async () => {
+  const { themeFromEnvironment, themeFromBackgroundReply } = await import("../dist/tui/state.js");
+  assert.equal(themeFromEnvironment({ HIVE_THEME: "light", COLORFGBG: "15;0" }), "light");
+  assert.equal(themeFromEnvironment({ COLORFGBG: "0;15" }), "light");
+  assert.equal(themeFromEnvironment({ COLORFGBG: "15;default;0" }), "dark");
+  assert.equal(themeFromEnvironment({}), undefined);
+  assert.equal(themeFromBackgroundReply("\x1b]11;rgb:ffff/ffff/ffff\x1b\\"), "light");
+  assert.equal(themeFromBackgroundReply("\x1b]11;rgb:0c0c/0c0c/0c0c\x07"), "dark");
+  assert.equal(themeFromBackgroundReply("garbage"), undefined);
+});
+
+test("a background reply switches to the light palette and never reaches the composer", async () => {
+  const { TuiApp } = await import("../dist/tui/app.js");
+  const { renderTuiScreen } = await import("../dist/tui/renderer.js");
+  const { initialState } = await import("../dist/tui/state.js");
+  const app = new TuiApp(process.cwd(), { persistSession: false });
+  app.render = () => {};
+  app.state = { ...initialState(), ...session(), colorEnabled: true, lightTheme: false };
+  app.onData(Buffer.from("ab\x1b]11;rgb:fafa/fafa/fafa\x1b\\c"));
+  clearTimeout(app.escapeTimer);
+  assert.equal(app.state.input, "abc");
+  assert.equal(app.state.lightTheme, true);
+  assert.match(renderTuiScreen(app.state), /\x1b\[38;2;31;41;55m/, "light text ink");
+  app.onData(Buffer.from("\x1b]11;rgb:1010/1010/1010\x07"));
+  assert.equal(app.state.lightTheme, false);
 });

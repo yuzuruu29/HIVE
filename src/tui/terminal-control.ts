@@ -93,3 +93,21 @@ export function writeFrame(content: string): void {
   // The caller homes the cursor; erase before drawing so full-width last cells survive.
   process.stdout.write("\x1b[J" + content);
 }
+
+/**
+ * Bytes that turn the previous frame into the next one. Without a previous
+ * frame of the same height it redraws everything; otherwise it rewrites only
+ * the rows that changed, each erased first so a full-width last cell is never
+ * clipped by a trailing erase. Wrapped in synchronized output (DEC 2026) so
+ * terminals that support it paint the update at once; others ignore it.
+ */
+export function frameUpdate(previous: readonly string[] | undefined, next: readonly string[]): string {
+  let body = "";
+  if (!previous || previous.length !== next.length) body = "\x1b[H\x1b[J" + next.join("\n");
+  else {
+    for (let row = 0; row < next.length; row += 1) {
+      if (next[row] !== previous[row]) body += `\x1b[${row + 1};1H\x1b[2K${next[row]}`;
+    }
+  }
+  return body ? `\x1b[?2026h${body}\x1b[?2026l` : "";
+}

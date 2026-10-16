@@ -77,6 +77,10 @@ export interface TuiState {
   asciiGlyphs?: boolean;
   /** When the current turn started running. Drives the working line's elapsed time. */
   turnStartedAt?: number;
+  /** Light terminal background: the renderer switches to its light palette. */
+  lightTheme?: boolean;
+  /** When the pending permission opened. The selector border pulses briefly after it. */
+  permissionAskedAt?: number;
   /** Open slash or file picker. Absent when the composer is plain text. */
   picker?: ComposerPicker;
   /** Assistant prose that has arrived but is not yet committed to the transcript. */
@@ -253,6 +257,7 @@ export function initialState(): TuiState {
     height: rows,
     colorEnabled,
     asciiGlyphs: prefersAsciiGlyphs(),
+    lightTheme: themeFromEnvironment() === "light",
     running: false,
     taskStatus: "idle",
     transcript: [],
@@ -427,7 +432,33 @@ export function withPendingPermission(
     pendingPermission: decision,
     permissionPrompt: decision ? permissionPromptText(decision) : undefined,
     permissionChoice: 0,
+    permissionAskedAt: decision ? Date.now() : undefined,
   };
+}
+
+/**
+ * HIVE_THEME=light|dark wins. Otherwise COLORFGBG ("fg;bg", set by rxvt,
+ * Konsole and others) names a light background as 7 or 15. Undefined means
+ * unknown; the app then asks the terminal for its background color.
+ */
+export function themeFromEnvironment(env: NodeJS.ProcessEnv = process.env): "light" | "dark" | undefined {
+  const forced = (env.HIVE_THEME ?? "").toLowerCase();
+  if (forced === "light" || forced === "dark") return forced;
+  const background = (env.COLORFGBG ?? "").split(";").pop();
+  if (!background || !/^\d+$/.test(background)) return undefined;
+  return background === "7" || background === "15" ? "light" : "dark";
+}
+
+/** Parses an OSC 11 reply ("rgb:RRRR/GGGG/BBBB") into light or dark by perceived luminance. */
+export function themeFromBackgroundReply(reply: string): "light" | "dark" | undefined {
+  const match = /rgb:([0-9a-f]+)\/([0-9a-f]+)\/([0-9a-f]+)/i.exec(reply);
+  if (!match) return undefined;
+  const [r, g, b] = match.slice(1, 4).map((hex) => parseInt(hex, 16) / (16 ** hex.length - 1));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.5 ? "light" : "dark";
+}
+
+export function withLightTheme(state: TuiState, lightTheme: boolean): TuiState {
+  return { ...state, lightTheme };
 }
 
 export function appendTranscriptLine(state: TuiState, line: string): TuiState {
