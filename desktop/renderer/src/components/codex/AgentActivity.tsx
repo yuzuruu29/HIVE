@@ -26,8 +26,11 @@ export function AgentActivity({ events, runStatus = null, sessionId = null, now 
     [events, now, clock, runStatus, sessionId],
   );
 
+  const idle = rows.every((row) => row.phase === "idle");
+
   return (
-    <div className="hive-activity-block" role="log" aria-label="Agent activity">
+    <div className="hive-activity-block" role="log" aria-label="Agent activity" data-idle={idle || undefined}>
+      <div className="hive-activity-head" aria-hidden="true">{idle ? "HIVE pipeline" : "Agents"}</div>
       {rows.map((row) => (
         <div
           key={row.role}

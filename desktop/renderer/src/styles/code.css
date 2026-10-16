@@ -1,256 +1,189 @@
 .hive-code-layout {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   flex: 1;
-  height: 100%;
-  min-width: 0;
-  overflow: hidden;
-  background: var(--hive-bg-base);
+  min-height: 0;
 }
 
-/* Center Agent Stage */
 .hive-code-center {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
   min-width: 0;
-  height: 100%;
-  overflow: hidden;
-  position: relative;
-  background: var(--hive-bg-base);
+  min-height: 0;
 }
 
-/* Keep the transcript and its composer usable beside a narrow sidebar. */
-@media (max-width: 1099px) {
-  .hive-code-layout {
-    flex-direction: column;
-  }
-
-  .hive-code-center {
-    flex: 1 1 56%;
-    min-height: 240px;
-    height: auto;
-  }
-}
-
-/* Mission Header */
-.hive-mission-header {
+.hive-code-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  height: 44px;
-  padding: 0 20px;
-  background: transparent;
-  border-bottom: 1px solid var(--hive-border-subtle);
+  justify-content: center;
+  gap: 8px;
+  padding: 0 24px 6px;
 }
 
-.hive-mission-title-group {
-  display: flex;
+.hive-code-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.hive-code-column {
+  display: grid;
+  gap: 24px;
+  width: 100%;
+  max-width: var(--reading-w);
+  margin: 0 auto;
+  padding: 16px 28px 32px;
+}
+
+.hive-code-hero {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 7vh 0 4px;
+  text-align: center;
+}
+
+.hive-code-hero .chat-hero-title {
+  font-size: 30px;
+}
+
+.hive-primary-btn {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
-  flex: 1;
-  font-size: 13.5px;
-}
-
-.hive-mission-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--hive-violet-soft);
-}
-
-.hive-mission-title {
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--hive-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hive-posture-selector {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--hive-bg-deep);
-  padding: 2px;
-  border-radius: var(--hive-radius-sm);
-  border: 1px solid var(--hive-border-subtle);
-}
-
-.hive-posture-btn {
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 11px;
-  color: var(--hive-text-dim);
-  transition: all 0.12s ease;
-}
-
-.hive-posture-btn:hover {
-  color: var(--hive-text);
-}
-
-.hive-posture-btn.is-active {
-  background: var(--hive-bg-raised);
-  color: var(--hive-text);
-  font-weight: 500;
-}
-
-/* Agent Turn Stream */
-.hive-code-stream {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 28px 128px;
-  gap: 18px;
-}
-
-.hive-code-empty {
-  margin-top: auto;
-  max-width: 34rem;
-  padding: 0 2px 4px;
-}
-
-.hive-code-empty p {
-  margin: 0;
-  font-family: var(--hive-font-ui);
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  line-height: 1.35;
-  color: #fafafa;
-}
-
-/* Compact Inline Agent Activity Rows */
-.hive-activity-block {
-  display: flex;
-  flex-direction: column;
-  padding: 0;
+  height: 38px;
+  margin-top: 8px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 0;
-  background: transparent;
-  gap: 1px;
-  font-family: var(--hive-font-mono);
-  font-size: 12px;
+  border-radius: var(--r-control);
+  background: var(--accent-strong);
+  color: var(--on-accent);
+  font-weight: 600;
+  box-shadow: 0 6px 16px -6px var(--accent-ring);
+}
+
+.hive-primary-btn:hover {
+  background: var(--accent);
+}
+
+/* Agent pipeline. Idle it reads as a compact strip of the five HIVE roles;
+   during a run it becomes a live list with phase dots and timings. */
+.hive-activity-block {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.hive-activity-head {
+  padding: 2px 6px 6px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .hive-activity-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 28px;
-  padding: 3px 8px;
-  border-radius: var(--hive-radius-sm);
-  color: var(--hive-text-secondary);
+  gap: 12px;
+  min-height: 34px;
+  padding: 0 8px;
+  border-radius: var(--r-row);
 }
 
-.hive-activity-row:hover {
-  background: var(--hive-bg-hover);
+.hive-activity-row[data-phase="active"] {
+  background: var(--accent-wash);
 }
 
 .hive-activity-left {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 1;
+  gap: 10px;
   min-width: 0;
 }
 
 .hive-activity-dot {
-  font-size: 10px;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-4);
+  color: transparent;
+  font-size: 0;
 }
 
-.hive-activity-dot.is-done {
-  color: var(--hive-success);
-}
-
-.hive-activity-dot.is-active {
-  color: var(--hive-violet-soft);
-}
-
-.hive-activity-dot.is-waiting {
-  color: var(--hive-text-dim);
-}
-
-.hive-activity-dot.is-failed {
-  color: var(--hive-error);
-}
+.hive-activity-dot.is-done { background: var(--ok); }
+.hive-activity-dot.is-active { background: var(--accent); }
+.hive-activity-dot.is-failed { background: var(--bad); }
+.hive-activity-dot.is-waiting { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
 
 .hive-activity-role {
-  font-weight: 600;
-  color: var(--hive-text);
-  min-width: 84px;
+  width: 74px;
   flex: none;
-}
-
-.hive-activity-row[data-phase="idle"] .hive-activity-role,
-.hive-activity-row[data-phase="waiting"] .hive-activity-role,
-.hive-activity-row[data-phase="idle"] .hive-activity-detail,
-.hive-activity-row[data-phase="waiting"] .hive-activity-detail {
-  color: var(--hive-text-dim);
-}
-
-.hive-activity-row[data-phase="active"] .hive-activity-role {
-  color: var(--hive-violet-soft);
-}
-
-.hive-activity-row[data-phase="failed"] .hive-activity-role {
-  color: var(--hive-error);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
 }
 
 .hive-activity-detail {
-  color: var(--hive-text-secondary);
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .hive-activity-time {
-  color: var(--hive-text-dim);
   flex: none;
-  margin-left: 12px;
+  color: var(--ink-4);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
-.hive-message-row {
+.hive-activity-block[data-idle] {
   display: flex;
-  width: 100%;
-}
-
-.hive-message-row.is-user {
-  justify-content: flex-end;
-}
-
-.hive-user-bubble {
-  max-width: min(520px, 82%);
-  padding: 10px 14px;
-  border-radius: var(--hive-radius-md);
-  background: #1a1a21;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #f4f4f5;
-  font-family: var(--hive-font-ui);
-  font-size: 15px;
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-
-.hive-assistant-flow {
-  display: flex;
-  width: 100%;
-  padding: 2px 0 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0;
   border: 0;
-  border-radius: 0;
   background: transparent;
-  color: #f4f4f5;
-  font-family: var(--hive-font-ui);
-  font-size: 15.5px;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
 }
 
-.hive-assistant-body {
+.hive-activity-block[data-idle] .hive-activity-head {
   width: 100%;
+  padding: 0 0 2px;
+  text-align: center;
 }
 
+.hive-activity-block[data-idle] .hive-activity-row {
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+}
+
+.hive-activity-block[data-idle] .hive-activity-role {
+  width: auto;
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.hive-activity-block[data-idle] .hive-activity-detail,
+.hive-activity-block[data-idle] .hive-activity-time {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}

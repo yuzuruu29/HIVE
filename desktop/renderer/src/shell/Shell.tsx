@@ -1,111 +1,94 @@
 import React from "react";
 import type { DesktopMode } from "../state";
 import { Sidebar, type SidebarSession } from "./Sidebar";
-import { Titlebar } from "./Titlebar";
-import type { WorkspaceTab } from "./WorkspaceTabs";
-
-export interface ShellStatusItem {
-  label: string;
-  emphasis?: boolean;
-}
+import { FolderIcon } from "./icons";
 
 export interface ShellProps {
   mode: DesktopMode;
   onSelectMode: (mode: DesktopMode) => void;
   onCreateTask: () => void;
+  onNewCodeTask?: () => void;
   sessions: SidebarSession[];
   onSelectSession: (id: string) => void;
-
-  projectName?: string;
+  /** What the main pane is showing, e.g. the open conversation's title. */
+  title: string;
   repositoryPath?: string;
-  sessionTabs?: WorkspaceTab[];
-  activeTabId?: string | null;
-  onSelectTab?: (id: string) => void;
-  onCloseTab?: (id: string) => void;
-  onNewTab?: () => void;
-
-  activeModelName?: string;
-  onOpenModelPicker?: () => void;
+  setRepositoryPath?: (path: string) => void;
+  onOpenRepository?: (path: string) => Promise<void>;
+  onPickRepository?: () => void;
+  busy?: boolean;
   onOpenSettings: () => void;
   onOpenUsage: () => void;
   worker?: string;
-  status?: ShellStatusItem[];
-  setRepositoryPath?: (path: string) => void;
-  onOpenRepository?: (path: string) => Promise<void>;
-  busy?: boolean;
-
+  sidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
   children: React.ReactNode;
 }
 
-/** One persistent desktop shell: titlebar, global sidebar, routed workspace, status bar. */
+/** Sidebar plus one routed workspace, the layout Claude and ChatGPT desktop share. */
 export function Shell({
   mode,
   onSelectMode,
   onCreateTask,
+  onNewCodeTask,
   sessions,
   onSelectSession,
-  projectName,
+  title,
   repositoryPath,
-  sessionTabs,
-  activeTabId,
-  onSelectTab,
-  onCloseTab,
-  onNewTab,
-  activeModelName,
-  onOpenModelPicker,
-  onOpenSettings,
-  onOpenUsage,
-  worker,
-  status,
   setRepositoryPath,
   onOpenRepository,
+  onPickRepository,
   busy,
+  onOpenSettings,
+  onOpenUsage,
+  worker = "idle",
+  sidebarCollapsed = false,
+  onToggleSidebar,
   children,
 }: ShellProps) {
-  return (
-    <div className="hive-shell hub-shell">
-      <Titlebar
-        projectName={projectName}
-        repositoryPath={repositoryPath}
-        sessionTabs={sessionTabs}
-        activeTabId={activeTabId}
-        onSelectTab={onSelectTab}
-        onCloseTab={onCloseTab}
-        onNewTab={onNewTab}
-        activeModelName={activeModelName}
-        onOpenModelPicker={onOpenModelPicker}
-        onOpenSettings={onOpenSettings}
-        worker={worker}
-      />
+  const workspaceName = repositoryPath?.split(/[\\/]/).filter(Boolean).at(-1);
 
-      <div className="hive-body">
-        <Sidebar
-          mode={mode}
-          onSelectMode={onSelectMode}
-          onCreateTask={onCreateTask}
-          sessions={sessions}
-          onSelectSession={onSelectSession}
-          onOpenUsage={onOpenUsage}
-          onOpenSettings={onOpenSettings}
-          repositoryPath={repositoryPath}
-          setRepositoryPath={setRepositoryPath}
-          onOpenRepository={onOpenRepository}
-          busy={busy}
-        />
-        <main className="hive-main">
+  return (
+    <div className="hive-shell" data-mode={mode}>
+      <Sidebar
+        mode={mode}
+        onSelectMode={onSelectMode}
+        onCreateTask={onCreateTask}
+        onNewCodeTask={onNewCodeTask}
+        sessions={sessions}
+        onSelectSession={onSelectSession}
+        onOpenUsage={onOpenUsage}
+        onOpenSettings={onOpenSettings}
+        repositoryPath={repositoryPath}
+        setRepositoryPath={setRepositoryPath}
+        onOpenRepository={onOpenRepository}
+        onPickRepository={onPickRepository}
+        busy={busy}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={onToggleSidebar}
+      />
+      <div className="hive-stage">
+        <div className="hive-topbar">
+          <h1 className="hive-topbar-title" title={title}>{title}</h1>
+          <div className="hive-topbar-right">
+            {worker !== "idle" && (
+              <span className={`hive-chip is-${worker}`} aria-label={`Worker ${worker}`}>
+                <span className="hive-chip-dot" aria-hidden="true" />
+                {worker}
+              </span>
+            )}
+            {workspaceName && (
+              <button type="button" className="hive-chip is-button" onClick={onPickRepository} title={repositoryPath} disabled={!onPickRepository}>
+                <FolderIcon size={14} />
+                {workspaceName}
+              </button>
+            )}
+          </div>
+        </div>
+        <main className="hive-main" id="main-workspace" tabIndex={-1}>
           {children}
         </main>
       </div>
-
-      {status && status.length > 0 ? (
-        <footer className="hive-statusbar">
-          {status.map((item) => (
-            <span key={item.label} className={`hive-statusbar-item${item.emphasis ? " is-emphasis" : ""}`}>
-              {item.label}
-            </span>
-          ))}
-        </footer>
-      ) : null}
     </div>
   );
 }

@@ -1,51 +1,177 @@
+/*
+ * HIVE desktop design tokens.
+ * Two intentional themes: "Night Hive" (dark) and "Paper" (light).
+ * The app follows the OS theme unless prefs pin data-theme on <html>.
+ * Violet is a signal colour (focus, primary action, live state), never wallpaper.
+ */
 :root {
-  /* 85% Neutral Foundation */
-  --hive-bg-deep: #08080b;
-  --hive-bg-base: #0d0d10;
-  --hive-bg-raised: #121217;
-  --hive-bg-hover: #18181e;
-  --hive-bg-selected: #1d1926;
+  color-scheme: light dark;
 
-  /* Restrained 1px Border Scale */
-  --hive-border-subtle: rgba(255, 255, 255, 0.055);
-  --hive-border-default: rgba(255, 255, 255, 0.085);
-  --hive-border-strong: rgba(255, 255, 255, 0.13);
+  /* Type: Segoe UI Variable ships with Windows 11; mono carries HIVE's terminal voice. */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", Inter, system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
 
-  /* 10% HIVE Violet Signal Language */
-  --hive-violet: #7c3aed;
-  --hive-violet-soft: #8b5cf6;
-  --hive-violet-dim: rgba(124, 58, 237, 0.16);
-  --hive-violet-glow: rgba(139, 92, 246, 0.25);
+  --text-xs: 11.5px;
+  --text-sm: 12.5px;
+  --text-md: 14px;
+  --text-lg: 15.5px;
+  --text-xl: 20px;
+  --text-hero: 34px;
 
-  /* Text Hierarchy */
-  --hive-text: #e5e7eb;
-  --hive-text-secondary: #a1a1aa;
-  --hive-text-dim: #71717a;
-  --hive-text-muted: #52525b;
+  /* Radii vary by role: pills for chips, soft cards for content, tight for rows. */
+  --r-row: 8px;
+  --r-control: 10px;
+  --r-card: 14px;
+  --r-composer: 22px;
+  --r-pill: 999px;
 
-  /* 5% Semantic Status */
-  --hive-success: #22c55e;
-  --hive-success-dim: rgba(34, 197, 94, 0.14);
-  --hive-warning: #f59e0b;
-  --hive-warning-dim: rgba(245, 158, 11, 0.14);
-  --hive-error: #ef4444;
-  --hive-error-dim: rgba(239, 68, 68, 0.14);
+  --sidebar-w: 268px;
+  --sidebar-rail-w: 60px;
+  --topbar-h: 52px;
+  --inspector-w: clamp(372px, 30vw, 420px);
+  --reading-w: 768px;
 
-  /* Geometry & Radii */
-  --hive-radius-sm: 5px;
-  --hive-radius-md: 7px;
-  --hive-radius-lg: 10px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --fast: 140ms;
+  --base: 220ms;
 
-  /* Typography Stacks */
-  --hive-font-ui: "Segoe UI Variable", "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --hive-font-mono: "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+  /* Legacy aliases still read by a few inline styles. */
+  --hive-text: var(--ink);
+  --hive-text-dim: var(--ink-3);
+  --hive-motion: var(--fast);
+  --hive-ease: var(--ease);
+  --hive-bg-hover: var(--hover);
+}
 
-  /* Shell Dimensions */
-  --hive-sidebar-width: 256px;
-  --hive-titlebar-height: 42px;
-  --hive-inspector-width: 390px;
+/* Night Hive */
+:root,
+:root[data-theme="dark"] {
+  --bg: #121117;
+  --bg-sidebar: #0c0b10;
+  --surface: #1a1820;
+  --surface-2: #211e29;
+  --surface-3: #2a2634;
+  --hover: rgba(255, 255, 255, 0.05);
+  --press: rgba(255, 255, 255, 0.08);
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.13);
 
-  /* Interaction motion: short ease-out, no resting loops */
-  --hive-motion: 180ms;
-  --hive-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ink: #eceaf3;
+  --ink-2: #b9b5c6;
+  --ink-3: #8a859b;
+  --ink-4: #615c72;
+
+  --accent: #8b5cf6;
+  --accent-strong: #7c3aed;
+  --accent-ink: #c4b5fd;
+  --accent-wash: rgba(139, 92, 246, 0.14);
+  --accent-ring: rgba(139, 92, 246, 0.45);
+  --on-accent: #ffffff;
+
+  --user-bubble: #262130;
+  --code-bg: #0d0c11;
+
+  --ok: #34d399;
+  --ok-wash: rgba(52, 211, 153, 0.12);
+  --warn: #fbbf24;
+  --warn-wash: rgba(251, 191, 36, 0.12);
+  --bad: #f87171;
+  --bad-wash: rgba(248, 113, 113, 0.12);
+  --add-wash: rgba(52, 211, 153, 0.1);
+  --del-wash: rgba(248, 113, 113, 0.1);
+
+  --shadow-float: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px -12px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 24px 60px -20px rgba(0, 0, 0, 0.8), 0 0 0 1px var(--line-strong);
+  --glow: radial-gradient(60% 50% at 50% 0%, rgba(124, 58, 237, 0.13), transparent 70%);
+}
+
+/* Paper */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #fbfaf8;
+    --bg-sidebar: #f3f1ed;
+    --surface: #ffffff;
+    --surface-2: #f5f3f0;
+    --surface-3: #ebe8e3;
+    --hover: rgba(30, 20, 50, 0.045);
+    --press: rgba(30, 20, 50, 0.08);
+    --line: rgba(30, 20, 50, 0.08);
+    --line-strong: rgba(30, 20, 50, 0.15);
+
+    --ink: #1e1b26;
+    --ink-2: #4a4557;
+    --ink-3: #757085;
+    --ink-4: #a29eae;
+
+    --accent: #7c3aed;
+    --accent-strong: #6d28d9;
+    --accent-ink: #6d28d9;
+    --accent-wash: rgba(124, 58, 237, 0.08);
+    --accent-ring: rgba(124, 58, 237, 0.35);
+    --on-accent: #ffffff;
+
+    --user-bubble: #efebf6;
+    --code-bg: #f6f4f1;
+
+    --ok: #15803d;
+    --ok-wash: rgba(21, 128, 61, 0.09);
+    --warn: #b45309;
+    --warn-wash: rgba(180, 83, 9, 0.09);
+    --bad: #b91c1c;
+    --bad-wash: rgba(185, 28, 28, 0.08);
+    --add-wash: rgba(21, 128, 61, 0.08);
+    --del-wash: rgba(185, 28, 28, 0.07);
+
+    --shadow-float: 0 1px 2px rgba(30, 20, 50, 0.06), 0 10px 30px -14px rgba(30, 20, 50, 0.22);
+    --shadow-pop: 0 24px 60px -24px rgba(30, 20, 50, 0.35), 0 0 0 1px var(--line-strong);
+    --glow: radial-gradient(60% 50% at 50% 0%, rgba(124, 58, 237, 0.06), transparent 70%);
+  }
+}
+
+:root[data-theme="light"] {
+  --bg: #fbfaf8;
+  --bg-sidebar: #f3f1ed;
+  --surface: #ffffff;
+  --surface-2: #f5f3f0;
+  --surface-3: #ebe8e3;
+  --hover: rgba(30, 20, 50, 0.045);
+  --press: rgba(30, 20, 50, 0.08);
+  --line: rgba(30, 20, 50, 0.08);
+  --line-strong: rgba(30, 20, 50, 0.15);
+  --ink: #1e1b26;
+  --ink-2: #4a4557;
+  --ink-3: #757085;
+  --ink-4: #a29eae;
+  --accent: #7c3aed;
+  --accent-strong: #6d28d9;
+  --accent-ink: #6d28d9;
+  --accent-wash: rgba(124, 58, 237, 0.08);
+  --accent-ring: rgba(124, 58, 237, 0.35);
+  --on-accent: #ffffff;
+  --user-bubble: #efebf6;
+  --code-bg: #f6f4f1;
+  --ok: #15803d;
+  --ok-wash: rgba(21, 128, 61, 0.09);
+  --warn: #b45309;
+  --warn-wash: rgba(180, 83, 9, 0.09);
+  --bad: #b91c1c;
+  --bad-wash: rgba(185, 28, 28, 0.08);
+  --add-wash: rgba(21, 128, 61, 0.08);
+  --del-wash: rgba(185, 28, 28, 0.07);
+  --shadow-float: 0 1px 2px rgba(30, 20, 50, 0.06), 0 10px 30px -14px rgba(30, 20, 50, 0.22);
+  --shadow-pop: 0 24px 60px -24px rgba(30, 20, 50, 0.35), 0 0 0 1px var(--line-strong);
+  --glow: radial-gradient(60% 50% at 50% 0%, rgba(124, 58, 237, 0.06), transparent 70%);
+}
+
+/* High contrast accent preference strengthens edges and secondary ink. */
+:root[data-accent="contrast"] {
+  --line: var(--line-strong);
+  --ink-3: var(--ink-2);
+}
+
+:root[data-density="compact"] {
+  --text-md: 13.25px;
+  --text-lg: 14.5px;
+  --r-composer: 18px;
 }

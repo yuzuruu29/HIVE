@@ -5,7 +5,8 @@ import { App } from "./App";
 import type { DesktopCommand, DesktopEvent, ThreadRecordV1 } from "../../../src/desktop/types";
 import { parseUnifiedDiff } from "./diff";
 import { initialDesktopState, reduceDesktopEvent } from "./state";
-import styles from "./styles.css?raw";
+// styles.css only imports the per-area sheets, so check their combined text.
+const styles = Object.values(import.meta.glob<string>("./styles/*.css", { query: "?raw", import: "default", eager: true })).join("\n");
 
 const now = "2026-07-14T00:00:00.000Z";
 const activeThread: ThreadRecordV1 = {
@@ -60,7 +61,7 @@ function bridge(overrides: Partial<{ request: (command: DesktopCommand) => Promi
 async function openRepository(api = bridge()) {
   render(<App api={api} />);
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: /^codex$/i }));
+  await user.click(screen.getByRole("button", { name: /^code$/i }));
   // Simulate repository open + thread list + active thread via subscription
   api.emit({ type: "desktop.ready", timestamp: now, repositoryRoot: "C:\\HIVE" });
   api.emit({ type: "thread.listed", timestamp: now, threads: [activeThread, archivedThread] });
@@ -91,8 +92,8 @@ describe("HIVE desktop cockpit", () => {
     expect(screen.getByRole("button", { name: /^chat$/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("chat-empty-state")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^codex$/i }));
-    expect(screen.getByRole("button", { name: /^codex$/i })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: /^code$/i }));
+    expect(screen.getByRole("button", { name: /^code$/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText("Hive Code Surface")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /changes/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /files/i })).toBeInTheDocument();
@@ -224,7 +225,7 @@ describe("HIVE desktop cockpit", () => {
       : eventFor(command) });
     render(<App api={api} />);
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^codex$/i }));
+    await user.click(screen.getByRole("button", { name: /^code$/i }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/corrupt and was preserved/i);
     expect(screen.getByText(/No active work/i)).toBeInTheDocument();
   });
@@ -247,7 +248,7 @@ describe("HIVE desktop cockpit", () => {
       emit(event: DesktopEvent) { listeners.forEach((listener) => listener(event)); },
     };
     render(<App api={api} />); const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^codex$/i }));
+    await user.click(screen.getByRole("button", { name: /^code$/i }));
     const input = screen.getByLabelText(/repository path/i);
     await user.type(input, "C:\\A"); await user.click(screen.getByRole("button", { name: /^open$/i }));
     await user.clear(input); await user.type(input, "C:\\B"); await user.click(screen.getByRole("button", { name: /open another/i }));
@@ -320,7 +321,7 @@ describe("HIVE desktop cockpit", () => {
     expect(document.querySelector(".skip-link")).toBeInTheDocument();
     expect(styles).toMatch(/:focus-visible\s*\{/);
     expect(styles).toMatch(/prefers-reduced-motion:\s*reduce/);
-    expect(styles).toMatch(/transition-duration:\s*\.001ms/);
+    expect(styles).toMatch(/transition:\s*none\s*!important/);
     expect(contrast("#8b5cf6", "#151021")).toBeGreaterThanOrEqual(3);
     expect(contrast("#ddd6fe", "#08080b")).toBeGreaterThanOrEqual(3);
   });
@@ -341,8 +342,8 @@ describe("HIVE desktop cockpit", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: /command palette/i })).not.toBeInTheDocument();
 
-    // 3. Open Settings Dialog via TopBar — lands on Providers so API keys are findable
-    const settingsBtn = screen.getByRole("button", { name: /open settings/i });
+    // 3. Open Settings Dialog via the sidebar — lands on Providers so API keys are findable
+    const settingsBtn = screen.getByRole("button", { name: /^settings$/i });
     await user.click(settingsBtn);
     expect(screen.getByRole("dialog", { name: /preferences & accessibility/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /providers/i })).toHaveAttribute("aria-selected", "true");

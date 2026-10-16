@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { DesktopModelInfo, DesktopProviderMetadata } from "../../../../src/desktop/types";
 import { Dialog } from "../Dialog";
+import { CubeIcon, HiveMark, KeyIcon, SlidersIcon } from "../shell/icons";
 import { usePrefs } from "../prefs";
 
 export interface SettingsDialogProps {
@@ -117,7 +118,7 @@ export function SettingsDialog({
 
           <div className="settings-sidebar-scroll">
             <div className="settings-sidebar-group" role="tablist" aria-label="Settings sections">
-              <span className="settings-sidebar-heading">Desktop</span>
+              <span className="settings-sidebar-heading">Settings</span>
               <button
                 type="button"
                 role="tab"
@@ -125,7 +126,7 @@ export function SettingsDialog({
                 aria-selected={tab === "general"}
                 onClick={() => setTab("general")}
               >
-                <span className="settings-nav-icon" aria-hidden="true">⚙</span>
+                <span className="settings-nav-icon" aria-hidden="true"><SlidersIcon /></span>
                 <span>General</span>
               </button>
               <button
@@ -135,7 +136,7 @@ export function SettingsDialog({
                 aria-selected={tab === "models"}
                 onClick={() => setTab("models")}
               >
-                <span className="settings-nav-icon" aria-hidden="true">🖧</span>
+                <span className="settings-nav-icon" aria-hidden="true"><KeyIcon /></span>
                 <span>Providers</span>
               </button>
               <button
@@ -145,42 +146,15 @@ export function SettingsDialog({
                 aria-selected={tab === "catalog"}
                 onClick={() => setTab("catalog")}
               >
-                <span className="settings-nav-icon" aria-hidden="true">✨</span>
+                <span className="settings-nav-icon" aria-hidden="true"><CubeIcon /></span>
                 <span>Models</span>
               </button>
             </div>
 
-            <div className="settings-sidebar-group">
-              <span className="settings-sidebar-heading">Agent</span>
-              <button type="button" className="settings-nav-item is-soon" disabled>
-                <span className="settings-nav-icon" aria-hidden="true">🧠</span>
-                <span>Memory</span>
-                <span className="settings-soon">Soon</span>
-              </button>
-              <button type="button" className="settings-nav-item is-soon" disabled>
-                <span className="settings-nav-icon" aria-hidden="true">🪄</span>
-                <span>Skills</span>
-                <span className="settings-soon">Soon</span>
-              </button>
-              <button type="button" className="settings-nav-item is-soon" disabled>
-                <span className="settings-nav-icon" aria-hidden="true">🔌</span>
-                <span>MCP Servers</span>
-                <span className="settings-soon">Soon</span>
-              </button>
-            </div>
-
-            <div className="settings-sidebar-group">
-              <span className="settings-sidebar-heading">Data</span>
-              <button type="button" className="settings-nav-item is-soon" disabled>
-                <span className="settings-nav-icon" aria-hidden="true">📊</span>
-                <span>Usage stats</span>
-                <span className="settings-soon">Soon</span>
-              </button>
-            </div>
           </div>
 
           <div className="settings-sidebar-footer">
-            <span className="settings-operator-mark" aria-hidden="true">⬡</span>
+            <span className="settings-operator-mark" aria-hidden="true"><HiveMark size={16} /></span>
             <div>
               <strong>Local Mode</strong>
               <span>No account · keys stay on this PC</span>
@@ -192,12 +166,35 @@ export function SettingsDialog({
           <header className="settings-page-header">
             <div>
               <h2 className="settings-page-title">{pageTitle}</h2>
-              <span className="settings-page-crumb">{pageTitle}</span>
             </div>
           </header>
 
           {tab === "general" && (
             <div className="settings-pane-body">
+              <article className="settings-card">
+                <div className="settings-card-copy">
+                  <h3>Theme</h3>
+                  <p>Follow Windows, or pin HIVE to light or dark.</p>
+                </div>
+                <fieldset className="settings-card-control">
+                  <legend className="sr-only">Theme</legend>
+                  <div className="settings-segment">
+                    {(["system", "light", "dark"] as const).map((value) => (
+                      <label className="settings-label" key={value}>
+                        <input
+                          type="radio"
+                          name="theme"
+                          value={value}
+                          checked={(prefs.theme ?? "system") === value}
+                          onChange={() => updatePrefs({ theme: value })}
+                        />
+                        <span>{value === "system" ? "System" : value === "light" ? "Light" : "Dark"}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              </article>
+
               <article className="settings-card">
                 <div className="settings-card-copy">
                   <h3>Layout density</h3>
@@ -246,7 +243,7 @@ export function SettingsDialog({
                         checked={accent === "vivid"}
                         onChange={() => updatePrefs({ accent: "vivid" })}
                       />
-                      <span>Vivid Violet</span>
+                      <span>Vivid</span>
                     </label>
                     <label className="settings-label">
                       <input
@@ -256,7 +253,7 @@ export function SettingsDialog({
                         checked={accent === "contrast"}
                         onChange={() => updatePrefs({ accent: "contrast" })}
                       />
-                      <span>High Contrast</span>
+                      <span>High contrast</span>
                     </label>
                   </div>
                 </fieldset>
@@ -300,7 +297,7 @@ export function SettingsDialog({
 
           {tab === "models" && (
             <div className="settings-pane-body">
-              <h3 className="settings-heading">Model providers</h3>
+              <h3 className="sr-only">Model providers</h3>
               <p className="settings-lead">
                 Add an API key or an OpenAI-compatible endpoint. Secrets are encrypted by Windows and never shown again.
               </p>
@@ -326,7 +323,7 @@ export function SettingsDialog({
                           onClick={() => { void Promise.resolve(onFetchModels(provider.id)).catch(() => undefined); }}
                           title="Refresh available models"
                         >
-                          ↻ Fetch Models
+                          Refresh models
                         </button>
                       )}
                       {onConfigureProvider && (
@@ -449,7 +446,7 @@ export function SettingsDialog({
                     })}
                   </ul>
                   <p className="settings-hint">
-                    Rows appear from connected providers. Switches write hive.desktop.ui.v1.enabledModels.
+                    Models come from connected providers. Turned-off models are hidden from the model picker.
                   </p>
                 </div>
               )}

@@ -1,211 +1,380 @@
+/* Review panel: Changes, Files, Terminal, Evidence and Run for the open task. */
 .hive-inspector {
-  width: var(--hive-inspector-width);
-  min-width: 260px;
-  max-width: var(--hive-inspector-width);
-  flex: 0 1 var(--hive-inspector-width);
-  height: 100%;
-  background: var(--hive-bg-raised);
-  border-left: 1px solid var(--hive-border-subtle);
   display: flex;
   flex-direction: column;
+  width: var(--inspector-w);
+  min-height: 0;
+  margin: 0 12px 12px 0;
   overflow: hidden;
-}
-
-@media (max-width: 1000px) {
-  .hive-inspector {
-    flex-basis: 280px;
-    width: 280px;
-    max-width: 280px;
-  }
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  transition: width var(--base) var(--ease);
 }
 
 .hive-inspector.is-expanded {
-  width: 680px;
-  min-width: 680px;
-  max-width: 680px;
+  width: min(62vw, 980px);
 }
 
-@media (max-width: 1099px) {
-  .hive-inspector,
-  .hive-inspector.is-expanded {
-    flex: 1 1 44%;
-    width: 100%;
-    min-width: 0;
-    max-width: none;
-    min-height: 160px;
-    height: auto;
-    border-left: 0;
-    border-top: 1px solid var(--hive-border-subtle);
-  }
-
-  .hive-code-layout .hive-inspector-expand-btn {
-    display: none;
-  }
-}
-
-/* Inspector Tabs Header */
 .hive-inspector-header {
   display: flex;
   align-items: center;
-  height: 40px;
-  flex-shrink: 0;
-  background: var(--hive-bg-deep);
-  border-bottom: 1px solid var(--hive-border-subtle);
-  padding: 0 8px;
-  gap: 2px;
-  overflow-x: auto;
+  gap: 0;
+  padding: 8px 6px 0;
+  border-bottom: 1px solid var(--line);
 }
 
 .hive-inspector-tab {
-  display: flex;
+  position: relative;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   flex: none;
-  height: 28px;
-  padding: 0 8px;
-  border-radius: var(--hive-radius-sm);
-  color: var(--hive-text-secondary);
-  font-size: 12px;
+  height: 36px;
+  padding: 0 9px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
   font-weight: 500;
-  white-space: nowrap;
-  border: 1px solid transparent;
 }
 
 .hive-inspector-tab:hover {
-  background: var(--hive-bg-hover);
-  color: var(--hive-text);
+  color: var(--ink);
 }
 
 .hive-inspector-tab.is-active {
-  background: var(--hive-bg-raised);
-  color: var(--hive-text);
-  border-color: var(--hive-border-default);
+  color: var(--ink);
+}
+
+.hive-inspector-tab.is-active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
 }
 
 .hive-inspector-expand-btn {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: var(--hive-radius-sm);
-  background: var(--hive-bg-raised);
-  border: 1px solid var(--hive-border-subtle);
-  color: var(--hive-text-secondary);
-  font-size: 11px;
-  font-weight: 500;
-  transition: all 0.12s ease;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin: 0 0 3px auto;
+  border: 0;
+  border-radius: var(--r-row);
+  background: transparent;
+  color: var(--ink-3);
 }
 
 .hive-inspector-expand-btn:hover {
-  background: var(--hive-bg-hover);
-  color: var(--hive-text);
-  border-color: var(--hive-border-default);
+  background: var(--hover);
+  color: var(--ink);
 }
 
 .hive-inspector-content {
-  display: flex;
-  flex-direction: column;
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
   padding: 14px;
-  gap: 16px;
+  overflow: auto;
+  font-size: var(--text-sm);
 }
 
-/* ─────────────────────────────────────────────────────────────
-   TAB 1: CHANGES (Diffs & Git Actions)
-   ───────────────────────────────────────────────────────────── */
-.hive-changes-list {
+.hive-inspector-stack {
+  display: grid;
+  gap: 12px;
+}
+
+/* Panels shared by the file tree and terminal. */
+.workbench-panel {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
+  min-height: 0;
+  height: 100%;
 }
 
-.hive-change-row {
+.workbench-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
-  border-radius: var(--hive-radius-sm);
-  background: var(--hive-bg-deep);
-  border: 1px solid var(--hive-border-subtle);
-  font-family: var(--hive-font-mono);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.workbench-panel-header strong {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.workbench-panel-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.file-tree-list {
+  margin: 0;
+  list-style: none;
+}
+
+.file-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.file-tree-row:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.file-tree-row.is-selected {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.file-tree-chevron {
+  width: 12px;
+  color: var(--ink-4);
+  font-size: 11px;
+  text-align: center;
+}
+
+.file-tree-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.file-tree-badge {
+  flex: none;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.badge-M { background: var(--warn-wash); color: var(--warn); }
+.badge-A,
+.badge-U { background: var(--ok-wash); color: var(--ok); }
+.badge-D { background: var(--bad-wash); color: var(--bad); }
+
+.file-tree-truncated {
+  color: var(--warn);
+}
+
+.terminal-panel .terminal-log {
+  flex: 1;
+  min-height: 200px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: var(--r-control);
+  background: var(--code-bg);
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.pane-action-btn {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: transparent;
+  font-size: var(--text-xs);
+}
+
+/* Unified diff */
+.diff-view {
+  display: grid;
+  gap: 10px;
+}
+
+.diff-view > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.diff-view-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.diff-view button.secondary {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+
+.diff-view button.secondary:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.diff-container {
+  display: grid;
+  gap: 10px;
+}
+
+.diff-file-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.diff-file-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-align: left;
+}
+
+.diff-file-button > span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+.diff-file-button:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.diff-file-chips {
+  display: flex;
+  gap: 6px;
+  flex: none;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
-.hive-change-row:hover {
-  border-color: var(--hive-border-strong);
+.chip-added { color: var(--ok); }
+.chip-removed { color: var(--bad); }
+
+.diff-content {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--code-bg);
 }
 
-.hive-change-path {
-  color: var(--hive-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.diff-lines {
+  min-width: max-content;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
-.hive-diff-badge {
+.diff-lines.wrap-lines {
+  min-width: 0;
+}
+
+.diff-lines.wrap-lines code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.diff-line code {
+  padding-right: 12px;
+  white-space: pre;
+}
+
+.diff-number {
+  padding-right: 10px;
+  color: var(--ink-4);
+  text-align: right;
+  user-select: none;
+}
+
+.diff-added { background: var(--add-wash); }
+.diff-added code { color: var(--ok); }
+.diff-removed { background: var(--del-wash); }
+.diff-removed code { color: var(--bad); }
+.diff-hunk code { color: var(--accent-ink); }
+.diff-metadata code, .diff-truncated code { color: var(--ink-3); }
+
+.diff-file {
+  margin-top: 6px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.diff-file:first-child {
+  margin-top: 0;
+  border-top: 0;
+}
+
+.diff-file-header-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px 4px 0;
+}
+
+.diff-file-header-row code {
+  color: var(--ink);
   font-weight: 600;
 }
 
-.hive-diff-add {
-  color: var(--hive-success);
-}
-
-.hive-diff-del {
-  color: var(--hive-error);
-}
-
-.hive-git-actions-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.hive-btn-commit {
-  flex: 1;
-  height: 30px;
-  border-radius: var(--hive-radius-sm);
-  background: var(--hive-violet);
-  color: #ffffff;
-  font-weight: 500;
-  font-size: 12px;
-}
-
-.hive-btn-commit:hover {
-  background: var(--hive-violet-soft);
-}
-
-.hive-btn-secondary {
-  height: 30px;
-  padding: 0 12px;
-  border-radius: var(--hive-radius-sm);
-  background: var(--hive-bg-deep);
-  border: 1px solid var(--hive-border-default);
-  color: var(--hive-text-secondary);
-  font-size: 12px;
-}
-
-.hive-btn-secondary:hover {
-  background: var(--hive-bg-hover);
-  color: var(--hive-text);
-}
-
-/* ─────────────────────────────────────────────────────────────
-   TAB 4: EVIDENCE (Verification Language)
-   ───────────────────────────────────────────────────────────── */
+/* Evidence */
 .hive-evidence-card {
-  display: flex;
-  flex-direction: column;
-  padding: 14px;
-  border-radius: var(--hive-radius-md);
-  background: var(--hive-bg-deep);
-  border: 1px solid var(--hive-border-subtle);
+  display: grid;
   gap: 12px;
 }
 
@@ -213,115 +382,59 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  border-radius: var(--hive-radius-sm);
-  font-weight: 600;
-  font-size: 12px;
-  letter-spacing: 0.02em;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--r-control);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
 }
 
-.hive-verdict-banner.is-accepted {
-  background: var(--hive-success-dim);
-  border: 1px solid rgba(34, 197, 94, 0.35);
-  color: var(--hive-success);
-}
-
-.hive-verdict-banner.is-repairable {
-  background: var(--hive-warning-dim);
-  border: 1px solid rgba(245, 158, 11, 0.35);
-  color: var(--hive-warning);
-}
-
-.hive-verdict-banner.is-rejected {
-  background: var(--hive-error-dim);
-  border: 1px solid rgba(239, 68, 68, 0.35);
-  color: var(--hive-error);
-}
-
-.hive-verdict-banner.is-blocked,
-.hive-verdict-banner.is-pending {
-  background: var(--hive-bg-hover);
-  border: 1px solid var(--hive-border-default);
-  color: var(--hive-text-secondary);
-}
+.hive-verdict-banner.is-accepted { background: var(--ok-wash); color: var(--ok); }
+.hive-verdict-banner.is-repairable { background: var(--warn-wash); color: var(--warn); }
+.hive-verdict-banner.is-rejected,
+.hive-verdict-banner.is-blocked { background: var(--bad-wash); color: var(--bad); }
 
 .hive-evidence-note {
-  margin: 0;
-  color: var(--hive-text-dim);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.hive-evidence-finding {
-  margin: 0;
-  color: var(--hive-text-secondary);
-  font-size: 11px;
-  line-height: 1.4;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
 }
 
 .hive-evidence-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-family: var(--hive-font-ui);
-  font-size: 12.5px;
+  display: grid;
 }
 
 .hive-evidence-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: var(--hive-text-secondary);
-  padding: 5px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-}
-
-.hive-evidence-row > span:first-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.hive-evidence-row > span:last-child,
-.hive-evidence-val {
-  flex: none;
-  margin-left: auto;
-  font-family: var(--hive-font-mono);
-  font-size: 11.5px;
-  text-align: right;
+  min-height: 36px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
 }
 
 .hive-evidence-row:last-child {
-  border-bottom: none;
+  border-bottom: 0;
 }
 
 .hive-evidence-val {
-  font-weight: 500;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: right;
 }
 
-.hive-evidence-val.is-pass {
-  color: var(--hive-success);
-}
+.hive-evidence-val.is-pass { color: var(--ok); }
+.hive-evidence-val.is-fail { color: var(--bad); }
 
-.hive-evidence-val.is-fail {
-  color: var(--hive-error);
-}
-
-/* ─────────────────────────────────────────────────────────────
-   TAB 3: TERMINAL (PTY Output)
-   ───────────────────────────────────────────────────────────── */
-.hive-terminal-box {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  background: #040406;
-  border: 1px solid var(--hive-border-subtle);
-  border-radius: var(--hive-radius-md);
-  padding: 10px 12px;
-  font-family: var(--hive-font-mono);
-  font-size: 11px;
-  line-height: 1.6;
-  color: #d1d5db;
-  overflow-y: auto;
+.hive-evidence-finding {
+  padding: 8px 10px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
 }

@@ -6,7 +6,6 @@ import { CommandPalette, PaletteCommand } from "./components/CommandPalette";
 import { ConfirmationDialog } from "./components/ConfirmationDialog";
 import { ProviderDialog } from "./components/ProviderDialog";
 import { SettingsDialog } from "./components/SettingsDialog";
-import { SettingsSurface } from "./components/settings/SettingsSurface";
 import { UsageSurface } from "./components/usage/UsageSurface";
 import { SplitWorkspace } from "./components/SplitWorkspace";
 import { CodexSurface } from "./components/codex/CodexSurface";
@@ -15,7 +14,6 @@ import { Toast, ToastItem } from "./components/Toast";
 import { ChatSurface } from "./components/chat/ChatSurface";
 import { Shell } from "./shell/Shell";
 import type { SidebarSession } from "./shell/Sidebar";
-import type { WorkspaceTab } from "./shell/WorkspaceTabs";
 import { notifyRunCompleted } from "./notifications";
 import { usePrefs } from "./prefs";
 import { initialDesktopState, latestRun, reduceDesktopEvent, type CenterTab, type DesktopMode } from "./state";
@@ -68,19 +66,22 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
 
   const splitRatio = prefs.splitRatio ?? 0.4;
 
-  // Sync density and accent attributes to root HTML element
+  // Sync density, accent and theme attributes to the root element; "system" follows the OS.
   useEffect(() => {
     if (typeof document !== "undefined") {
-      document.documentElement.dataset.density = prefs.density ?? "comfortable";
-      document.documentElement.dataset.accent = prefs.accent ?? "vivid";
+      const root = document.documentElement;
+      root.dataset.density = prefs.density ?? "comfortable";
+      root.dataset.accent = prefs.accent ?? "vivid";
+      if (prefs.theme && prefs.theme !== "system") root.dataset.theme = prefs.theme;
+      else delete root.dataset.theme;
     }
-  }, [prefs.density, prefs.accent]);
+  }, [prefs.density, prefs.accent, prefs.theme]);
 
   useEffect(() => {
     if (prefs.rails) {
       dispatch({ type: "ui.rails.set", rails: prefs.rails });
     }
-    if (prefs.mode) {
+    if (prefs.mode && prefs.mode !== "settings") {
       dispatch({ type: "ui.mode", mode: prefs.mode });
     }
   }, []);
@@ -164,7 +165,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   const modalOpen = Boolean(state.preview || providerDialog || settingsOpen || paletteOpen || shortcutHelpOpen);
 
   // --- Shell-derived navigation/tabs -------------------------------------------------
-  const openSettingsModels = () => { setSettingsTab("models"); setSettingsOpen(true); };
+  const openSettings = (tab: "general" | "models" | "catalog" = "models") => { setSettingsTab(tab); setSettingsOpen(true); };
 
   const modelOptions = useMemo(() => {
     const options: { providerId: string; providerName: string; model: string }[] = [];
@@ -172,13 +173,16 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
       if (!provider.configured) continue;
       const listed = state.modelsByProvider[provider.id] ?? [];
       if (listed.length > 0) {
-        for (const model of listed) options.push({ providerId: provider.id, providerName: provider.name, model: model.id });
+        for (const model of listed) {
+          if (prefs.enabledModels?.[model.id] === false) continue;
+          options.push({ providerId: provider.id, providerName: provider.name, model: model.id });
+        }
       } else if (provider.defaultModel) {
         options.push({ providerId: provider.id, providerName: provider.name, model: provider.defaultModel });
       }
     }
     return options;
-  }, [state.providers, state.modelsByProvider]);
+  }, [state.providers, state.modelsByProvider, prefs.enabledModels]);
 
   const activeModelName = modelChoice
     ? `${state.providers.find((provider) => provider.id === modelChoice.providerId)?.name ?? modelChoice.providerId} / ${modelChoice.model}`
@@ -229,11 +233,6 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
       }));
   }, [state.mode, state.chat.conversations, state.chat.activeId, state.threads, state.activeThreadId]);
 
-  const sessionTabs: WorkspaceTab[] = recentSessions.slice(0, 4).map((s) => ({ id: s.id, label: s.title, kind: s.kind }));
-  const activeTabId = state.mode === "chat"
-    ? (state.chat.activeId ? `chat-${state.chat.activeId}` : null)
-    : (state.activeThreadId ? `thread-${state.activeThreadId}` : null);
-
   const handleSelectSession = (id: string): void => {
     if (id.startsWith("chat-")) {
       const conversationId = id.slice("chat-".length);
@@ -253,13 +252,24 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   };
   startNewChatRef.current = () => { void handleNewTask(); };
 
-  const shellStatus = [
-    state.repositoryRoot
-      ? { label: state.repositoryRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? state.repositoryRoot }
-      : { label: "No workspace" },
-    { label: state.mode === "chat" ? "HiveChat" : "Hive Code", emphasis: true },
-    { label: activeModelName },
-  ];
+  const handleNewCodeTask = (): void => {
+    dispatch({ type: "ui.mode", mode: "coder" });
+    updatePrefs({ mode: "coder" });
+    dispatch({ type: "ui.thread.clear" });
+  };
+
+  async function pickRepository(): Promise<void> {
+    const picked = await send({ type: "workspace.pick" });
+    if (picked.type === "workspace.picked" && picked.path) await openRepository(picked.path);
+  }
+
+  const shellTitle = state.mode === "usage"
+    ? "Usage"
+    : state.mode === "coder"
+      ? activeThread?.title ?? "New task"
+      : state.mode === "split"
+        ? "Side by side"
+        : state.chat.conversations.find((conversation) => conversation.id === state.chat.activeId)?.title || "New chat";
 
   async function openRepository(root: string): Promise<void> {
     const value = root.trim(); if (!value) return;
@@ -566,7 +576,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   }, [paletteOpen, shortcutHelpOpen, settingsOpen, providerDialog, state.preview, modalOpen, composer, activeThread, state.repositoryRoot, repositoryActiveRun]);
 
   return (
-    <div className="app-shell dual-shell" data-density={prefs.density ?? "comfortable"} data-accent={prefs.accent ?? "vivid"}>
+    <div className="app-shell">
       <a className="skip-link" href="#main-workspace">Skip to workspace</a>
       <Shell
         mode={state.mode}
@@ -575,37 +585,22 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
           updatePrefs({ mode });
         }}
         onCreateTask={handleNewTask}
+        onNewCodeTask={handleNewCodeTask}
         sessions={recentSessions}
         onSelectSession={handleSelectSession}
-        repositoryPath={repositoryPath}
+        title={shellTitle}
+        repositoryPath={state.repositoryRoot ?? repositoryPath}
         setRepositoryPath={setRepositoryPath}
         onOpenRepository={openRepository}
+        onPickRepository={() => void pickRepository()}
         busy={busy}
-        projectName={repositoryPath ? repositoryPath.split(/[\\/]/).filter(Boolean).at(-1) ?? "HIVE" : "HIVE"}
-        sessionTabs={sessionTabs}
-        activeTabId={activeTabId}
-        onSelectTab={handleSelectSession}
-        onNewTab={handleNewTask}
-        activeModelName={activeModelName}
-        onOpenModelPicker={() => { setSettingsTab("catalog"); setSettingsOpen(true); }}
-        onOpenSettings={() => { setSettingsTab("models"); setSettingsOpen(true); }}
+        onOpenSettings={() => openSettings()}
         onOpenUsage={() => dispatch({ type: "ui.mode", mode: "usage" })}
         worker={state.worker}
-        status={shellStatus}
+        sidebarCollapsed={!state.rails.left}
+        onToggleSidebar={() => toggleRail("left")}
       >
-        {state.mode === "chat" ? (
-          <ChatSurface
-            state={state}
-            send={send}
-            activeModelName={activeModelName}
-            modelOptions={modelOptions}
-            selectedModel={modelChoice}
-            onSelectModel={(choice) => setModelChoice({ providerId: choice.providerId, model: choice.model })}
-            onOpenModelPicker={() => { setSettingsTab("catalog"); setSettingsOpen(true); }}
-            onOpenSettings={() => dispatch({ type: "ui.mode", mode: "settings" })}
-            onHandoffToCoder={() => dispatch({ type: "ui.mode", mode: "coder" })}
-          />
-        ) : state.mode === "split" ? (
+        {state.mode === "split" ? (
           <SplitWorkspace
             state={state}
             send={send}
@@ -613,12 +608,9 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
             modelOptions={modelOptions}
             selectedModel={modelChoice}
             onSelectModel={(choice) => setModelChoice({ providerId: choice.providerId, model: choice.model })}
-            onOpenModelPicker={() => { setSettingsTab("catalog"); setSettingsOpen(true); }}
-            onOpenSettings={() => dispatch({ type: "ui.mode", mode: "settings" })}
-            onOpenRepositoryPicker={async () => {
-              const picked = await send({ type: "workspace.pick" });
-              if (picked.type === "workspace.picked" && picked.path) await openRepository(picked.path);
-            }}
+            onOpenModelPicker={() => openSettings("catalog")}
+            onOpenSettings={() => openSettings("models")}
+            onOpenRepositoryPicker={() => void pickRepository()}
             onSelectFile={async (filePath) => {
               if (!state.repositoryRoot) return;
               dispatch({ type: "ui.preview-file", path: filePath });
@@ -635,56 +627,19 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
             }}
             onHandoffToCoder={() => dispatch({ type: "ui.mode", mode: "coder" })}
           />
-        ) : state.mode === "settings" ? (
-          <SettingsSurface
-            providers={state.providers}
-            modelsByProvider={state.modelsByProvider}
-            modelsLoading={modelsLoading}
-            onFetchModels={fetchModels}
-            onConfigureProvider={(providerId) => {
-              const provider = state.providers.find((entry) => entry.id === providerId);
-              if (provider) {
-                clearCredential();
-                dispatch({ type: "provider.changed", timestamp: new Date().toISOString(), provider });
-                setProviderDialog(true);
-              }
-            }}
-            onAddCompatibleProvider={async (input) => {
-              const configured = await send({
-                type: "provider.configure",
-                input: {
-                  id: input.id,
-                  name: input.name,
-                  kind: "openai-compatible",
-                  authType: "api-key",
-                  baseUrl: input.baseUrl,
-                  defaultModel: input.defaultModel,
-                  approved: true,
-                },
-              });
-              if (configured.type !== "request.failed") {
-                clearCredential();
-                setProviderDialog(true);
-              }
-            }}
-          />
         ) : state.mode === "usage" ? (
           <UsageSurface
             threads={state.threads}
             conversations={state.chat.conversations}
-            reports={state.reports}
           />
-        ) : (
+        ) : state.mode === "coder" ? (
           <CodexSurface
             state={state}
             send={send}
             activeModelName={activeModelName}
-            onOpenModelPicker={() => { setSettingsTab("catalog"); setSettingsOpen(true); }}
-            onOpenSettings={() => dispatch({ type: "ui.mode", mode: "settings" })}
-            onOpenRepositoryPicker={async () => {
-              const picked = await send({ type: "workspace.pick" });
-              if (picked.type === "workspace.picked" && picked.path) await openRepository(picked.path);
-            }}
+            onOpenModelPicker={() => openSettings("catalog")}
+            onOpenSettings={() => openSettings("models")}
+            onOpenRepositoryPicker={() => void pickRepository()}
             onSelectFile={async (filePath) => {
               if (!state.repositoryRoot) return;
               dispatch({ type: "ui.preview-file", path: filePath });
@@ -702,6 +657,19 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
               const t = state.threads.find((entry) => entry.id === threadId);
               if (t) void loadThread(t);
             }}
+            onRunAction={runAction}
+          />
+        ) : (
+          <ChatSurface
+            state={state}
+            send={send}
+            activeModelName={activeModelName}
+            modelOptions={modelOptions}
+            selectedModel={modelChoice}
+            onSelectModel={(choice) => setModelChoice({ providerId: choice.providerId, model: choice.model })}
+            onOpenModelPicker={() => openSettings("catalog")}
+            onOpenSettings={() => openSettings("models")}
+            onHandoffToCoder={() => dispatch({ type: "ui.mode", mode: "coder" })}
           />
         )}
       </Shell>

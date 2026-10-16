@@ -1,11 +1,12 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import type { DesktopViewState } from "../../state";
 import type { DesktopCommandInput } from "../../bridge";
 import type { DesktopEvent, ThreadMessage } from "../../../../../src/desktop/types";
-import { identifier, preferredScrollBehavior } from "../../utils";
+import { identifier, preferredScrollBehavior, terminalStatuses } from "../../utils";
 import { renderMarkdown } from "../../markdown";
 import { InspectorTabs } from "../inspector/InspectorTabs";
 import { AgentActivity } from "./AgentActivity";
+import { ArrowUpIcon, ChevronDownIcon, CodeIcon, FolderIcon, HiveMark, StopIcon } from "../../shell/icons";
 
 export interface CodexSurfaceProps {
   state: DesktopViewState;
@@ -18,23 +19,33 @@ export interface CodexSurfaceProps {
   onToggleDir?: (dirPath: string) => Promise<void>;
   onPreviewGit?: (action: "commit" | "discard" | "push" | "pull-request") => void;
   onLoadThread?: (threadId: string) => Promise<void>;
-  onRewindCheckpoint?: () => Promise<void>;
+  onRunAction?: (action: "pause" | "resume" | "cancel") => Promise<void>;
   hideInspector?: boolean;
   defaultInspectorTab?: "changes" | "files" | "terminal" | "evidence" | "run";
 }
 
-export type CodexComposerMode = "agent" | "plan" | "goal" | "council";
+export type CodexComposerMode = "agent" | "plan";
 export type CodexApprovalPosture = "ask" | "auto" | "autonomous";
+
+const POSTURES: { key: CodexApprovalPosture; label: string; title: string }[] = [
+  { key: "ask", label: "Guarded", title: "Guarded: confirm each file modification" },
+  { key: "auto", label: "Standard", title: "Standard: auto-apply safe changes" },
+  { key: "autonomous", label: "Autonomous", title: "Autonomous: run unattended inside the worktree" },
+];
+
+const TITLE_MAX = 72;
 
 export function CodexSurface({
   state,
   send,
-  activeModelName = "deepseek / deepseek-coder",
+  activeModelName = "No model",
   onOpenModelPicker,
   onOpenSettings,
+  onOpenRepositoryPicker,
   onSelectFile,
   onToggleDir,
   onPreviewGit,
+  onRunAction,
   hideInspector = false,
   defaultInspectorTab = "changes",
 }: CodexSurfaceProps) {
@@ -43,12 +54,18 @@ export function CodexSurface({
   const [composerMode, setComposerMode] = useState<CodexComposerMode>("agent");
   const [posture, setPosture] = useState<CodexApprovalPosture>("auto");
   const [inputTask, setInputTask] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const activeThread = threads.find((t) => t.id === activeThreadId);
   const latestRun = activeThread?.runs[activeThread.runs.length - 1];
+  const runStatus = run?.status ?? latestRun?.status ?? null;
+  const running = Boolean(runStatus && !terminalStatuses.has(runStatus));
   const codingSessionId = selectedSessionId ?? run?.codingSessionId ?? latestRun?.codingSessionId ?? null;
   const activeReport = codingSessionId ? reports[codingSessionId] ?? null : null;
+  const hasMessages = Boolean(activeThread && activeThread.messages.length > 0);
 
   useEffect(() => {
     try {
@@ -60,33 +77,43 @@ export function CodexSurface({
     }
   }, [activeThread?.messages?.length]);
 
+  useLayoutEffect(() => {
+    const node = inputRef.current;
+    if (!node) return;
+    node.style.height = "auto";
+    node.style.height = `${Math.min(node.scrollHeight, 220)}px`;
+  }, [inputTask]);
+
   const handleSendTask = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputTask.trim()) return;
     const task = inputTask.trim();
-
-    if (activeThreadId && repositoryRoot) {
-      const message: ThreadMessage = {
-        id: identifier("message"),
-        role: "user",
-        content: task,
-        createdAt: new Date().toISOString(),
-      };
-      const res = await send({
-        type: "thread.message.append",
-        input: {
-          threadId: activeThreadId,
-          message,
-        },
-      });
-      if (res.type === "request.failed") {
+    if (!task || !repositoryRoot || submitting || running) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      // A task typed with no thread open starts a new one, titled from its first line.
+      let threadId = activeThreadId;
+      if (!threadId) {
+        const firstLine = task.split("\n")[0];
+        const title = firstLine.length > TITLE_MAX ? `${firstLine.slice(0, TITLE_MAX - 1)}…` : firstLine;
+        const created = await send({ type: "thread.create", input: { title } });
+        if (created.type !== "thread.changed") {
+          setError(created.type === "request.failed" ? created.message : "Could not start a task. Try again.");
+          return;
+        }
+        threadId = created.thread.id;
+      }
+      const message: ThreadMessage = { id: identifier("message"), role: "user", content: task, createdAt: new Date().toISOString() };
+      const appended = await send({ type: "thread.message.append", input: { threadId, message } });
+      if (appended.type === "request.failed") {
+        setError(appended.message);
         return;
       }
       setInputTask("");
-      await send({
+      const started = await send({
         type: "run.start",
         input: {
-          threadId: activeThreadId,
+          threadId,
           repositoryRoot,
           currentUserMessageId: message.id,
           options: {
@@ -95,134 +122,133 @@ export function CodexSurface({
           },
         },
       });
+      if (started.type === "request.failed") setError(started.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const displayModel = activeModelName || "deepseek / deepseek-coder";
-  const missionTitle = activeThread?.title || (repositoryRoot ? "Autonomous Engineering Mission" : "Open a repository to start");
+  const composer = (
+    <form className="hive-composer-wrap" onSubmit={(event) => void handleSendTask(event)}>
+      <div className="hive-composer">
+        <textarea
+          ref={inputRef}
+          rows={1}
+          aria-label="Message HIVE"
+          maxLength={20000}
+          className="hive-composer-input"
+          placeholder={repositoryRoot ? "Ask HIVE to build, fix or refactor..." : "Open a folder, then ask HIVE to build something"}
+          value={inputTask}
+          onChange={(e) => setInputTask(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void handleSendTask();
+            }
+          }}
+        />
+        <div className="hive-composer-bar">
+          <div className="hive-composer-left">
+            <div className="hive-segment" role="group" aria-label="Run mode">
+              <button type="button" className={composerMode === "agent" ? "is-active" : ""} aria-pressed={composerMode === "agent"} onClick={() => setComposerMode("agent")} title="Plan, build, validate and review">
+                Agent
+              </button>
+              <button type="button" className={composerMode === "plan" ? "is-active" : ""} aria-pressed={composerMode === "plan"} onClick={() => setComposerMode("plan")} title="Plan only, no file changes">
+                Plan
+              </button>
+            </div>
+            <button type="button" className="hive-model-btn" onClick={onOpenModelPicker || onOpenSettings} aria-label={`Model: ${activeModelName}`}>
+              <span className="hive-model-name">{activeModelName}</span>
+              <ChevronDownIcon size={14} />
+            </button>
+          </div>
+          {running && onRunAction ? (
+            <button type="button" className="hive-send-btn is-stop" aria-label="Stop run" onClick={() => void onRunAction("cancel")}>
+              <StopIcon size={14} />
+            </button>
+          ) : (
+            <button type="submit" className="hive-send-btn" disabled={!inputTask.trim() || !repositoryRoot || submitting || running} aria-label="Send task">
+              <ArrowUpIcon size={16} />
+            </button>
+          )}
+        </div>
+      </div>
+      {error && <p className="composer-send-error" role="alert">{error}</p>}
+    </form>
+  );
 
   return (
     <div className="hive-code-layout" aria-label="Hive Code Surface">
-      <main className="hive-code-center" role="main">
-        <div className="hive-mission-header">
-          <div className="hive-mission-title-group">
-            <div className="hive-mission-dot" />
-            <span className="hive-mission-title">{missionTitle}</span>
-          </div>
-
-          <div className="hive-posture-selector" role="group" aria-label="Safety Posture">
-            <button
-              type="button"
-              className={`hive-posture-btn ${posture === "ask" ? "is-active" : ""}`}
-              onClick={() => setPosture("ask")}
-              title="Guarded: Confirm each file modification"
-            >
-              Guarded
-            </button>
-            <button
-              type="button"
-              className={`hive-posture-btn ${posture === "auto" ? "is-active" : ""}`}
-              onClick={() => setPosture("auto")}
-              title="Standard: Auto-apply safe changes"
-            >
-              Standard
-            </button>
-            <button
-              type="button"
-              className={`hive-posture-btn ${posture === "autonomous" ? "is-active" : ""}`}
-              onClick={() => setPosture("autonomous")}
-              title="Autonomous: Unbounded execution within worktree"
-            >
-              Autonomous
-            </button>
-          </div>
-        </div>
-
-        <div className="hive-code-stream">
-          <AgentActivity
-            events={runtimeEvents}
-            runStatus={run?.status ?? latestRun?.status ?? null}
-            sessionId={selectedSessionId}
-          />
-
-          {activeThread && activeThread.messages.length > 0 ? (
-            <div className="messages-flow" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {activeThread.messages.map((m) => (
-                <div key={m.id} className={`hive-message-row ${m.role === "user" ? "is-user" : ""}`}>
-                  {m.role === "user" ? (
-                    <div className="hive-user-bubble">
-                      <div>{m.content}</div>
-                    </div>
-                  ) : (
-                    <div className="hive-assistant-flow">
-                      <div className="hive-assistant-body">
-                        {renderMarkdown(m.content)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="hive-code-empty">
-              <p>Describe the change. HIVE edits, tests, and records evidence in this workspace.</p>
-            </div>
-          )}
-          <div ref={transcriptEndRef} />
-        </div>
-
-        <form className="hive-composer-container" onSubmit={(event) => void handleSendTask(event)}>
-          <div className="hive-composer-box">
-            <textarea
-              rows={1}
-              aria-label="Message HIVE"
-              maxLength={20000}
-              className="hive-composer-input"
-              placeholder="Ask HIVE to implement, test, or refactor..."
-              value={inputTask}
-              onChange={(e) => setInputTask(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void handleSendTask();
-                }
-              }}
-            />
-            <div className="hive-composer-toolbar">
-              <div className="hive-composer-left">
-                <button
-                  type="button"
-                  className="hive-composer-btn"
-                  onClick={() => setComposerMode(composerMode === "agent" ? "plan" : "agent")}
-                >
-                  <span className="hive-composer-kicker">Mode</span>
-                  <span className="hive-composer-value">{composerMode.toUpperCase()}</span>
-                </button>
-                <button
-                  type="button"
-                  className="hive-composer-btn hive-composer-model-btn"
-                  onClick={onOpenModelPicker || onOpenSettings}
-                >
-                  <span className="hive-composer-kicker">Model</span>
-                  <span className="hive-composer-value">{displayModel}</span>
-                  <span className="hive-composer-chevron" aria-hidden="true">▾</span>
-                </button>
-              </div>
+      <section className="hive-code-center">
+        <div className="hive-code-head">
+          <div className="hive-segment" role="group" aria-label="Safety Posture">
+            {POSTURES.map((item) => (
               <button
-                type="submit"
-                className="hive-composer-send-btn"
-                disabled={!inputTask.trim()}
-                aria-label="Send task"
+                key={item.key}
+                type="button"
+                className={posture === item.key ? "is-active" : ""}
+                aria-pressed={posture === item.key}
+                onClick={() => setPosture(item.key)}
+                title={item.title}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="19" x2="12" y2="5" />
-                  <polyline points="5 12 12 5 19 12" />
-                </svg>
+                {item.label}
               </button>
-            </div>
+            ))}
           </div>
-        </form>
-      </main>
+          {running && onRunAction && (
+            <button type="button" className="hive-pill-btn" onClick={() => void onRunAction("pause")}>Pause</button>
+          )}
+          {runStatus === "paused" && onRunAction && (
+            <button type="button" className="hive-pill-btn" onClick={() => void onRunAction("resume")}>Resume</button>
+          )}
+        </div>
+
+        <div className="hive-code-scroll">
+          <div className="hive-code-column">
+            {!hasMessages && (
+              <div className="hive-code-hero">
+                <span className="chat-hero-mark"><CodeIcon size={26} /></span>
+                <h2 className="chat-hero-title">{repositoryRoot ? "What should HIVE build?" : "Open a project to start"}</h2>
+                <p className="chat-hero-sub">
+                  {repositoryRoot
+                    ? "Describe the change. HIVE plans it, edits in an isolated worktree, runs your checks and records evidence before anything is committed."
+                    : "Hive Code works inside a Git repository. Pick a folder and HIVE will index it for this session."}
+                </p>
+                {!repositoryRoot && onOpenRepositoryPicker && (
+                  <button type="button" className="hive-primary-btn" onClick={onOpenRepositoryPicker}>
+                    <FolderIcon size={16} />
+                    Open folder
+                  </button>
+                )}
+              </div>
+            )}
+
+            <AgentActivity events={runtimeEvents} runStatus={runStatus} sessionId={selectedSessionId} />
+
+            {hasMessages && (
+              <div className="messages-flow">
+                {activeThread!.messages.map((m) => (
+                  <div key={m.id} className={`hive-message-row chat-message-row role-${m.role}`}>
+                    {m.role === "user" ? (
+                      <div className="user-message-bubble">
+                        <div className="message-content">{m.content}</div>
+                      </div>
+                    ) : (
+                      <div className="assistant-message">
+                        <span className="assistant-avatar" aria-hidden="true"><HiveMark size={16} /></span>
+                        <div className="assistant-content">{renderMarkdown(m.content)}</div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div ref={transcriptEndRef} />
+          </div>
+        </div>
+
+        <div className="hive-chat-dock">{composer}</div>
+      </section>
 
       {!hideInspector && (
         <InspectorTabs

@@ -1,323 +1,73 @@
 /*
- * Interaction craft for the desktop shell.
- * Loaded after styles.css so these rules beat the generic button cascade.
- * Motion is 180ms ease-out. Pixel marks show on hover, press, focus,
- * active selection, and verified state — never as a full-window overlay.
- * The search control is left alone: it has no handler.
+ * Interaction motion. Short ease-out transitions that explain state changes:
+ * new messages rise in, dialogs settle, live agents breathe. Nothing loops at rest.
  */
 
-.app-shell button:not(.hive-btn-search),
-.app-shell .hive-tab,
-.app-shell .hive-activity-row,
-.app-shell .hive-activity-dot,
-.app-shell .hive-activity-role,
-.app-shell .hive-activity-detail,
-.app-shell .hive-composer-box {
-  transition-property: background-color, color, border-color;
-  transition-duration: var(--hive-motion);
-  transition-timing-function: var(--hive-ease);
+.app-shell button,
+.app-shell .hive-composer,
+.app-shell .hive-session-row,
+.app-shell .hive-suggestion {
+  transition-property: background-color, color, border-color, box-shadow, opacity;
+  transition-duration: var(--fast);
+  transition-timing-function: var(--ease);
 }
 
-/* Hover: background shift plus a 1px hard offset. No eased transform. */
-.hive-shell button.hive-btn-new-task:hover:not(:disabled),
-.hive-shell button.hive-nav-item:hover:not(:disabled),
-.hive-shell button.hive-session-row:hover:not(:disabled),
-.hive-shell button.hive-titlebar-btn:hover:not(:disabled),
-.hive-shell button.hive-posture-btn:hover:not(:disabled),
-.hive-shell button.hive-inspector-tab:hover:not(:disabled),
-.hive-shell button.hive-inspector-expand-btn:hover:not(:disabled),
-.hive-shell button.hive-composer-btn:hover:not(:disabled),
-.hive-shell button.hive-settings-nav-item:hover:not(:disabled),
-.hive-shell button.hive-provider-item:hover:not(:disabled),
-.hive-shell button.hive-time-filter-btn:hover:not(:disabled),
-.hive-shell button.hive-btn-secondary:hover:not(:disabled),
-.hive-shell button.chat-starter-chip:hover:not(:disabled),
-.hive-shell button.chat-setup-btn:hover:not(:disabled),
-.hive-shell button.file-tree-row:hover:not(:disabled),
-.hive-shell button.diff-file-button:hover:not(:disabled),
-.hive-shell .hive-tab:hover,
-.hive-shell button.hive-tab-close:hover,
-.app-shell button.palette-item:hover,
-.app-shell button.settings-nav-item:hover:not(:disabled),
-.app-shell button.secondary:hover:not(:disabled),
-.app-shell button.link-btn:hover:not(:disabled),
-.app-shell .toast button:hover,
-.app-shell .error-toast button:hover {
-  background: var(--hive-bg-hover);
-  color: var(--hive-text);
-  box-shadow: 1px 1px 0 0 rgba(255, 255, 255, 0.2);
-}
-
-.hive-shell button.hive-btn-new-task:hover:not(:disabled) {
-  border-color: rgba(124, 58, 237, 0.45);
-  color: #ffffff;
-  box-shadow: 1px 1px 0 0 rgba(139, 92, 246, 0.5);
-}
-
-.hive-shell button.hive-composer-send-btn:hover:not(:disabled),
-.hive-shell button.hive-handoff-btn:hover:not(:disabled),
-.hive-shell button.hive-btn-commit:hover:not(:disabled) {
-  background: var(--hive-violet-soft);
-  color: #ffffff;
-  border-color: transparent;
-  box-shadow: 1px 1px 0 0 rgba(139, 92, 246, 0.7);
-}
-
-.hive-shell button.chat-starter-chip {
-  border-radius: var(--hive-radius-sm);
-}
-
-.hive-shell button.chat-starter-chip:hover:not(:disabled),
-.hive-shell button.chat-setup-btn:hover:not(:disabled),
-.hive-shell button.hive-titlebar-btn:hover:not(:disabled),
-.hive-shell button.hive-btn-secondary:hover:not(:disabled),
-.hive-shell button.hive-composer-btn:hover:not(:disabled) {
-  border-color: var(--hive-border-strong);
-}
-
-.hive-shell button.hive-tab-close:hover {
-  opacity: 1;
-}
-
-.hive-session-list > div.hive-session-row,
-.hive-session-list > div.hive-session-row:hover {
-  cursor: default;
-  background: transparent;
-  color: var(--hive-text-dim);
-  box-shadow: none;
-}
-
-/* Active selection: pixel tick, not a violet wash. */
-.hive-shell button.hive-nav-item,
-.hive-shell button.hive-session-row,
-.hive-shell button.hive-settings-nav-item,
-.hive-shell button.hive-inspector-tab {
-  position: relative;
-}
-
-.hive-shell button.hive-nav-item.is-active,
-.hive-shell button.hive-session-row.is-active,
-.hive-shell button.hive-settings-nav-item.is-active,
-.app-shell button.settings-nav-item.is-active,
-.hive-shell button.hive-provider-item.is-selected,
-.hive-shell button.file-tree-row.is-selected {
-  background: #22222a;
-  color: #fafafa;
-}
-
-.hive-shell button.hive-nav-item.is-active:hover,
-.hive-shell button.hive-session-row.is-active:hover,
-.hive-shell button.hive-settings-nav-item.is-active:hover,
-.app-shell button.settings-nav-item.is-active:hover {
-  background: var(--hive-bg-hover);
-  color: var(--hive-text);
-  box-shadow: 1px 1px 0 0 rgba(255, 255, 255, 0.2);
-}
-
-.app-shell button.settings-nav-item.is-active,
-.hive-shell button.hive-provider-item.is-selected,
-.hive-shell button.file-tree-row.is-selected {
-  box-shadow: inset 2px 0 0 var(--hive-violet-soft);
-  border-left-color: transparent;
-}
-
-.hive-shell button.hive-provider-item.is-selected:hover,
-.hive-shell button.file-tree-row.is-selected:hover {
-  background: var(--hive-bg-hover);
-  color: var(--hive-text);
-  border-left-color: transparent;
-  box-shadow: inset 2px 0 0 var(--hive-violet-soft), 1px 1px 0 0 rgba(255, 255, 255, 0.2);
-}
-
-.hive-shell button.hive-nav-item.is-active::before,
-.hive-shell button.hive-session-row.is-active::before,
-.hive-shell button.hive-settings-nav-item.is-active::before {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--hive-violet-soft) 0 2px,
-    transparent 2px 4px
-  );
-}
-
-.hive-shell .hive-tab.is-active {
-  box-shadow: inset 0 -2px 0 var(--hive-violet-soft);
-}
-
-.hive-shell button.hive-posture-btn.is-active,
-.hive-shell button.hive-posture-btn.is-active:hover,
-.hive-shell button.hive-time-filter-btn.is-active,
-.hive-shell button.hive-time-filter-btn.is-active:hover {
-  background: var(--hive-bg-raised);
-  color: var(--hive-text);
-  box-shadow: inset 0 -2px 0 var(--hive-violet-soft);
-}
-
-.hive-shell button.hive-inspector-tab.is-active {
-  background: var(--hive-bg-raised);
-  color: var(--hive-text);
-  border-color: var(--hive-border-default);
-  box-shadow: none;
-}
-
-.hive-shell button.hive-inspector-tab.is-active:hover {
-  background: var(--hive-bg-hover);
-  color: var(--hive-text);
-  border-color: var(--hive-border-default);
-  box-shadow: 1px 1px 0 0 rgba(255, 255, 255, 0.2);
-}
-
-.hive-shell button.hive-inspector-tab.is-active::after {
-  content: "";
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 1px;
-  height: 2px;
-  pointer-events: none;
-  background: var(--hive-violet-soft);
-  box-shadow: -2px 0 0 0 var(--hive-violet), 2px 0 0 0 var(--hive-violet);
-  transform-origin: left center;
-}
-
-.app-shell button.palette-item:hover,
-.app-shell button.palette-item.active,
-.app-shell button.palette-item:focus-visible {
-  background: var(--hive-bg-hover);
-  color: var(--hive-text);
-  border-left: 2px solid var(--hive-violet-soft);
-  box-shadow: none;
-}
-
-/* Press is a hard 1px step, not a scale. Wrappers are excluded so a tab does not shift twice. */
-.app-shell button:active:not(:disabled):not(.hive-btn-search) {
+/* Press is a 1px step, not a scale, so controls feel physical without wobbling. */
+.app-shell button:active:not(:disabled) {
   transform: translate(1px, 1px);
 }
 
-/* Pixel-stepped focus: 1px ring plus a hard 2px offset, no blur. */
-.app-shell button:focus-visible:not(.hive-btn-search),
-.app-shell a:focus-visible,
-.app-shell input:focus,
-.app-shell select:focus,
-.app-shell textarea:focus,
-.app-shell input:focus-visible,
-.app-shell select:focus-visible,
-.app-shell textarea:focus-visible {
-  outline: 1px solid var(--hive-violet-soft);
-  outline-offset: 2px;
-  box-shadow: 2px 2px 0 0 var(--hive-violet);
-}
-
-.app-shell .hive-composer-input:focus,
-.app-shell .hive-composer-input:focus-visible {
-  outline: none;
-  border-color: transparent !important;
-  box-shadow: none;
-}
-
-.app-shell .hive-composer-box:focus-within {
-  border-color: var(--hive-violet);
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.45),
-    2px 2px 0 0 var(--hive-violet);
-}
-
-/* Hex mark: dither and corner ticks only while the brand is hovered. */
-.hive-titlebar-brand:hover .hive-titlebar-mark,
-.chat-empty-mark:hover {
-  background-image:
-    linear-gradient(45deg, rgba(139, 92, 246, 0.9) 25%, transparent 25%, transparent 75%, rgba(139, 92, 246, 0.9) 75%),
-    linear-gradient(45deg, rgba(139, 92, 246, 0.9) 25%, transparent 25%, transparent 75%, rgba(139, 92, 246, 0.9) 75%);
-  background-size: 2px 2px;
-  background-position: 0 0, 1px 1px;
-  box-shadow:
-    -2px -2px 0 0 var(--hive-violet-soft),
-    2px -2px 0 0 var(--hive-violet-soft),
-    -2px 2px 0 0 var(--hive-violet-soft),
-    2px 2px 0 0 var(--hive-violet-soft);
-}
-
-/* Verified state keeps a static corner tick. It does not pulse. */
-.hive-verdict-banner.is-accepted,
-.hive-badge.is-success,
-.hive-session-status.is-done {
-  box-shadow:
-    -1px -1px 0 0 var(--hive-success),
-    1px -1px 0 0 var(--hive-success),
-    -1px 1px 0 0 var(--hive-success),
-    1px 1px 0 0 var(--hive-success);
-}
-
-.hive-activity-row[data-phase="done"] .hive-activity-dot {
-  text-shadow: 1px 1px 0 rgba(34, 197, 94, 0.55);
-}
-
 @media (prefers-reduced-motion: no-preference) {
-  .hive-shell button.hive-inspector-tab.is-active::after {
-    animation: hive-underline-in var(--hive-motion) var(--hive-ease);
+  .chat-message-row,
+  .hive-message-row {
+    animation: hive-rise var(--base) var(--ease) both;
   }
 
-  .hive-activity-row[data-phase="active"] {
-    animation: hive-phase-active var(--hive-motion) var(--hive-ease);
+  .chat-hero,
+  .hive-code-hero {
+    animation: hive-rise 360ms var(--ease) both;
   }
 
-  .hive-activity-row[data-phase="done"] {
-    animation: hive-phase-done var(--hive-motion) var(--hive-ease);
+  .hive-suggestions {
+    animation: hive-rise 420ms var(--ease) 60ms both;
   }
 
-  .hive-activity-row[data-phase="failed"] {
-    animation: hive-phase-failed var(--hive-motion) var(--hive-ease);
+  .hive-activity-row[data-phase="active"] .hive-activity-dot {
+    animation: hive-breathe 1.6s ease-in-out infinite;
   }
 
-  .hive-status-dot.is-running {
-    animation: hive-pixel-blink 1.1s steps(2, end) infinite;
+  .hive-chip.is-running .hive-chip-dot,
+  .hive-session-status.is-running {
+    animation: hive-breathe 1.6s ease-in-out infinite;
   }
+
+  .hive-typing span {
+    animation: hive-dot 1.2s ease-in-out infinite;
+  }
+
+  .hive-typing span:nth-child(2) { animation-delay: 0.15s; }
+  .hive-typing span:nth-child(3) { animation-delay: 0.3s; }
 
   .toast.anim-in,
   .error-toast,
-  .modal {
-    animation: hive-enter var(--hive-motion) var(--hive-ease) both;
+  .modal,
+  .hive-model-menu {
+    animation: hive-settle var(--base) var(--ease) both;
   }
 
   .modal-backdrop {
-    animation: hive-fade var(--hive-motion) var(--hive-ease) both;
+    animation: hive-fade var(--base) var(--ease) both;
   }
 }
 
-@keyframes hive-underline-in {
-  from { transform: scaleX(0.2); }
-  to { transform: scaleX(1); }
-}
-
-@keyframes hive-phase-active {
-  from { background-color: var(--hive-violet-dim); }
-  to { background-color: transparent; }
-}
-
-@keyframes hive-phase-done {
-  from { background-color: var(--hive-success-dim); }
-  to { background-color: transparent; }
-}
-
-@keyframes hive-phase-failed {
-  from { background-color: var(--hive-error-dim); }
-  to { background-color: transparent; }
-}
-
-@keyframes hive-pixel-blink {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0.3; }
-}
-
-@keyframes hive-enter {
+@keyframes hive-rise {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hive-settle {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @keyframes hive-fade {
@@ -325,32 +75,29 @@
   to { opacity: 1; }
 }
 
+@keyframes hive-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-wash); }
+  50% { box-shadow: 0 0 0 5px var(--accent-wash); }
+}
+
+@keyframes hive-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .app-shell button,
-  .app-shell a,
-  .app-shell .hive-tab,
-  .app-shell .hive-inspector-tab,
-  .app-shell .hive-inspector-tab::after,
-  .app-shell .hive-activity-row,
-  .app-shell .hive-activity-dot,
-  .app-shell .hive-composer-box,
-  .app-shell .hive-titlebar-mark,
-  .app-shell .chat-empty-mark,
-  .app-shell .hive-status-dot,
-  .app-shell .toast,
-  .app-shell .error-toast,
-  .app-shell .modal,
-  .app-shell .modal-backdrop {
+  .app-shell *,
+  .app-shell *::before,
+  .app-shell *::after {
     animation: none !important;
     transition: none !important;
   }
 
   .app-shell button:active,
-  .app-shell a:active,
-  .app-shell .hive-tab:active,
   .app-shell .modal,
   .app-shell .toast,
-  .app-shell .error-toast {
+  .app-shell .chat-message-row,
+  .app-shell .hive-message-row {
     transform: none !important;
   }
 }

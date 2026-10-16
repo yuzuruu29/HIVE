@@ -8,6 +8,8 @@ export interface DesktopUiPrefs {
   notifications?: boolean;
   density?: "comfortable" | "compact";
   accent?: "vivid" | "contrast";
+  /** Colour theme; "system" follows the OS setting. */
+  theme?: "system" | "light" | "dark";
   rails?: { left: boolean; right: boolean };
   /** Top-level surface. */
   mode?: DesktopMode;

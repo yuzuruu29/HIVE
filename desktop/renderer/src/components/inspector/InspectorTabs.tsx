@@ -5,6 +5,7 @@ import { ChangesView } from "../ChangesView";
 import { FileTree } from "../FileTree";
 import { TerminalOutput } from "../TerminalOutput";
 import { EvidencePanel } from "./EvidencePanel";
+import { CollapseIcon, ExpandIcon } from "../../shell/icons";
 
 export type InspectorTab = "changes" | "files" | "terminal" | "evidence" | "run";
 
@@ -96,22 +97,23 @@ export function InspectorTabs({
           onClick={() => setExpandedReview((prev) => !prev)}
           aria-label={expandedReview ? "Collapse review pane" : "Expand review pane"}
         >
-          {expandedReview ? "↙ Collapse" : "↗ Expand"}
+          {expandedReview ? <CollapseIcon size={14} /> : <ExpandIcon size={14} />}
         </button>
       </div>
 
       <div className="hive-inspector-content">
         {/* Tab 1: Changes */}
         {tab === "changes" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div className="hive-inspector-stack">
             {diff && diff.patch ? (
               <ChangesView
                 patch={diff.patch}
                 truncated={diff.truncated}
               />
             ) : (
-              <div style={{ fontSize: "12px", color: "var(--hive-text-dim)", padding: "16px 0", textAlign: "center" }}>
-                No file changes in current turn.
+              <div className="empty-state">
+                <strong>No changes yet</strong>
+                <span>Files HIVE edits in this task show up here for review.</span>
               </div>
             )}
           </div>
@@ -138,9 +140,7 @@ export function InspectorTabs({
 
         {/* Tab 3: Terminal */}
         {tab === "terminal" && (
-          <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: "8px" }}>
-            <TerminalOutput events={state.runtimeEvents} />
-          </div>
+          <TerminalOutput events={state.runtimeEvents} />
         )}
 
         {/* Tab 4: Evidence */}
@@ -148,7 +148,7 @@ export function InspectorTabs({
 
         {/* Tab 5: Run */}
         {tab === "run" && (
-          <div className="hive-evidence-rows" style={{ fontSize: "11px" }}>
+          <div className="hive-evidence-rows">
             <div className="hive-evidence-row">
               <span>Session ID</span>
               <span className="hive-mono">{sessionLabel}</span>

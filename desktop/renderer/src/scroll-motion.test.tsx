@@ -27,7 +27,10 @@ describe.each([true, false])("scrolling when reduced motion is %s", (reducedMoti
 
   it("respects the preference when following chat messages", () => {
     const scroll = observeScroll();
-    render(<ChatSurface state={initialDesktopState()} send={vi.fn()} />);
+    const state = initialDesktopState();
+    const at = new Date().toISOString();
+    state.chat.active = { id: "c1", cwd: "C:/repo", role: "auto", ground: false, createdAt: at, updatedAt: at, messages: [{ id: "m1", role: "user", content: "Hi", at }] };
+    render(<ChatSurface state={state} send={vi.fn()} />);
     expect(scroll).toHaveBeenCalledWith({ behavior: reducedMotion ? "auto" : "smooth" });
   });
 

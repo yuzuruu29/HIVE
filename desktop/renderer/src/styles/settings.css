@@ -1,190 +1,615 @@
-.hive-settings-workspace {
-  display: flex;
-  flex: 1;
-  height: 100%;
-  overflow: hidden;
-  background: var(--hive-bg-base);
+/* Dialogs share one frame: dimmed backdrop, raised card, title, body, actions. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 6, 14, 0.55);
+  backdrop-filter: blur(6px);
 }
 
-/* Master Column 1: Settings Navigation (200px) */
-.hive-settings-nav {
-  width: 200px;
-  min-width: 200px;
-  background: var(--hive-bg-raised);
-  border-right: 1px solid var(--hive-border-subtle);
-  padding: 16px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.modal {
+  display: grid;
+  gap: 14px;
+  width: min(480px, 100%);
+  max-height: calc(100vh - 48px);
+  padding: 22px;
+  overflow: auto;
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink);
 }
 
-.hive-settings-nav-title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--hive-text-dim);
-  padding: 4px 8px;
-  margin-bottom: 4px;
+.modal > h2 {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
-.hive-settings-nav-item {
-  display: flex;
-  align-items: center;
+.modal p {
+  color: var(--ink-2);
+}
+
+.modal form {
+  display: grid;
   gap: 8px;
-  height: 30px;
-  padding: 0 8px;
-  border-radius: var(--hive-radius-sm);
-  color: var(--hive-text-secondary);
-  font-size: 12px;
-  border: 1px solid transparent;
-  transition: all 0.12s ease;
 }
 
-.hive-settings-nav-item:hover {
-  background: var(--hive-bg-hover);
-  color: var(--hive-text);
-}
-
-.hive-settings-nav-item.is-active {
-  background: var(--hive-bg-selected);
-  color: var(--hive-text);
-  border-color: rgba(124, 58, 237, 0.25);
+.modal label {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
   font-weight: 500;
 }
 
-/* Master Column 2: Provider List (240px) */
-.hive-providers-master {
-  width: 240px;
-  min-width: 240px;
-  background: var(--hive-bg-deep);
-  border-right: 1px solid var(--hive-border-subtle);
-  padding: 16px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.modal dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 0;
+  font-size: var(--text-sm);
 }
 
-.hive-providers-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.modal dt {
+  color: var(--ink-3);
 }
 
-.hive-provider-item {
+.modal dd {
+  margin: 0;
+}
+
+.modal .eyebrow {
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.modal .technical-note {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.shortcut-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.shortcut-table td {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+.shortcut-table td:first-child {
+  width: 160px;
+}
+
+/* Command palette */
+.modal.palette-modal {
+  align-self: start;
+  gap: 0;
+  width: min(620px, 100%);
+  margin-top: 12vh;
+  padding: 0;
+}
+
+.palette-input {
+  width: 100%;
+  height: 54px;
+  padding: 0 20px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-lg);
+  outline: none;
+}
+
+.modal .palette-input:focus {
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.palette-list {
+  max-height: 380px;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.modal button.palette-item,
+.palette-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 34px;
-  padding: 0 10px;
-  border-radius: var(--hive-radius-sm);
-  background: var(--hive-bg-raised);
-  border: 1px solid var(--hive-border-subtle);
-  color: var(--hive-text);
-  font-size: 12px;
-  transition: all 0.12s ease;
-}
-
-.hive-provider-item:hover {
-  background: var(--hive-bg-hover);
-  border-color: var(--hive-border-strong);
-}
-
-.hive-provider-item.is-selected {
-  background: var(--hive-bg-selected);
-  border-color: var(--hive-violet);
-}
-
-.hive-provider-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--hive-text-dim);
-}
-
-.hive-provider-status-dot.is-configured {
-  background: var(--hive-success);
-}
-
-/* Detail Column 3: Provider Configuration & Model Catalog */
-.hive-provider-detail {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px 32px;
-  gap: 20px;
-}
-
-.hive-detail-header {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--hive-border-subtle);
-}
-
-.hive-detail-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--hive-text);
-}
-
-.hive-detail-desc {
-  font-size: 12px;
-  color: var(--hive-text-secondary);
-}
-
-.hive-form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 540px;
-}
-
-.hive-form-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--hive-text-secondary);
-}
-
-.hive-form-input {
-  height: 32px;
-  padding: 0 10px;
-  border-radius: var(--hive-radius-sm);
-  background: var(--hive-bg-raised);
-  border: 1px solid var(--hive-border-default);
-  color: var(--hive-text);
-  font-family: var(--hive-font-mono);
-  font-size: 12px;
-}
-
-/* Models Table */
-.hive-models-table {
+  gap: 12px;
   width: 100%;
-  border-collapse: collapse;
-  margin-top: 8px;
-}
-
-.hive-models-table th {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-row);
+  background: transparent;
+  color: var(--ink);
+  font-weight: 400;
+  font-size: var(--text-md);
   text-align: left;
+}
+
+.modal button.palette-item.active,
+.modal button.palette-item:hover {
+  background: var(--accent-wash);
+  filter: none;
+}
+
+.palette-item .hint {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
   font-size: 11px;
+}
+
+/* Settings: a two-pane sheet, Claude-style. */
+.modal.settings-modal {
+  gap: 0;
+  width: min(940px, 100%);
+  height: min(680px, calc(100vh - 48px));
+  padding: 0;
+  overflow: hidden;
+  position: relative;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.modal.settings-modal > h2 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.settings-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.settings-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--line);
+  background: var(--bg-sidebar);
+}
+
+.modal button.settings-back-btn {
+  justify-content: flex-start;
+  min-height: 32px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.modal button.settings-back-btn:hover {
+  background: var(--hover);
+  color: var(--ink);
+  filter: none;
+}
+
+.settings-sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.settings-sidebar-group {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-sidebar-heading {
+  padding: 8px 10px 4px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--hive-text-dim);
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--hive-border-subtle);
 }
 
-.hive-models-table td {
-  font-size: 12px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--hive-border-subtle);
-  color: var(--hive-text);
+.modal button.settings-nav-item {
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  font-weight: 500;
 }
 
-.hive-model-id-cell {
-  font-family: var(--hive-font-mono);
+.modal button.settings-nav-item:hover {
+  background: var(--hover);
+  color: var(--ink);
+  filter: none;
+}
+
+.modal button.settings-nav-item.is-active {
+  background: var(--press);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.settings-nav-icon {
+  display: grid;
+  place-items: center;
+  color: var(--ink-3);
+}
+
+.settings-nav-item.is-active .settings-nav-icon {
+  color: var(--accent);
+}
+
+.settings-sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: var(--r-control);
+  background: var(--surface);
+  font-size: var(--text-xs);
+}
+
+.settings-sidebar-footer div {
+  display: grid;
+}
+
+.settings-sidebar-footer strong {
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.settings-sidebar-footer span {
+  color: var(--ink-3);
+}
+
+.settings-operator-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.settings-content-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.settings-page-header {
+  padding: 22px 28px 6px;
+}
+
+.settings-page-title {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.settings-pane-body {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 10px 28px 24px;
+}
+
+.settings-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-card:last-child {
+  border-bottom: 0;
+}
+
+.settings-card-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-card-copy h3,
+.settings-card-title-label {
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.settings-card-copy p {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+.settings-card-control {
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-segment {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+}
+
+.modal .settings-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* The radio stays clickable: it covers its pill, invisible. */
+.settings-label input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.modal .settings-label:has(input:checked) {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 0 0 1px var(--line);
+}
+
+.settings-label:has(input:focus-visible) {
+  outline: 2px solid var(--accent-ring);
+}
+
+.settings-heading {
+  font-size: var(--text-lg);
+  font-weight: 650;
+}
+
+.settings-lead,
+.settings-hint {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+.provider-settings-list {
+  display: grid;
+  margin: 6px 0 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  list-style: none;
+}
+
+.provider-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.provider-settings-row:last-child {
+  border-bottom: 0;
+}
+
+.provider-info-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.provider-info-cell > div {
+  display: grid;
+  min-width: 0;
+}
+
+.provider-info-cell strong {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.provider-settings-meta {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.provider-status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-4);
+}
+
+.provider-status-dot.is-connected {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-wash);
+}
+
+.provider-actions-cell {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.provider-actions-cell button.secondary {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: var(--text-xs);
+}
+
+.modal button.add-provider-toggle-btn {
+  justify-self: start;
+}
+
+.add-provider-form {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface-2);
+}
+
+.settings-inline-actions,
+.unconfigured-provider-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.settings-empty,
+.no-models-hint,
+.unconfigured-provider-hint,
+.model-loading-shimmer {
+  display: grid;
+  gap: 8px;
+  padding: 28px 16px;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.model-search-input {
+  width: 100%;
+}
+
+.model-rows-list {
+  display: grid;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  list-style: none;
+}
+
+.model-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.model-item-row:last-child {
+  border-bottom: 0;
+}
+
+.model-info-block {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.model-title-line,
+.model-sub-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.model-display-name {
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.model-provider-badge,
+.model-context-badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--ink-2);
   font-size: 11px;
+}
+
+.model-id-label {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.modal button.model-toggle-switch {
+  position: relative;
+  flex: none;
+  width: 38px;
+  min-height: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+}
+
+.modal button.model-toggle-switch.is-on {
+  background: var(--accent-strong);
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform var(--fast) var(--ease);
+}
+
+.model-toggle-switch.is-on .toggle-thumb {
+  transform: translateX(16px);
+}
+
+.modal.settings-modal > .dialog-actions {
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
 }

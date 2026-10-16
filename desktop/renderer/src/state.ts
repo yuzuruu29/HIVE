@@ -17,7 +17,8 @@ export type DesktopUiAction =
   | { type: "ui.rails.set"; rails: { left: boolean; right: boolean } }
   | { type: "ui.mode"; mode: DesktopMode }
   | { type: "ui.preview-file"; path: string | null }
-  | { type: "ui.panel"; panel: "tree" | "terminal" };
+  | { type: "ui.panel"; panel: "tree" | "terminal" }
+  | { type: "ui.thread.clear" };
 export type WorkerState = "idle" | "starting" | "running" | "stopped" | "failed";
 
 /** Resolved provider route for a chat role, for trust chips and pickers. */
@@ -143,6 +144,7 @@ export function reduceDesktopEvent(state: DesktopViewState, event: DesktopEvent 
     case "ui.rails.set": return { ...state, rails: event.rails };
     case "ui.mode": return { ...state, mode: event.mode };
     case "ui.preview-file": return { ...state, selectedWorkspacePath: event.path };
+    case "ui.thread.clear": return { ...state, activeThreadId: null, selectedSessionId: null, run: null, runtimeEvents: [], diff: null };
     case "ui.panel": return event.panel === "tree"
       ? { ...state, showFileTree: !state.showFileTree }
       : { ...state, showTerminal: !state.showTerminal };

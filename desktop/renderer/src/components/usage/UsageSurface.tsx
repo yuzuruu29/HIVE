@@ -1,144 +1,94 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import type { DesktopChatSummary, ThreadRecordV1 } from "../../../../../src/desktop/types";
-import type { CodingFinalReport } from "../../../../../src/coding/types";
 
 export interface UsageSurfaceProps {
   threads?: ThreadRecordV1[];
   conversations?: DesktopChatSummary[];
-  reports?: Record<string, CodingFinalReport | null>;
+  /** Fixed clock for tests. */
+  now?: number;
 }
 
-export function UsageSurface({
-  threads = [],
-  conversations = [],
-  reports = {},
-}: UsageSurfaceProps) {
-  const [timeframe, setTimeframe] = useState<"7d" | "30d" | "90d">("30d");
+const DAY_MS = 86_400_000;
+const CHART_DAYS = 14;
 
-  // Derive metrics strictly from persisted records
+function dayKey(time: number): string {
+  return new Date(time).toISOString().slice(0, 10);
+}
+
+/** Counts only what the desktop actually records; token and cost totals are not persisted yet. */
+export function UsageSurface({ threads = [], conversations = [], now = Date.now() }: UsageSurfaceProps) {
   const stats = useMemo(() => {
-    let totalTokens = 0;
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let completedRuns = 0;
-    let totalRuns = 0;
-    const modelTokens: Record<string, number> = {};
-    const roleTokens: Record<string, number> = {
-      Builder: 0,
-      Planner: 0,
-      Scout: 0,
-      Reviewer: 0,
-    };
-    const activeDates = new Set<string>();
+    const liveChats = conversations.filter((conversation) => !conversation.archived);
+    const messages = liveChats.reduce((sum, conversation) => sum + conversation.messageCount, 0);
+    const runs = threads.flatMap((thread) => thread.runs);
+    const completed = runs.filter((run) => run.status === "completed").length;
 
-    for (const thread of threads) {
-      for (const run of thread.runs) {
-        totalRuns++;
-        if (run.status === "completed") completedRuns++;
-        if (run.createdAt) {
-          activeDates.add(run.createdAt.slice(0, 10));
-        }
-        const report = reports[run.codingSessionId];
-        if (report?.subagents) {
-          const count = Object.values(report.subagents).reduce((acc, v) => acc + (typeof v === "number" ? v : 0), 0);
-          totalTokens += Math.max(count * 3500, 12000);
-        }
-      }
-    }
+    const stamps = [
+      ...liveChats.map((conversation) => Date.parse(conversation.updatedAt)),
+      ...runs.map((run) => Date.parse(run.createdAt)),
+    ].filter((time) => Number.isFinite(time));
+    const monthAgo = now - 30 * DAY_MS;
+    const activeDays = new Set(stamps.filter((time) => time >= monthAgo && time <= now).map(dayKey)).size;
+
+    const perDay = Array.from({ length: CHART_DAYS }, (_, index) => {
+      const time = now - (CHART_DAYS - 1 - index) * DAY_MS;
+      const key = dayKey(time);
+      return { key, label: new Date(time).toLocaleDateString([], { weekday: "narrow" }), count: stamps.filter((stamp) => dayKey(stamp) === key).length };
+    });
 
     return {
-      totalTokens,
-      inputTokens,
-      outputTokens,
-      totalRuns,
-      completionRate: totalRuns > 0 ? Math.round((completedRuns / totalRuns) * 100) : null,
-      activeDaysCount: activeDates.size,
+      chats: liveChats.length,
+      messages,
+      tasks: threads.filter((thread) => !thread.archived).length,
+      runs: runs.length,
+      completionRate: runs.length > 0 ? Math.round((completed / runs.length) * 100) : null,
+      activeDays,
+      perDay,
+      peak: Math.max(1, ...perDay.map((day) => day.count)),
     };
-  }, [threads, reports]);
+  }, [threads, conversations, now]);
 
   return (
-    <div className="hive-usage-workspace" data-testid="usage-surface">
-      <div className="hive-usage-header">
-        <div className="hive-usage-title-group">
-          <div className="hive-usage-title">Usage & Telemetry</div>
-          <div className="hive-usage-subtitle">
-            Derived strictly from local verified runtime sessions in <code>.hivemind/sessions/</code>
+    <div className="hive-usage" data-testid="usage-surface">
+      <div className="hive-usage-inner">
+        <header className="hive-usage-header">
+          <h2 className="hive-usage-title">Usage</h2>
+          <p className="hive-usage-subtitle">Counted from the chats and Hive Code sessions stored on this PC.</p>
+        </header>
+
+        <div className="hive-kpi-grid">
+          <div className="hive-kpi-card is-lead">
+            <div className="hive-kpi-label">Active days</div>
+            <div className="hive-kpi-val">{stats.activeDays} / 30</div>
+            <div className="hive-usage-chart" role="img" aria-label={`Activity over the last ${CHART_DAYS} days`}>
+              {stats.perDay.map((day) => (
+                <span key={day.key} className="hive-usage-bar" title={`${day.key}: ${day.count}`}>
+                  <span className="hive-usage-bar-fill" style={{ height: `${Math.max(day.count ? 10 : 3, (day.count / stats.peak) * 100)}%` }} data-empty={day.count === 0 || undefined} />
+                  <span className="hive-usage-bar-label">{day.label}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="hive-kpi-card">
+            <div className="hive-kpi-label">Chats</div>
+            <div className="hive-kpi-val">{stats.chats}</div>
+            <div className="hive-kpi-sub">{stats.messages.toLocaleString()} messages</div>
+          </div>
+          <div className="hive-kpi-card">
+            <div className="hive-kpi-label">Code runs</div>
+            <div className="hive-kpi-val">{stats.runs}</div>
+            <div className="hive-kpi-sub">{stats.completionRate === null ? "No completed runs" : `${stats.completionRate}% completed · ${stats.tasks} tasks`}</div>
+          </div>
+          <div className="hive-kpi-card is-wide">
+            <div className="hive-kpi-label">Tokens</div>
+            <div className="hive-kpi-val is-muted">Unavailable</div>
+            <div className="hive-kpi-sub">Model-level usage is not persisted</div>
           </div>
         </div>
 
-        <div className="hive-time-filter">
-          <button
-            type="button"
-            className={`hive-time-filter-btn ${timeframe === "7d" ? "is-active" : ""}`}
-            onClick={() => setTimeframe("7d")}
-          >
-            7 days
-          </button>
-          <button
-            type="button"
-            className={`hive-time-filter-btn ${timeframe === "30d" ? "is-active" : ""}`}
-            onClick={() => setTimeframe("30d")}
-          >
-            30 days
-          </button>
-          <button
-            type="button"
-            className={`hive-time-filter-btn ${timeframe === "90d" ? "is-active" : ""}`}
-            onClick={() => setTimeframe("90d")}
-          >
-            90 days
-          </button>
-        </div>
-      </div>
-
-      {/* Primary KPI Grid */}
-      <div className="hive-kpi-grid">
-        <div className="hive-kpi-card">
-          <div className="hive-kpi-label">Total Tokens</div>
-          <div className="hive-kpi-val">{(stats.totalTokens / 1_000_000).toFixed(2)}M</div>
-          <div className="hive-kpi-sub">
-            {(stats.inputTokens / 1_000_000).toFixed(2)}M In / {(stats.outputTokens / 1_000_000).toFixed(2)}M Out
-          </div>
-        </div>
-
-        <div className="hive-kpi-card">
-          <div className="hive-kpi-label">Missions & Sessions</div>
-          <div className="hive-kpi-val">{stats.totalRuns}</div>
-          <div className="hive-kpi-sub">{stats.completionRate === null ? "No completed runs" : `${stats.completionRate}% completion rate`}</div>
-        </div>
-
-        <div className="hive-kpi-card">
-          <div className="hive-kpi-label">Active Days</div>
-          <div className="hive-kpi-val">{stats.activeDaysCount} / 30</div>
-          <div className="hive-kpi-sub">Current streak: unavailable</div>
-        </div>
-
-        <div className="hive-kpi-card">
-          <div className="hive-kpi-label">Favorite Model</div>
-          <div className="hive-kpi-val" style={{ fontSize: "16px" }}>Unavailable</div>
-          <div className="hive-kpi-sub">Model-level usage is not persisted</div>
-        </div>
-      </div>
-
-      {/* Breakdown Panels */}
-      <div className="hive-usage-sections-grid">
-        <div className="hive-usage-panel">
-          <div className="hive-usage-panel-title">Tokens by Model</div>
-          <div className="hive-empty-copy">Unavailable: model-level usage is not persisted in the desktop records.</div>
-        </div>
-
-        <div className="hive-usage-panel">
-          <div className="hive-usage-panel-title">Tokens by Agent Role</div>
-          <div className="hive-empty-copy">Unavailable: role-level usage is not persisted in the desktop records.</div>
-        </div>
-      </div>
-
-      {/* Data Provenance Notice */}
-      <div className="hive-truthful-notice">
-        <span>ℹ️</span>
-        <span>
-          <strong>Data Provenance Notice:</strong> Spend and dollar amounts remain explicitly unestimated. HIVE does not fabricate cost estimates without an authoritative pricing manifest for your configured BYOK keys.
-        </span>
+        <p className="hive-truthful-notice">
+          Token and cost totals stay blank until HIVE records them per run. Nothing here is estimated.
+        </p>
       </div>
     </div>
   );
