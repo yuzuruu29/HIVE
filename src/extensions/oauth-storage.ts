@@ -7,7 +7,11 @@ import { cancelled, missing, object } from "./io.js";
 import type { ExtensionOptions, McpServerDescriptor, OAuthCipher } from "./types.js";
 
 const MAX_BYTES = 128 * 1024;
-const dpapiScript = `$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Security; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $inputRecord=[Console]::ReadLine()|ConvertFrom-Json; $bytes=[Convert]::FromBase64String($inputRecord.data); $entropy=[Text.Encoding]::UTF8.GetBytes('HIVE MCP OAuth v1'); if($inputRecord.operation -eq 'encrypt'){$result=[Security.Cryptography.ProtectedData]::Protect($bytes,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser)}else{$result=[Security.Cryptography.ProtectedData]::Unprotect($bytes,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser)}; [Console]::Write([Convert]::ToBase64String($result))`;
+// PowerShell 5.1 prepends Program Files\WindowsPowerShell\Modules to any PSModulePath, so
+// autoloading Add-Type/ConvertFrom-Json would scan every installed module (10s+ on hosts with
+// large module sets) and could resolve a same-named third-party module. Import the built-in
+// Utility module by its $PSHOME path instead.
+const dpapiScript = `$ErrorActionPreference='Stop'; Import-Module (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Utility'); Add-Type -AssemblyName System.Security; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $inputRecord=[Console]::ReadLine()|ConvertFrom-Json; $bytes=[Convert]::FromBase64String($inputRecord.data); $entropy=[Text.Encoding]::UTF8.GetBytes('HIVE MCP OAuth v1'); if($inputRecord.operation -eq 'encrypt'){$result=[Security.Cryptography.ProtectedData]::Protect($bytes,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser)}else{$result=[Security.Cryptography.ProtectedData]::Unprotect($bytes,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser)}; [Console]::Write([Convert]::ToBase64String($result))`;
 
 /** Current-user DPAPI. The credential travels over stdin, never argv or a file. */
 export class WindowsOAuthCipher implements OAuthCipher {
@@ -19,9 +23,7 @@ export class WindowsOAuthCipher implements OAuthCipher {
     if (!systemRoot || !path.isAbsolute(systemRoot)) return Promise.reject(new Error("Windows system directory is unavailable for DPAPI"));
     return new Promise((resolve, reject) => {
       const powershellHome = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0");
-      // Built-in modules only: without PSModulePath, PowerShell 5.1 falls back to the machine
-      // module path and scans every installed module to autoload ConvertFrom-Json (30s+ on hosts
-      // with large module sets), and a third-party module could shadow cmdlets on this credential path.
+      // Keep the machine/user module paths (e.g. C:\Modules) out of this credential process.
       const child = spawn(path.join(powershellHome, "powershell.exe"), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", dpapiScript], { windowsHide: true, shell: false, stdio: ["pipe", "pipe", "pipe"], env: { SystemRoot: systemRoot, PSModulePath: path.join(powershellHome, "Modules") } });
       let output = ""; let settled = false;
       const finish = (error?: Error) => { if (settled) return; settled = true; clearTimeout(timer); if (error) reject(error); else if (!/^[A-Za-z0-9+/]*={0,2}$/u.test(output) || output.length > MAX_BYTES * 2) reject(new Error("Invalid DPAPI response")); else resolve(Buffer.from(output, "base64")); };
