@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 
 import { validateDesktopCommand, validateDesktopEvent } from "../dist/desktop/electron/contracts.js";
@@ -72,7 +73,7 @@ test("chat lifecycle events validate in both directions", () => {
   assert.equal(validateDesktopEvent(event("chat.failed", { conversationId, turnId: "turn-abc-1", message: "Cancelled.", recoverable: true })).type, "chat.failed");
   assert.equal(validateDesktopEvent(event("chat.route.resolved", { role: "coding", providerId: "openai", model: "gpt-4o", source: "role-assignment", degraded: false })).type, "chat.route.resolved");
   assert.equal(validateDesktopEvent(event("chat.listed", { conversations: [{ id: conversationId, title: "First prompt", role: "auto", updatedAt: now, messageCount: 2 }] })).type, "chat.listed");
-  assert.equal(validateDesktopEvent(event("chat.changed", { conversation: { id: conversationId, cwd: "C:\\repo", role: "coding", ground: false, createdAt: now, updatedAt: now, messages: [{ id: "message-0", role: "user", content: "hi", at: now }, assistantMessage] } })).type, "chat.changed");
+  assert.equal(validateDesktopEvent(event("chat.changed", { conversation: { id: conversationId, cwd: path.resolve("/repo"), role: "coding", ground: false, createdAt: now, updatedAt: now, messages: [{ id: "message-0", role: "user", content: "hi", at: now }, assistantMessage] } })).type, "chat.changed");
 });
 
 test("chat.chunk rejects over-length chunks, negative seq, and unknown fields", () => {
