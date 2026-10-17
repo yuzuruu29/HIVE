@@ -171,10 +171,35 @@ HIVE is moving toward a terminal coding harness with provider routing, sessions,
 User Task -> Planner -> Builder -> Validator -> Reviewer -> Diff -> Approval -> Commit -> Push/PR
 
 ## Quickstart
+
+### Install the CLI from npm
+
+The npm package is **`@uzzy-malolos/hive`**; the command remains **`hive`**.
+It requires Node.js **22.17 or newer** and Git for coding workflows. The Windows
+desktop app is distributed separately and is not installed by this command.
+
+Once a public version has been published:
+
+```bash
+npm install -g @uzzy-malolos/hive
+hive --help
+hive providers setup
+```
+
+Then run `hive` inside the Git repository you want to work on. Model requests
+require your chosen API credential, running local model, or supported subscription
+sign-in; installing the CLI does not install a model or include provider credits.
+
+`hive@uzzy-malolos` is not this package: npm interprets it as a tag of the unrelated
+unscoped `hive` package. See [npm release and local-install checks](docs/NPM_RELEASE.md)
+for the unpublished-package workflow and release checklist.
+
+### Develop from source
+
 ```bash
 git clone https://github.com/yuzuruu29/HIVE.git
 cd HIVE
-npm install
+npm ci
 npm run build
 npm test
 
