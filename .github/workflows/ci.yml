@@ -48,6 +48,12 @@ jobs:
     # A hung test otherwise runs to GitHub's 6-hour default.
     timeout-minutes: 60
     steps:
+    - name: Use a long-path temp directory
+      # The default TEMP is an 8.3 short path (C:\Users\RUNNER~1\...), which HIVE's
+      # plain-directory guards reject as an alias. See #8.
+      run: |
+        "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+        "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
     - uses: actions/checkout@v4
     - name: Use Node.js
       uses: actions/setup-node@v4
