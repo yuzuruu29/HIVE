@@ -7,11 +7,10 @@ import { cancelled, missing, object } from "./io.js";
 import type { ExtensionOptions, McpServerDescriptor, OAuthCipher } from "./types.js";
 
 const MAX_BYTES = 128 * 1024;
-// PowerShell 5.1 prepends Program Files\WindowsPowerShell\Modules to any PSModulePath, so
-// autoloading Add-Type/ConvertFrom-Json would scan every installed module (10s+ on hosts with
-// large module sets) and could resolve a same-named third-party module. Import the built-in
-// Utility module by its $PSHOME path instead.
-const dpapiScript = `$ErrorActionPreference='Stop'; Import-Module (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Utility'); Add-Type -AssemblyName System.Security; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $inputRecord=[Console]::ReadLine()|ConvertFrom-Json; $bytes=[Convert]::FromBase64String($inputRecord.data); $entropy=[Text.Encoding]::UTF8.GetBytes('HIVE MCP OAuth v1'); if($inputRecord.operation -eq 'encrypt'){$result=[Security.Cryptography.ProtectedData]::Protect($bytes,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser)}else{$result=[Security.Cryptography.ProtectedData]::Unprotect($bytes,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser)}; [Console]::Write([Convert]::ToBase64String($result))`;
+// Uses only .NET calls, no cmdlets: loading any PowerShell 5.1 module can trigger "Preparing
+// modules for first use", measured at ~22s per launch on GitHub's windows-latest runner.
+// Input is one line, "<encrypt|decrypt> <base64>".
+const dpapiScript = `$ErrorActionPreference='Stop'; [void][Reflection.Assembly]::Load('System.Security, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a'); [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $parts=[Console]::ReadLine().Split(' '); if($parts.Length -ne 2 -or ($parts[0] -cne 'encrypt' -and $parts[0] -cne 'decrypt')){throw 'Invalid DPAPI request'}; $bytes=[Convert]::FromBase64String($parts[1]); $entropy=[Text.Encoding]::UTF8.GetBytes('HIVE MCP OAuth v1'); if($parts[0] -ceq 'encrypt'){$result=[Security.Cryptography.ProtectedData]::Protect($bytes,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser)}else{$result=[Security.Cryptography.ProtectedData]::Unprotect($bytes,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser)}; [Console]::Write([Convert]::ToBase64String($result))`;
 
 /** Current-user DPAPI. The credential travels over stdin, never argv or a file. */
 export class WindowsOAuthCipher implements OAuthCipher {
@@ -23,7 +22,6 @@ export class WindowsOAuthCipher implements OAuthCipher {
     if (!systemRoot || !path.isAbsolute(systemRoot)) return Promise.reject(new Error("Windows system directory is unavailable for DPAPI"));
     return new Promise((resolve, reject) => {
       const powershellHome = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0");
-      // Keep the machine/user module paths (e.g. C:\Modules) out of this credential process.
       const child = spawn(path.join(powershellHome, "powershell.exe"), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", dpapiScript], { windowsHide: true, shell: false, stdio: ["pipe", "pipe", "pipe"], env: { SystemRoot: systemRoot, PSModulePath: path.join(powershellHome, "Modules") } });
       let output = ""; let settled = false;
       const finish = (error?: Error) => { if (settled) return; settled = true; clearTimeout(timer); if (error) reject(error); else if (!/^[A-Za-z0-9+/]*={0,2}$/u.test(output) || output.length > MAX_BYTES * 2) reject(new Error("Invalid DPAPI response")); else resolve(Buffer.from(output, "base64")); };
@@ -33,7 +31,7 @@ export class WindowsOAuthCipher implements OAuthCipher {
       child.on("error", () => finish(new Error("OS-backed OAuth encryption could not start")));
       child.stdin.on("error", () => finish(new Error("OS-backed OAuth encryption input failed")));
       child.on("close", (code) => finish(code === 0 ? undefined : new Error("OS-backed OAuth encryption failed")));
-      child.stdin.end(`${JSON.stringify({ operation, data: Buffer.from(bytes).toString("base64") })}\n`);
+      child.stdin.end(`${operation} ${Buffer.from(bytes).toString("base64")}\n`);
     });
   }
   encrypt(plaintext: Uint8Array): Promise<Uint8Array> { return this.run("encrypt", plaintext); }

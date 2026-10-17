@@ -55,9 +55,6 @@ jobs:
         "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
         "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
     - uses: actions/checkout@v4
-    - name: TEMPORARY DPAPI timing probe
-      continue-on-error: true
-      run: ./scripts/ci-dpapi-diag.ps1
     - name: Use Node.js
       uses: actions/setup-node@v4
       with:
