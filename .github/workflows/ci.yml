@@ -9,33 +9,69 @@ on:
 jobs:
   core:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v4
     - name: Use Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '22.12.0'
+        # 22.12-22.16 on Windows report dev=0 from fs.stat but not FileHandle.stat,
+        # which trips every file-identity guard. 22.17 (libuv 1.51) is the first fixed release.
+        node-version: '22.17.0'
         cache: npm
     - run: npm ci
     - run: npm run lint
     - run: npm run build
     - run: npm test
 
+  npm-package:
+    name: npm package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use minimum supported Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22.17.0'
+        cache: npm
+    - run: npm ci
+    - name: Pack from clean source and smoke the global CLI install
+      run: npm run test:package
+
   windows-desktop:
     runs-on: windows-latest
+    # A hung test otherwise runs to GitHub's 6-hour default.
+    timeout-minutes: 60
     steps:
+    - name: Use a long-path temp directory
+      # The default TEMP is an 8.3 short path (C:\Users\RUNNER~1\...), which HIVE's
+      # plain-directory guards reject as an alias. See #8.
+      run: |
+        "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+        "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
     - uses: actions/checkout@v4
     - name: Use Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '22.12.0'
+        # 22.12-22.16 on Windows report dev=0 from fs.stat but not FileHandle.stat,
+        # which trips every file-identity guard. 22.17 (libuv 1.51) is the first fixed release.
+        node-version: '22.17.0'
         cache: npm
     - run: npm ci
     - run: npm run lint
     - run: npm test
+      timeout-minutes: 25
     - run: npm run test:desktop
-    - run: npm run test:desktop-release
+    # desktop:e2e runs build:desktop, which writes dist/desktop/electron/preload.cjs for the release tests.
     - run: npm run desktop:e2e
+    - name: Generated desktop assets are committed
+      run: git diff --exit-code
+    - run: npm run test:desktop-release
     - run: npm run desktop:pack
     - run: npm run desktop:smoke
     - uses: actions/upload-artifact@v4

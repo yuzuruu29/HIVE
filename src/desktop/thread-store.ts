@@ -395,8 +395,17 @@ export class JsonThreadStore implements ThreadStore {
       await handle.close();
       handle = undefined;
       await this.#assertContained(directory, repositoryRealPath);
-      await this.#assertContained(destination, repositoryRealPath);
-      await fs.rename(temporary, destination);
+      for (let attempt = 0; ; attempt += 1) {
+        await this.#assertContained(destination, repositoryRealPath);
+        try {
+          await fs.rename(temporary, destination);
+          break;
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && (error.code === "EPERM" || error.code === "EBUSY")) || attempt >= 5) throw error;
+          // Windows readers can briefly deny replacement; retry the same atomic rename.
+          await new Promise<void>((resolve) => setTimeout(resolve, 20 * 2 ** attempt));
+        }
+      }
     } finally {
       await handle?.close().catch(() => undefined);
       await fs.rm(temporary, { force: true }).catch(() => undefined);

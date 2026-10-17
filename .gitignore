@@ -19,3 +19,4 @@ logs/
 .next/
 *.log
 CHATGPT_CONTEXT.md
+/*.tgz

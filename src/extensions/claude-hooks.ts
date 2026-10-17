@@ -281,7 +281,11 @@ export async function claudeHookProcess(spec: ProcessSpec, configuration: Claude
     return { ...spec, command, args: ["--noprofile", "--norc", "-c", spec.command], env };
   }
   const source = spec.command.replaceAll("${CLAUDE_PLUGIN_ROOT}", "${env:CLAUDE_PLUGIN_ROOT}").replaceAll("${CLAUDE_PROJECT_DIR}", "${env:CLAUDE_PROJECT_DIR}");
-  return { ...spec, command: process.platform === "win32" ? "powershell.exe" : "pwsh", args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", source], env };
+  // The allowlisted env has no LOCALAPPDATA, so PowerShell has no module-analysis cache and
+  // autoloading the JSON cmdlets hooks rely on scans every installed module (30s+ on hosts with
+  // large module sets). Importing the built-in module by name skips that scan.
+  const prelude = "Import-Module Microsoft.PowerShell.Utility; ";
+  return { ...spec, command: process.platform === "win32" ? "powershell.exe" : "pwsh", args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", prelude + source], env };
 }
 
 export interface ClaudeHookOutcome { blocked: boolean; stop?: boolean; continuation?: string; additionalContext?: string; diagnostics?: string[] }

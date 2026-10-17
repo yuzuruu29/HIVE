@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import {
   JsonDesktopAppStateStore,
@@ -37,6 +38,8 @@ test("BrowserWindow contract is sandboxed and CSP denies ambient capabilities", 
 });
 
 const now = "2026-07-14T00:00:00.000Z";
+// C:\repo on Windows, /repo on POSIX: absolute-path validation must hold on every CI runner.
+const repoRoot = path.resolve("/repo");
 
 async function temporaryDirectory(prefix) {
   return mkdtemp(path.join(os.tmpdir(), prefix));
@@ -52,7 +55,7 @@ test("desktop IPC accepts exact commands and rejects malformed or extra payloads
     /unexpected or missing/i,
   );
   assert.throws(
-    () => validateDesktopCommand({ requestId: "request-1", type: "external.open-terminal", repositoryRoot: "C:\\repo", argv: ["/c", "calc"] }),
+    () => validateDesktopCommand({ requestId: "request-1", type: "external.open-terminal", repositoryRoot: repoRoot, argv: ["/c", "calc"] }),
     /unexpected or missing/i,
   );
   assert.throws(
@@ -61,23 +64,25 @@ test("desktop IPC accepts exact commands and rejects malformed or extra payloads
   );
   assert.throws(() => validateDesktopCommand({ requestId: "", type: "thread.list" }), /request id/i);
   assert.throws(() => validateDesktopCommand({ requestId: "request-1", type: "unknown" }), /command type/i);
-  assert.equal(validateDesktopCommand({ requestId: "pause-1", type: "run.pause", input: { repositoryRoot: "C:\\repo", threadId: "thread-1", codingSessionId: "session-1" } }).type, "run.pause");
-  assert.throws(() => validateDesktopCommand({ requestId: "pause-1", type: "run.pause", input: { repositoryRoot: "C:\\repo", threadId: "thread-1", codingSessionId: "session-1", force: true } }), /unexpected/i);
-  assert.equal(validateDesktopEvent({ type: "run.pause-requested", timestamp: now, requestId: "pause-1", repositoryRoot: "C:\\repo", codingSessionId: "session-1" }).type, "run.pause-requested");
+  assert.equal(validateDesktopCommand({ requestId: "pause-1", type: "run.pause", input: { repositoryRoot: repoRoot, threadId: "thread-1", codingSessionId: "session-1" } }).type, "run.pause");
+  assert.throws(() => validateDesktopCommand({ requestId: "pause-1", type: "run.pause", input: { repositoryRoot: repoRoot, threadId: "thread-1", codingSessionId: "session-1", force: true } }), /unexpected/i);
+  assert.equal(validateDesktopEvent({ type: "run.pause-requested", timestamp: now, requestId: "pause-1", repositoryRoot: repoRoot, codingSessionId: "session-1" }).type, "run.pause-requested");
   assert.equal(validateDesktopCommand({ requestId: "models-1", type: "models.list", providerId: "openai" }).type, "models.list");
   assert.throws(() => validateDesktopCommand({ requestId: "models-1", type: "models.list" }), /unexpected or missing/i);
   assert.equal(validateDesktopEvent({ type: "models.listed", timestamp: now, providerId: "openai", models: [{ id: "gpt-4o", contextWindow: 128000 }] }).type, "models.listed");
 });
 
 test("sender and navigation validation only trust the owned renderer", () => {
-  const production = "file:///C:/HIVE/dist-desktop/renderer/index.html";
-  assert.equal(isTrustedRendererUrl(production, { rendererFile: "C:\\HIVE\\dist-desktop\\renderer\\index.html" }), true);
-  assert.equal(isTrustedRendererUrl("https://evil.test/", { rendererFile: "C:\\HIVE\\dist-desktop\\renderer\\index.html" }), false);
-  assert.equal(isTrustedRendererUrl("file:///C:/HIVE/dist-desktop/renderer/other.html", { rendererFile: "C:\\HIVE\\dist-desktop\\renderer\\index.html" }), false);
+  const rendererFile = path.resolve("/HIVE/dist-desktop/renderer/index.html");
+  const production = pathToFileURL(rendererFile).href;
+  const sibling = pathToFileURL(path.resolve("/HIVE/dist-desktop/renderer/other.html")).href;
+  assert.equal(isTrustedRendererUrl(production, { rendererFile }), true);
+  assert.equal(isTrustedRendererUrl("https://evil.test/", { rendererFile }), false);
+  assert.equal(isTrustedRendererUrl(sibling, { rendererFile }), false);
   assert.equal(isTrustedRendererUrl("http://127.0.0.1:5173/", { developmentUrl: "http://127.0.0.1:5173/" }), true);
   assert.equal(isTrustedRendererUrl("http://localhost:5173/", { developmentUrl: "http://127.0.0.1:5173/" }), false);
-  assert.doesNotThrow(() => validateIpcSender({ url: production }, { rendererFile: "C:\\HIVE\\dist-desktop\\renderer\\index.html" }));
-  assert.throws(() => validateIpcSender({ url: "https://evil.test" }, { rendererFile: "C:\\HIVE\\dist-desktop\\renderer\\index.html" }), /untrusted/i);
+  assert.doesNotThrow(() => validateIpcSender({ url: production }, { rendererFile }));
+  assert.throws(() => validateIpcSender({ url: "https://evil.test" }, { rendererFile }), /untrusted/i);
 });
 
 test("preload API exposes only request and subscribe and validates both directions", async () => {
@@ -121,7 +126,7 @@ test("desktop AppData state is atomic, exact-schema validated, and corrupt recor
   assert.deepEqual(initial.recentRepositories, []);
   const saved = await store.save({
     ...initial,
-    recentRepositories: [{ path: "C:\\work", lastOpenedAt: now }],
+    recentRepositories: [{ path: path.resolve("/work"), lastOpenedAt: now }],
     preferences: { theme: "dark", reducedMotion: true, editor: "vscode" },
   });
   assert.equal(saved.recentRepositories.length, 1);
@@ -186,7 +191,7 @@ test("AppData atomic mutate preserves concurrent repository and provider updates
   const second = new JsonDesktopAppStateStore(root, { clock: () => now });
   await first.save(first.defaultState());
   await Promise.all([
-    first.mutate(async (state) => { await new Promise((resolve) => setTimeout(resolve, 15)); return { ...state, recentRepositories: [{ path: "C:\\repo", lastOpenedAt: now }] }; }),
+    first.mutate(async (state) => { await new Promise((resolve) => setTimeout(resolve, 15)); return { ...state, recentRepositories: [{ path: repoRoot, lastOpenedAt: now }] }; }),
     second.mutate((state) => ({ ...state, providers: [{ id: "provider-1", name: "Provider", kind: "openai", authType: "api-key", approved: true, configured: false }] })),
   ]);
   const saved = await first.load();
@@ -1099,28 +1104,28 @@ test("shell commands and the views event validate strictly", () => {
 });
 
 test("workspace commands and events validate strictly", () => {
-  assert.equal(validateDesktopCommand({ requestId: "request-1", type: "workspace.list", input: { repositoryRoot: "C:\\repo" } }).type, "workspace.list");
-  assert.equal(validateDesktopCommand({ requestId: "request-1", type: "workspace.list", input: { repositoryRoot: "C:\\repo", path: "src" } }).type, "workspace.list");
-  assert.equal(validateDesktopCommand({ requestId: "request-1", type: "workspace.read", input: { repositoryRoot: "C:\\repo", path: "src/main.js" } }).type, "workspace.read");
+  assert.equal(validateDesktopCommand({ requestId: "request-1", type: "workspace.list", input: { repositoryRoot: repoRoot } }).type, "workspace.list");
+  assert.equal(validateDesktopCommand({ requestId: "request-1", type: "workspace.list", input: { repositoryRoot: repoRoot, path: "src" } }).type, "workspace.list");
+  assert.equal(validateDesktopCommand({ requestId: "request-1", type: "workspace.read", input: { repositoryRoot: repoRoot, path: "src/main.js" } }).type, "workspace.read");
   assert.equal(validateDesktopCommand({ requestId: "request-1", type: "workspace.pick" }).type, "workspace.pick");
-  assert.throws(() => validateDesktopCommand({ requestId: "request-1", type: "workspace.list", input: { repositoryRoot: "C:\\repo", path: "../escape" } }), /invalid/);
-  assert.throws(() => validateDesktopCommand({ requestId: "request-1", type: "workspace.read", input: { repositoryRoot: "C:\\repo" } }), /unexpected or missing fields/);
+  assert.throws(() => validateDesktopCommand({ requestId: "request-1", type: "workspace.list", input: { repositoryRoot: repoRoot, path: "../escape" } }), /invalid/);
+  assert.throws(() => validateDesktopCommand({ requestId: "request-1", type: "workspace.read", input: { repositoryRoot: repoRoot } }), /unexpected or missing fields/);
   assert.throws(() => validateDesktopCommand({ requestId: "request-1", type: "workspace.pick", extra: true }), /unexpected or missing fields/);
   assert.equal(validateDesktopEvent({
     type: "workspace.listed",
     timestamp: now,
-    listing: { repositoryRoot: "C:\\repo", path: "", truncated: false, entries: [{ name: "src", path: "src", kind: "dir" }] },
+    listing: { repositoryRoot: repoRoot, path: "", truncated: false, entries: [{ name: "src", path: "src", kind: "dir" }] },
   }).type, "workspace.listed");
   assert.equal(validateDesktopEvent({
     type: "workspace.file",
     timestamp: now,
-    file: { repositoryRoot: "C:\\repo", path: "src/main.js", content: "ok", truncated: false, languageHint: "js" },
+    file: { repositoryRoot: repoRoot, path: "src/main.js", content: "ok", truncated: false, languageHint: "js" },
   }).type, "workspace.file");
   assert.equal(validateDesktopEvent({ type: "workspace.picked", timestamp: now, path: null }).type, "workspace.picked");
   assert.throws(() => validateDesktopEvent({
     type: "workspace.listed",
     timestamp: now,
-    listing: { repositoryRoot: "C:\\repo", path: "../x", truncated: false, entries: [] },
+    listing: { repositoryRoot: repoRoot, path: "../x", truncated: false, entries: [] },
   }), /invalid/);
 });
 

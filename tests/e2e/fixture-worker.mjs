@@ -135,4 +135,5 @@ function emit(event) {
   if (event.type === "worker.stopped") requestExit();
 }
 function requestExit() { exitRequested = true; if (commandsInFlight === 0) scheduleExit(); }
-function scheduleExit() { if (exiting) return; exiting = true; setImmediate(() => process.exit(0)); }
+// Same delay as src/desktop/electron/worker.ts: an immediate exit can drop the final acknowledgement still queued on the parent port.
+function scheduleExit() { if (exiting) return; exiting = true; setTimeout(() => process.exit(0), 20).unref(); }

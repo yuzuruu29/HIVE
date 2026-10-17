@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-const SMOKE_PROVIDER = "hive-packaged-smoke";
+const SMOKE_PROVIDER_NAME = "Internal packaged diagnostic";
 const SMOKE_MESSAGE = "Complete the internal packaged smoke diagnostic.";
 const SMOKE_REPORT = "Packaged utility process diagnostic completed without network access.";
 const packageJson = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
@@ -46,30 +46,31 @@ try {
   page.on("console", (message) => { if (message.type() === "error") rendererErrors.push(message.text()); });
   await page.waitForLoadState("domcontentloaded");
   if ((await page.title()) !== "HIVE Desktop") throw new Error(`Unexpected packaged title: ${await page.title()}`);
-  const coderTab = page.getByRole("button", { name: "Codex" });
-  if (await coderTab.isVisible().catch(() => false)) {
-    await coderTab.click();
-  }
   for (const selector of ["nav[aria-label='Global Navigation']", "main"]) await page.locator(selector).waitFor({ state: "visible", timeout: 15_000 });
-  await page.getByLabel("Repository path").first().fill(repository);
-  await page.getByRole("button", { name: /^Open$/ }).first().click();
-  await page.getByLabel("New thread title").waitFor({ state: "visible" });
+  await page.getByLabel("Repository path").fill(repository);
+  await page.getByRole("button", { name: /^Open$/ }).click();
+  await expect(page.getByLabel("Repository path")).toHaveValue(repository);
 
-  await page.getByLabel("Provider", { exact: true }).selectOption("openai");
-  await page.getByRole("button", { name: "Configure provider" }).click();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("tab", { name: "Providers" }).click();
+  await page.locator(".provider-settings-row").filter({ has: page.getByText("OpenAI", { exact: true }) }).getByRole("button", { name: "Configure" }).click();
   await page.getByLabel("API key").fill(secret);
   await page.getByRole("button", { name: "Store encrypted credential" }).click();
   await expect(page.getByText("Credential encrypted and stored.")).toBeVisible();
 
-  await page.getByLabel("Provider", { exact: true }).selectOption(SMOKE_PROVIDER);
-  await page.getByLabel("New thread title").fill("Packaged worker smoke");
-  await page.getByRole("button", { name: "Create thread" }).click();
-  await page.getByRole("heading", { name: "Packaged worker smoke" }).waitFor({ state: "visible" });
+  // Chat and Code share one model choice; the Chat composer holds the picker.
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await page.getByRole("button", { name: "Select model" }).click();
+  const diagnosticModel = page.getByRole("listbox", { name: "Configured models" }).locator("li").filter({ has: page.getByText(SMOKE_PROVIDER_NAME, { exact: true }) }).getByRole("option");
+  await diagnosticModel.click();
+  await page.getByRole("button", { name: "Code", exact: true }).click();
   await page.getByLabel("Message HIVE").fill(SMOKE_MESSAGE);
-  await page.locator("form.composer button[type='submit']").click();
-  await expect(page.locator(".status-pill").filter({ hasText: "completed" })).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("tab", { name: /report/i }).click();
-  await expect(page.getByRole("heading", { name: SMOKE_REPORT })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Send task" }).click();
+  const inspector = page.getByRole("complementary", { name: "Harness Inspector" });
+  await inspector.getByRole("tab", { name: /^Run/ }).click();
+  await expect(inspector.locator(".hive-evidence-row").filter({ hasText: "Active Run Status" })).toContainText("completed", { timeout: 30_000 });
+  await inspector.getByRole("tab", { name: /^Evidence/ }).click();
+  await expect(page.getByLabel("Verification evidence")).toContainText("Diagnostic objective and provider matched exactly.", { timeout: 15_000 });
 
   const persisted = await persistedDiagnostic(repository);
   if (persisted.threadStatus !== "completed") throw new Error(`Persisted thread status was ${persisted.threadStatus}.`);
@@ -112,7 +113,7 @@ async function persistedDiagnostic(repositoryRoot) {
   const threadRoot = path.join(repositoryRoot, ".hivemind", "threads");
   const threadDirectories = await readdir(threadRoot, { withFileTypes: true });
   const threads = await Promise.all(threadDirectories.filter((entry) => entry.isDirectory()).map((entry) => readFile(path.join(threadRoot, entry.name, "thread.json"), "utf8").then(JSON.parse)));
-  const thread = threads.find((entry) => entry.title === "Packaged worker smoke");
+  const thread = threads.find((entry) => entry.title === SMOKE_MESSAGE);
   const run = thread?.runs.at(-1);
   if (!run) throw new Error("Packaged smoke thread/run was not persisted.");
   const session = JSON.parse(await readFile(path.join(repositoryRoot, ".hivemind", "sessions", run.codingSessionId, "session.json"), "utf8"));

@@ -9,7 +9,8 @@ const TASK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 export interface CreatedManagedWorktree {
   path: string;
-  identity: { dev: bigint; ino: bigint };
+  // birthtimeNs catches a same-path replacement that reuses the inode (common on Linux); 0 where unsupported.
+  identity: { dev: bigint; ino: bigint; birthtimeNs: bigint };
   shareDependencies(): Promise<void>;
 }
 
@@ -116,16 +117,19 @@ export class WorktreeManager {
     try {
       const created = await fs.lstat(worktreePath, { bigint: true });
       if (!created.isDirectory() || created.isSymbolicLink() || path.relative(worktreePath, await fs.realpath(worktreePath)) !== '') throw new Error('New worktree directory identity is invalid.');
-      const identity = { dev: created.dev, ino: created.ino };
+      const identity = { dev: created.dev, ino: created.ino, birthtimeNs: created.birthtimeNs };
       const assertIdentity = async (): Promise<void> => {
         const current = await fs.lstat(worktreePath, { bigint: true });
-        if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== identity.dev || current.ino !== identity.ino || path.relative(worktreePath, await fs.realpath(worktreePath)) !== '') throw new Error('New worktree directory was replaced during initialization.');
+        if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== identity.dev || current.ino !== identity.ino || current.birthtimeNs !== identity.birthtimeNs || path.relative(worktreePath, await fs.realpath(worktreePath)) !== '') throw new Error('New worktree directory was replaced during initialization.');
       };
       return { path: worktreePath, identity, shareDependencies: async () => {
         await assertIdentity();
         if (signal?.aborted) throw new DOMException('Coding session fork cancelled.', 'AbortError');
         let ignored = false;
-        try { await execFileAsync(this.gitExecutable, ['check-ignore', '--quiet', '--', 'node_modules/'], { cwd: worktreePath, signal, timeout: 10_000 }); ignored = true; }
+        // Git sees a Windows junction as a directory but a POSIX symlink as a file, so a
+        // dir-only "node_modules/" rule would leave the POSIX link Git-visible.
+        const linkPath = process.platform === 'win32' ? 'node_modules/' : 'node_modules';
+        try { await execFileAsync(this.gitExecutable, ['check-ignore', '--quiet', '--', linkPath], { cwd: worktreePath, signal, timeout: 10_000 }); ignored = true; }
         catch (error) { if (!(error instanceof Error && 'code' in error && error.code === 1)) throw error; }
         if (ignored) await this.shareNodeDependencies(worktreePath);
         await assertIdentity();

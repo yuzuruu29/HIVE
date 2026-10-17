@@ -221,7 +221,7 @@ async function assertSessionStorage(root: string, sourceId: string): Promise<voi
 
 async function assertOwnedDirectory(directory: string, identity: CreatedManagedWorktree["identity"]): Promise<void> {
   const stat = await fs.lstat(directory, { bigint: true });
-  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.dev !== identity.dev || stat.ino !== identity.ino || path.relative(directory, await fs.realpath(directory)) !== "") throw new Error(`Fork directory was replaced; preserved ${directory} for inspection.`);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.dev !== identity.dev || stat.ino !== identity.ino || stat.birthtimeNs !== identity.birthtimeNs || path.relative(directory, await fs.realpath(directory)) !== "") throw new Error(`Fork directory was replaced; preserved ${directory} for inspection.`);
 }
 
 async function removeOwnedWorktree(root: string, id: string, expectedPath: string, identity: CreatedManagedWorktree["identity"]): Promise<void> {

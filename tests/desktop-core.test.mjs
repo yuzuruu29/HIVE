@@ -66,6 +66,23 @@ test("JsonThreadStore creates, lists, loads, saves, and archives full threads", 
   }
 });
 
+test("JsonThreadStore retries an atomic replacement a Windows reader briefly denies", async (t) => {
+  const { root, store } = await fixture();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const thread = await store.create({ id: "thread-one", title: "Desktop work" });
+  const rename = fs.rename;
+  const codes = ["EPERM", "EBUSY"];
+  t.mock.method(fs, "rename", async (source, target) => {
+    const code = codes.shift();
+    if (code) throw Object.assign(new Error("A reader temporarily denies atomic replacement"), { code });
+    return rename(source, target);
+  });
+  thread.messages.push(message("message-one", "user", "Survive the lock"));
+  await store.save(thread);
+  assert.equal((await store.load("thread-one")).messages.length, 1);
+  assert.deepEqual(await fs.readdir(path.join(root, ".hivemind", "threads", "thread-one")), ["thread.json"]);
+});
+
 test("JsonThreadStore rejects unsafe IDs, invalid shapes, and oversized messages", async () => {
   const { root, store } = await fixture();
   try {

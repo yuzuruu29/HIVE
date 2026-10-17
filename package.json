@@ -1,9 +1,39 @@
 {
-  "name": "hive",
+  "name": "@uzzy-malolos/hive",
   "version": "0.6.0",
   "description": "Hyper Intelligence for Verified Engineering command cockpit and Windows desktop companion.",
   "author": "HIVE contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuzuruu29/HIVE.git"
+  },
+  "homepage": "https://github.com/yuzuruu29/HIVE#readme",
+  "bugs": {
+    "url": "https://github.com/yuzuruu29/HIVE/issues"
+  },
+  "keywords": ["cli", "ai", "coding-agent", "tui", "developer-tools"],
   "private": false,
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "files": [
+    "bin/hive.mjs",
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "skills/hive-mind-council/skills/hive-mind-council/SKILL.md",
+    "skills/hive-mind-council/skills/hive-mind-council/agents/*.md",
+    "skills/hive-mind-council/skills/hive-mind-council/references/*.md",
+    "skills/hive-mind-council/LICENSE",
+    "skills/hive-mind-council/README.md",
+    "docs/CLI_*.md",
+    "docs/HIVE_CLI_PARITY.md",
+    "docs/NPM_RELEASE.md",
+    "LICENSE",
+    "NOTICE.md",
+    "README.md"
+  ],
   "type": "module",
   "bin": {
     "hive": "./bin/hive.mjs"
@@ -11,7 +41,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.17.0"
   },
   "scripts": {
     "dev": "tsc -w",
@@ -38,8 +68,10 @@
     "web:build": "tsc -p web/tsconfig.json --noEmit && vite build --config web/vite.config.ts",
     "web:test": "vitest run --config web/vite.config.ts",
     "lint": "tsc --noEmit",
+    "prepack": "npm run build",
+    "test:package": "node scripts/test-npm-package.mjs",
     "pretest": "npm run build",
-    "test": "node --test --test-concurrency=1 --test-reporter=spec tests/coder-safety.test.mjs tests/coder-cli.test.mjs tests/coder-persistence.test.mjs tests/coder-phase2.5.test.mjs tests/coder-phase3.test.mjs tests/providers.test.mjs tests/provider-setup.test.mjs tests/provider-models.test.mjs tests/cli-byok-local.test.mjs tests/ui.test.mjs tests/tui.test.mjs tests/scout.test.mjs tests/coding-foundation.test.mjs tests/coding-services.test.mjs tests/coding-agent-loop.test.mjs tests/coding-cli-options.test.mjs tests/coding-command.test.mjs tests/coding-session.test.mjs tests/coding-session-persistence.test.mjs tests/run-report.test.mjs tests/subagents-tui.test.mjs tests/tui-runtime.test.mjs tests/desktop-core.test.mjs tests/desktop-services.test.mjs tests/desktop-electron.test.mjs tests/desktop-workspace.test.mjs tests/desktop-model-lister.test.mjs tests/coding-verification.test.mjs tests/chat-engine.test.mjs tests/chat-core.test.mjs tests/chat-agent-turn.test.mjs tests/hivebot.test.mjs tests/chat-sessions.test.mjs tests/chat-streaming.test.mjs tests/chat-grounding.test.mjs tests/desktop-chat-protocol.test.mjs tests/desktop-chat-service.test.mjs tests/desktop-council-service.test.mjs tests/cli-session.test.mjs tests/sessions-fork-archive.test.mjs tests/tui-parity.test.mjs tests/tui-transcript.test.mjs tests/tui-lifecycle.test.mjs tests/tool-results.test.mjs tests/streaming-privacy.test.mjs tests/tui-input.test.mjs tests/tui-display.test.mjs tests/coding-followup.test.mjs tests/tui-conversations.test.mjs tests/cli-extensions.test.mjs tests/provider-images.test.mjs tests/coding-extension-tools.test.mjs tests/cli-launch.test.mjs tests/scoped-instructions.test.mjs tests/tui-startup-safety.test.mjs tests/cli-extension-workflows.test.mjs tests/provider-verification.test.mjs tests/coding-worktree-fork.test.mjs tests/coding-workspace-fingerprint.test.mjs tests/cli-workspace-adopt.test.mjs tests/mcp-oauth.test.mjs tests/mcp-advanced.test.mjs tests/mcp-lifecycle-2026.test.mjs tests/mcp-background-tasks.test.mjs tests/mcp-client-host.test.mjs tests/claude-hooks.test.mjs tests/provider-gateway-presets.test.mjs tests/claude-plugin-runtime-parity.test.mjs tests/claude-command-arguments.test.mjs tests/claude-output-styles.test.mjs tests/provider-subscription-commands.test.mjs tests/chatgpt-subscription.test.mjs tests/claude-hook-path-race.test.mjs tests/mcp-modern-tasks.test.mjs tests/mcp-subscription-cancellation.test.mjs tests/coding-claude-hook-host.test.mjs tests/claude-hook-lifecycle.test.mjs tests/claude-advanced-hooks.test.mjs tests/plugin-agents-lsp.test.mjs tests/tui-mcp-input.test.mjs tests/cli-final-protocols.test.mjs tests/mcp-context-integration.test.mjs tests/marketplace-compatibility.test.mjs tests/claude-plugin-compatibility.test.mjs tests/cli-plugin-runtime-compatibility.test.mjs tests/secret-redaction-bounds.test.mjs tests/cli-marketplace.test.mjs tests/skill-references.test.mjs tests/tui-extension-lifecycle.test.mjs tests/coding-session-lease.test.mjs tests/cli-plugin-install.test.mjs tests/coding-checkpoints.test.mjs tests/coding-patch-projection.test.mjs tests/tui-local-command.test.mjs tests/provider-boundaries.test.mjs tests/cli-provider-journey.test.mjs",
+    "test": "node --test --test-concurrency=1 --test-reporter=spec tests/coder-safety.test.mjs tests/coder-cli.test.mjs tests/coder-persistence.test.mjs tests/coder-phase2.5.test.mjs tests/coder-phase3.test.mjs tests/providers.test.mjs tests/provider-setup.test.mjs tests/provider-models.test.mjs tests/cli-byok-local.test.mjs tests/ui.test.mjs tests/tui.test.mjs tests/scout.test.mjs tests/coding-foundation.test.mjs tests/coding-services.test.mjs tests/coding-agent-loop.test.mjs tests/coding-cli-options.test.mjs tests/coding-command.test.mjs tests/coding-session.test.mjs tests/coding-session-persistence.test.mjs tests/run-report.test.mjs tests/subagents-tui.test.mjs tests/tui-runtime.test.mjs tests/desktop-core.test.mjs tests/desktop-services.test.mjs tests/desktop-electron.test.mjs tests/desktop-workspace.test.mjs tests/desktop-model-lister.test.mjs tests/coding-verification.test.mjs tests/chat-engine.test.mjs tests/chat-core.test.mjs tests/skill-locate.test.mjs tests/npm-package.test.mjs tests/chat-agent-turn.test.mjs tests/hivebot.test.mjs tests/chat-sessions.test.mjs tests/chat-streaming.test.mjs tests/chat-grounding.test.mjs tests/desktop-chat-protocol.test.mjs tests/desktop-chat-service.test.mjs tests/desktop-chat-provider.test.mjs tests/desktop-council-service.test.mjs tests/cli-session.test.mjs tests/sessions-fork-archive.test.mjs tests/tui-parity.test.mjs tests/tui-transcript.test.mjs tests/tui-lifecycle.test.mjs tests/tool-results.test.mjs tests/streaming-privacy.test.mjs tests/tui-input.test.mjs tests/tui-display.test.mjs tests/coding-followup.test.mjs tests/tui-conversations.test.mjs tests/cli-extensions.test.mjs tests/provider-images.test.mjs tests/coding-extension-tools.test.mjs tests/cli-launch.test.mjs tests/scoped-instructions.test.mjs tests/tui-startup-safety.test.mjs tests/cli-extension-workflows.test.mjs tests/provider-verification.test.mjs tests/coding-worktree-fork.test.mjs tests/coding-workspace-fingerprint.test.mjs tests/cli-workspace-adopt.test.mjs tests/mcp-oauth.test.mjs tests/mcp-advanced.test.mjs tests/mcp-lifecycle-2026.test.mjs tests/mcp-background-tasks.test.mjs tests/mcp-client-host.test.mjs tests/claude-hooks.test.mjs tests/provider-gateway-presets.test.mjs tests/claude-plugin-runtime-parity.test.mjs tests/claude-command-arguments.test.mjs tests/claude-output-styles.test.mjs tests/provider-subscription-commands.test.mjs tests/chatgpt-subscription.test.mjs tests/claude-hook-path-race.test.mjs tests/mcp-modern-tasks.test.mjs tests/mcp-subscription-cancellation.test.mjs tests/coding-claude-hook-host.test.mjs tests/claude-hook-lifecycle.test.mjs tests/claude-advanced-hooks.test.mjs tests/plugin-agents-lsp.test.mjs tests/tui-mcp-input.test.mjs tests/cli-final-protocols.test.mjs tests/mcp-context-integration.test.mjs tests/marketplace-compatibility.test.mjs tests/claude-plugin-compatibility.test.mjs tests/cli-plugin-runtime-compatibility.test.mjs tests/secret-redaction-bounds.test.mjs tests/cli-marketplace.test.mjs tests/skill-references.test.mjs tests/tui-extension-lifecycle.test.mjs tests/coding-session-lease.test.mjs tests/cli-plugin-install.test.mjs tests/coding-checkpoints.test.mjs tests/coding-patch-projection.test.mjs tests/tui-local-command.test.mjs tests/provider-boundaries.test.mjs tests/cli-provider-journey.test.mjs",
     "hive": "node ./bin/hive.mjs"
   },
   "dependencies": {

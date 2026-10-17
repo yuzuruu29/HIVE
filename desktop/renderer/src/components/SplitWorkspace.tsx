@@ -67,6 +67,7 @@ export function SplitWorkspace({
           state={state}
           send={send}
           activeModelName={activeModelName}
+          selectedModel={selectedModel}
           onOpenModelPicker={onOpenModelPicker}
           onOpenSettings={onOpenSettings}
           onOpenRepositoryPicker={onOpenRepositoryPicker}

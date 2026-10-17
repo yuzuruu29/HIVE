@@ -8,7 +8,7 @@ test("desktop release metadata preserves the npm CLI while pinning the Windows t
   assert.equal(pkg.version, "0.6.0");
   assert.equal(pkg.main, "dist/index.js");
   assert.equal(pkg.bin.hive, "./bin/hive.mjs");
-  assert.equal(pkg.engines.node, ">=22.12.0");
+  assert.equal(pkg.engines.node, ">=22.17.0");
   assert.equal(pkg.devDependencies.electron, "43.1.0");
   assert.equal(pkg.devDependencies["electron-builder"], "26.15.3");
   assert.equal(pkg.devDependencies["@playwright/test"], "1.61.1");

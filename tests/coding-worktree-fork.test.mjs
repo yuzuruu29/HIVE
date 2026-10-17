@@ -25,7 +25,7 @@ async function fixture(t, id = "source") {
   await fs.mkdir(path.join(root, "swap-dir"));
   await fs.writeFile(path.join(root, "swap-dir", "child.txt"), "directory before transition\n");
   await fs.writeFile(path.join(root, "binary.bin"), Buffer.from([0, 1, 255, 2]));
-  await fs.writeFile(path.join(root, ".gitignore"), ".hivemind/\nignored-cache/\nnode_modules/\n.env\n");
+  await fs.writeFile(path.join(root, ".gitignore"), ".hivemind/\nignored-cache/\nnode_modules\n.env\n");
   await git(root, ["add", "."]); await git(root, ["commit", "-m", "fixture"]);
   const head = (await git(root, ["rev-parse", "HEAD"])).trim();
   const workspace = await new WorktreeManager(root).createWorktreeFrom(id, head);
@@ -287,7 +287,8 @@ test("rollback preserves an externally replaced directory even when its branch a
       await git(root, ["worktree", "remove", "--force", target]);
       await git(root, ["worktree", "add", target, "hive-coder/replaced"]);
       const replacement = await fs.lstat(target, { bigint: true });
-      assert.notEqual(replacement.ino, previous.ino);
+      // Linux may reuse the freed inode; creation time still distinguishes the replacement.
+      assert.ok(replacement.ino !== previous.ino || replacement.birthtimeNs !== previous.birthtimeNs);
       await fs.writeFile(path.join(target, "external-only.txt"), "preserve external data\n");
       throw new Error("Injected external replacement");
     }

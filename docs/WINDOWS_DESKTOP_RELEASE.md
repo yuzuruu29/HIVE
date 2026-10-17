@@ -12,7 +12,7 @@ HIVE Desktop v1 targets Windows 10/11 x64. The npm CLI/TUI remains the package e
 
 ## Local operator checklist
 
-1. Install Node.js 22.12 or later on Windows x64 and run `npm ci`.
+1. Install Node.js 22.17 or later on Windows x64 and run `npm ci`.
 2. Run `npm run lint`, `npm test`, `npm run test:desktop`, and `npm run desktop:e2e`.
 3. Run `npm run desktop:pack && npm run desktop:smoke` to test the unpacked app.
 4. Run `npm run desktop:dist`. This creates per-user NSIS and no-install portable executables, then writes `release/SHA256SUMS.txt`.

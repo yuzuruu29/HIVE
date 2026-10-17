@@ -145,6 +145,13 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
         setTimeout(() => {
           setToasts((prev) => prev.filter((t) => t.id !== toastId));
         }, 6000);
+
+        // The inspector's Changes and Evidence tabs show the finished run without reselecting the thread.
+        const repositoryRoot = repositoryRef.current;
+        if (ownerThread && repositoryRoot) {
+          const input = { repositoryRoot, codingSessionId: event.run.codingSessionId };
+          void send({ type: "run.report", input: { ...input, threadId: ownerThread.id } }).then(() => send({ type: "changes.diff", input }));
+        }
       }
     });
     void send({ type: "repository.list" });
@@ -637,6 +644,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
             state={state}
             send={send}
             activeModelName={activeModelName}
+            selectedModel={modelChoice}
             onOpenModelPicker={() => openSettings("catalog")}
             onOpenSettings={() => openSettings("models")}
             onOpenRepositoryPicker={() => void pickRepository()}

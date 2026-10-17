@@ -1,6 +1,7 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -10,7 +11,8 @@ const exec = promisify(execFile);
 const projectRoot = path.resolve(import.meta.dirname, "..", "..");
 const main = path.join(projectRoot, "dist", "desktop", "electron", "main.js");
 const fixtureWorker = path.join(import.meta.dirname, "fixture-worker.mjs");
-const electronExecutable = path.join(projectRoot, "node_modules", "electron", "dist", "electron.exe");
+// Electron 43 has no postinstall; requiring the package downloads the binary on first use and returns its path.
+const electronExecutable: string = createRequire(import.meta.url)("electron");
 
 test.describe.serial("HIVE Windows desktop companion", () => {
   let root: string;
@@ -60,7 +62,7 @@ test.describe.serial("HIVE Windows desktop companion", () => {
     const secret = "e2e-secret-must-never-persist-123456";
     await hive.configureOpenAi(secret);
     await hive.approveOllama();
-    await hive.createThread("Desktop release flow");
+    // The first task in an empty Code surface creates its thread, titled from that message.
     await hive.send("Create the verified fixture change.");
     await hive.expectPhase("completed");
     await hive.openTab("Changes");
@@ -75,12 +77,13 @@ test.describe.serial("HIVE Windows desktop companion", () => {
     const restored = new HiveDesktopPage(page);
     await restored.expectCockpit();
     await restored.openRecent(repository);
-    await restored.selectThread("Desktop release flow");
-    await restored.openTab("Conversation");
+    await restored.selectThread("Create the verified fixture change.");
     await restored.send("Follow up with another verified turn.");
     await restored.expectPhase("completed");
-    await restored.openTab("Report");
-    await expect(page.getByRole("heading", { name: "Deterministic desktop run complete" })).toBeVisible();
+    await restored.openTab("Evidence");
+    const evidence = page.getByLabel("Verification evidence");
+    await expect(evidence).toContainText(/deterministic fixture\s*passed/);
+    await expect(evidence).toContainText("Exact recorded file approved by deterministic reviewer.");
     await restored.openTab("Changes");
     await restored.previewAndConfirm("push");
     await expect(page.getByText(/Pushed hive-coder\//i).last()).toBeVisible();
@@ -92,16 +95,15 @@ test.describe.serial("HIVE Windows desktop companion", () => {
   test("cooperatively pauses and resumes, cancels, then discards only the latest HIVE worktree", async () => {
     const hive = new HiveDesktopPage(page);
     await hive.openRepository(repository);
-    await hive.createThread("Control flow");
     await hive.send("[hold] wait for cooperative pause");
     await hive.expectPhase("planning");
-    await page.getByRole("button", { name: "Pause" }).click();
+    await page.getByRole("button", { name: "Pause", exact: true }).click();
     await hive.expectPhase("paused");
-    await page.getByRole("button", { name: "Resume" }).click();
+    await page.getByRole("button", { name: "Resume", exact: true }).click();
     await hive.expectPhase("completed");
     await hive.send("[hold] wait for cancellation");
     await hive.expectPhase("planning");
-    await page.getByRole("button", { name: "Cancel" }).click();
+    await page.getByRole("button", { name: "Stop run" }).click();
     await hive.expectPhase("cancelled");
     await hive.send("Create a disposable verified change.");
     await hive.expectPhase("completed");
