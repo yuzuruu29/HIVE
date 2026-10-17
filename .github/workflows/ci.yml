@@ -67,8 +67,11 @@ jobs:
     - run: npm test
       timeout-minutes: 25
     - run: npm run test:desktop
-    - run: npm run test:desktop-release
+    # desktop:e2e runs build:desktop, which writes dist/desktop/electron/preload.cjs for the release tests.
     - run: npm run desktop:e2e
+    - name: Generated desktop assets are committed
+      run: git diff --exit-code
+    - run: npm run test:desktop-release
     - run: npm run desktop:pack
     - run: npm run desktop:smoke
     - uses: actions/upload-artifact@v4
