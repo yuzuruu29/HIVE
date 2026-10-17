@@ -644,6 +644,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
             state={state}
             send={send}
             activeModelName={activeModelName}
+            selectedModel={modelChoice}
             onOpenModelPicker={() => openSettings("catalog")}
             onOpenSettings={() => openSettings("models")}
             onOpenRepositoryPicker={() => void pickRepository()}

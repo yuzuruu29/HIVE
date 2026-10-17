@@ -12,6 +12,8 @@ export interface CodexSurfaceProps {
   state: DesktopViewState;
   send: (command: DesktopCommandInput) => Promise<DesktopEvent>;
   activeModelName?: string;
+  /** The model shown in the composer; new runs use it. */
+  selectedModel?: { providerId: string; model: string } | null;
   onOpenModelPicker?: () => void;
   onOpenSettings?: () => void;
   onOpenRepositoryPicker?: () => void;
@@ -39,6 +41,7 @@ export function CodexSurface({
   state,
   send,
   activeModelName = "No model",
+  selectedModel = null,
   onOpenModelPicker,
   onOpenSettings,
   onOpenRepositoryPicker,
@@ -119,6 +122,7 @@ export function CodexSurface({
           options: {
             mode: composerMode === "plan" ? "plan" : "auto",
             approvalPolicy: posture === "ask" ? "always" : posture === "autonomous" ? "safe" : "changes",
+            ...(selectedModel ? { providerId: selectedModel.providerId, model: selectedModel.model } : {}),
           },
         },
       });
