@@ -1,6 +1,7 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -10,7 +11,8 @@ const exec = promisify(execFile);
 const projectRoot = path.resolve(import.meta.dirname, "..", "..");
 const main = path.join(projectRoot, "dist", "desktop", "electron", "main.js");
 const fixtureWorker = path.join(import.meta.dirname, "fixture-worker.mjs");
-const electronExecutable = path.join(projectRoot, "node_modules", "electron", "dist", "electron.exe");
+// Electron 43 has no postinstall; requiring the package downloads the binary on first use and returns its path.
+const electronExecutable: string = createRequire(import.meta.url)("electron");
 
 test.describe.serial("HIVE Windows desktop companion", () => {
   let root: string;
