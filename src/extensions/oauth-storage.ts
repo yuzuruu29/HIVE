@@ -18,7 +18,11 @@ export class WindowsOAuthCipher implements OAuthCipher {
     const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
     if (!systemRoot || !path.isAbsolute(systemRoot)) return Promise.reject(new Error("Windows system directory is unavailable for DPAPI"));
     return new Promise((resolve, reject) => {
-      const child = spawn(path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", dpapiScript], { windowsHide: true, shell: false, stdio: ["pipe", "pipe", "pipe"], env: { SystemRoot: systemRoot } });
+      const powershellHome = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0");
+      // Built-in modules only: without PSModulePath, PowerShell 5.1 falls back to the machine
+      // module path and scans every installed module to autoload ConvertFrom-Json (30s+ on hosts
+      // with large module sets), and a third-party module could shadow cmdlets on this credential path.
+      const child = spawn(path.join(powershellHome, "powershell.exe"), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", dpapiScript], { windowsHide: true, shell: false, stdio: ["pipe", "pipe", "pipe"], env: { SystemRoot: systemRoot, PSModulePath: path.join(powershellHome, "Modules") } });
       let output = ""; let settled = false;
       const finish = (error?: Error) => { if (settled) return; settled = true; clearTimeout(timer); if (error) reject(error); else if (!/^[A-Za-z0-9+/]*={0,2}$/u.test(output) || output.length > MAX_BYTES * 2) reject(new Error("Invalid DPAPI response")); else resolve(Buffer.from(output, "base64")); };
       const timer = setTimeout(() => { child.kill(); finish(new Error("OS-backed OAuth encryption timed out")); }, 10_000);
