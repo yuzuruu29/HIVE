@@ -9,6 +9,14 @@ import { CollapseIcon, ExpandIcon } from "../../shell/icons";
 
 export type InspectorTab = "changes" | "files" | "terminal" | "evidence" | "run";
 
+// Each opens a guarded preview; nothing touches Git until the confirmation dialog is accepted.
+const GIT_ACTIONS = [
+  { action: "commit", label: "commit" },
+  { action: "push", label: "push" },
+  { action: "pull-request", label: "PR" },
+  { action: "discard", label: "discard" },
+] as const;
+
 export interface InspectorTabsProps {
   state: DesktopViewState;
   report?: CodingFinalReport | null;
@@ -27,6 +35,7 @@ export function InspectorTabs({
   defaultTab = "changes",
   onSelectFile,
   onToggleDir,
+  onPreviewGit,
 }: InspectorTabsProps) {
   const [tab, setTab] = useState<InspectorTab>(defaultTab);
   const [expandedReview, setExpandedReview] = useState(false);
@@ -105,6 +114,21 @@ export function InspectorTabs({
         {/* Tab 1: Changes */}
         {tab === "changes" && (
           <div className="hive-inspector-stack">
+            {onPreviewGit && sessionLabel !== "—" && (
+              <div className="hive-git-actions" role="group" aria-label="Review actions">
+                {GIT_ACTIONS.map(({ action, label }) => (
+                  <button
+                    key={action}
+                    type="button"
+                    className={`pane-action-btn${action === "discard" ? " is-danger" : ""}`}
+                    aria-label={`Preview ${label}`}
+                    onClick={() => onPreviewGit(action)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             {diff && diff.patch ? (
               <ChangesView
                 patch={diff.patch}

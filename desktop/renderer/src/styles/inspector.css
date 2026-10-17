@@ -203,6 +203,17 @@
   border-radius: 6px;
   background: transparent;
   font-size: var(--text-xs);
+  text-transform: capitalize;
+}
+
+.pane-action-btn:hover { background: var(--hover); }
+.pane-action-btn:active { transform: translateY(1px); }
+.pane-action-btn.is-danger { margin-left: auto; color: var(--bad); }
+.pane-action-btn.is-danger:hover { background: var(--bad-wash); }
+
+.hive-git-actions {
+  display: flex;
+  gap: 6px;
 }
 
 /* Unified diff */
