@@ -30,7 +30,10 @@ test("packaging unpacks only the bundled production utility worker", async () =>
   const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   assert.deepEqual(pkg.build.asarUnpack, ["dist/desktop/electron/worker.mjs"]);
   assert.match(pkg.scripts["build:desktop"], /build:desktop-worker/);
-  assert.deepEqual(pkg.build.files, ["dist/**/*", "dist-desktop/renderer/**/*", "package.json"]);
+  assert.deepEqual(pkg.build.files, [
+    "dist/**/*", "dist-desktop/renderer/**/*", "package.json",
+    ...pkg.files.filter((entry) => entry.startsWith("skills/") || entry === "LICENSE" || entry === "NOTICE.md"),
+  ]);
   for (const forbidden of ["cli", "tui", "commercial", "main", "preload", "fixture", "test"]) {
     assert.ok(pkg.build.asarUnpack.every((entry) => !entry.toLowerCase().includes(forbidden)), `unpack pattern leaks ${forbidden}`);
   }

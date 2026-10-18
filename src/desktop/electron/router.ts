@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { JsonThreadStore } from "../thread-store.js";
 import { DesktopChatService, type DesktopChatServiceOptions } from "../chat-service.js";
+import { createDesktopChatEngine, createDesktopCredentialRedactor } from "../chat-provider-registry.js";
 import { DesktopCouncilService, type DesktopCouncilServiceOptions } from "../council-service.js";
 import type { DesktopCredentialVaultService } from "../credential-vault.js";
 import { MAX_THREAD_MESSAGE_CHARS, type DesktopCommand, type DesktopEvent, type DesktopProviderMetadata, type GuardedGitService, type ThreadStore } from "../types.js";
@@ -56,7 +57,13 @@ export class DesktopCommandRouter {
     this.#chatService = options.chatService ?? new DesktopChatService(
       () => this.#requiredRepository(),
       (event) => this.#emitServiceEvent(event),
-      options.chatServiceOptions,
+      {
+        ...options.chatServiceOptions,
+        createEngine: options.chatServiceOptions?.createEngine ?? ((root, sessionId) => createDesktopChatEngine(root, sessionId, {
+          stateStore: options.stateStore,
+          credentialVault: options.credentialVault,
+        })),
+      },
     );
     this.#councilService = options.councilService ?? new DesktopCouncilService(
       () => this.#requiredRepository(),
@@ -154,7 +161,7 @@ export class DesktopCommandRouter {
       case "provider.configure": {
         return this.#credentialTransaction(async () => {
           const credential = await this.options.credentialVault.metadata(command.input.id);
-          const provider: DesktopProviderMetadata = { ...command.input, configured: command.input.approved && (command.input.authType === "none" || credential !== null) };
+          const provider: DesktopProviderMetadata = { ...command.input, configured: command.input.approved && (command.input.authType === "none" || (credential?.configured === true && credential.kind === command.input.authType)) };
           await this.options.stateStore.mutate((state) => ({ ...state, updatedAt: timestamp, providers: [...state.providers.filter((entry) => entry.id !== provider.id), provider].sort((a, b) => a.id.localeCompare(b.id)) }));
           return { type: "provider.changed", timestamp, provider };
         });
@@ -163,13 +170,30 @@ export class DesktopCommandRouter {
         const { provider, credential } = await this.#credentialTransaction(async () => {
           const provider = (await this.#syncProviderConfigured()).providers.find((entry) => entry.id === command.providerId);
           if (!provider) throw new Error("Provider metadata not found.");
-          const credential = this.options.credentialVault.credentialResolver
+          if (!provider.approved) throw new Error("Provider must be approved before discovering models.");
+          const resolved = provider.authType !== "none" && this.options.credentialVault.credentialResolver
             ? await this.options.credentialVault.credentialResolver.resolve(command.providerId)
             : null;
+          const credential = resolved ? { ...resolved } : null;
+          if (credential && (credential.providerId !== provider.id || credential.kind !== provider.authType || !credential.secret)) {
+            credential.secret = "";
+            throw new Error("Desktop provider credential has a mismatched kind or provider.");
+          }
           return { provider, credential };
         });
-        const models = await DesktopModelLister.list(provider, credential);
-        return { type: "models.listed", timestamp, providerId: command.providerId, models };
+        const redact = createDesktopCredentialRedactor(credential?.secret);
+        try {
+          const models = (await DesktopModelLister.list(provider, credential)).flatMap((model) => {
+            // A rewritten model ID would be an invalid selectable route.
+            if (redact(model.id) !== model.id) return [];
+            return [{ ...model, ...(model.name ? { name: redact(model.name) } : {}), ...(model.ownedBy ? { ownedBy: redact(model.ownedBy) } : {}) }];
+          });
+          return { type: "models.listed", timestamp, providerId: command.providerId, models };
+        } catch (error) {
+          throw new Error(redact(error instanceof Error ? error.message : String(error)));
+        } finally {
+          if (credential) credential.secret = "";
+        }
       }
       case "credential.list": return this.#credentialTransaction(async () => { const credentials = await this.options.credentialVault.list(); await this.#syncProviderConfigured(credentials); return { type: "credential.listed", timestamp, credentials }; });
       case "credential.metadata": { const credential = await this.options.credentialVault.metadata(command.providerId); if (!credential) throw new Error("Credential metadata not found."); return { type: "credential.changed", timestamp, credential }; }
@@ -253,11 +277,11 @@ export class DesktopCommandRouter {
   }
   async #syncProviderConfigured(existing?: Awaited<ReturnType<DesktopCredentialVaultService["list"]>>) {
     const credentials = existing ?? await this.options.credentialVault.list();
-    const configuredIds = new Set(credentials.filter((entry) => entry.configured).map((entry) => entry.providerId));
+    const configuredKinds = new Map(credentials.filter((entry) => entry.configured).map((entry) => [entry.providerId, entry.kind]));
     return this.options.stateStore.mutate((state) => ({
       ...state,
       updatedAt: this.#clock(),
-      providers: state.providers.map((provider) => ({ ...provider, configured: provider.approved && (provider.authType === "none" || configuredIds.has(provider.id)) })),
+      providers: state.providers.map((provider) => ({ ...provider, configured: provider.approved && (provider.authType === "none" || configuredKinds.get(provider.id) === provider.authType) })),
     }));
   }
   async #credentialTransaction<T>(operation: () => Promise<T>): Promise<T> {

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { stageDesktopApplication } from "../scripts/stage-desktop-app.mjs";
 
 const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -27,4 +30,58 @@ test("desktop release scripts build both surfaces, smoke the package, and checks
   }
   assert.match(pkg.scripts["desktop:e2e"], /playwright test/);
   assert.match(pkg.scripts["desktop:dist"], /package-desktop\.mjs/);
+});
+
+test("desktop release includes council prompts, references, and redistribution notices", () => {
+  for (const required of [
+    "skills/hive-mind-council/skills/hive-mind-council/SKILL.md",
+    "skills/hive-mind-council/skills/hive-mind-council/agents/*.md",
+    "skills/hive-mind-council/skills/hive-mind-council/references/*.md",
+    "skills/hive-mind-council/LICENSE",
+    "skills/hive-mind-council/README.md",
+    "LICENSE",
+    "NOTICE.md",
+  ]) {
+    assert.ok(pkg.build.files.includes(required), `Desktop release is missing ${required}`);
+  }
+});
+
+test("prepackaged desktop staging contains council assets and notices without vendored development files", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hive-desktop-staging-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const sourceRoot = path.join(directory, "source");
+  const stagingRoot = path.join(directory, "staged app");
+  const council = "skills/hive-mind-council";
+  const skill = `${council}/skills/hive-mind-council`;
+  const required = [
+    "dist/desktop/electron/main.js", "dist/desktop/electron/worker.mjs", "dist-desktop/renderer/index.html",
+    "LICENSE", "NOTICE.md", `${council}/LICENSE`, `${council}/README.md`, `${skill}/SKILL.md`,
+    ...["Queen", "Scout", "Architect", "Forger", "Sentinel", "Scribe"].map((agent) => `${skill}/agents/${agent}.md`),
+    ...["council-protocol", "handoff-schema", "orchestration-presets", "role-contracts", "runtime-capabilities", "safety-policy", "verification-policy"].map((reference) => `${skill}/references/${reference}.md`),
+  ];
+  const excluded = [
+    `${council}/adapters/codex/AGENTS.md`, `${council}/.git/config`, `${council}/docs/private.md`,
+    `${skill}/agents/.env`, `${skill}/agents/Queen.test.js`, `${skill}/references/private.txt`,
+  ];
+  const files = new Map([
+    ["package.json", JSON.stringify({ name: "@uzzy-malolos/hive", main: "dist/index.js", version: "0.6.0" })],
+    ...[...required, ...excluded].map((filename) => [filename, `fixture: ${filename}\n`]),
+  ]);
+  for (const [filename, content] of files) {
+    const target = path.join(sourceRoot, filename);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, content);
+  }
+
+  stageDesktopApplication({ sourceRoot, stagingRoot });
+
+  assert.equal(JSON.parse(await readFile(path.join(stagingRoot, "package.json"), "utf8")).main, "dist/desktop/electron/main.js");
+  for (const filename of required) {
+    assert.equal(await readFile(path.join(stagingRoot, filename), "utf8"), files.get(filename), `Staging must preserve ${filename}`);
+  }
+  const staged = (await readdir(stagingRoot, { recursive: true, withFileTypes: true }))
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.relative(stagingRoot, path.join(entry.parentPath, entry.name)).split(path.sep).join("/"))
+    .sort();
+  assert.deepEqual(staged, ["package.json", ...required].sort());
 });

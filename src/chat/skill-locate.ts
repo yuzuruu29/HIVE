@@ -37,8 +37,8 @@ export async function locateSkillRoot(cwd: string): Promise<string | null> {
   ];
   for (const candidate of candidates) {
     try {
-      await fs.access(path.join(candidate, "agents", "Queen.md"));
-      return candidate;
+      const queen = await fs.stat(path.join(candidate, "agents", "Queen.md"));
+      if (queen.isFile()) return candidate;
     } catch {
       /* try next */
     }

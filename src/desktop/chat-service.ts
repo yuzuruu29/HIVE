@@ -131,6 +131,7 @@ export class DesktopChatService {
   readonly #engines = new Map<string, ChatEngine>();
   readonly #routeEngines = new Map<string, ChatEngine>();
   readonly #controllers = new Map<string, AbortController>();
+  readonly #archiving = new Set<string>();
   readonly #groundPacks = new Map<string, string | null>();
   #turnCounter = 0;
 
@@ -184,16 +185,22 @@ export class DesktopChatService {
   public async archive(conversationId: string): Promise<DesktopChatSummary[]> {
     const store = this.#store();
     if (this.#controllers.has(conversationId)) throw new Error("Cancel the streaming turn before archiving this conversation.");
+    if (this.#archiving.has(conversationId)) throw new Error("This conversation is already being archived.");
     const source = store.filePathFor(conversationId);
     const archiveDirectory = path.join(store.baseDirectory, ARCHIVED_DIRECTORY);
-    await fs.mkdir(archiveDirectory, { recursive: true });
+    this.#archiving.add(conversationId);
     try {
-      await fs.rename(source, path.join(archiveDirectory, path.basename(source)));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error("Chat conversation not found.");
-      throw error;
+      await fs.mkdir(archiveDirectory, { recursive: true });
+      try {
+        await fs.rename(source, path.join(archiveDirectory, path.basename(source)));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error("Chat conversation not found.");
+        throw error;
+      }
+      return await this.list();
+    } finally {
+      this.#archiving.delete(conversationId);
     }
-    return this.list();
   }
 
   /** Resolves the provider route for a role (or `auto`) and emits `chat.route.resolved`. */
@@ -221,8 +228,21 @@ export class DesktopChatService {
   public async send(input: DesktopChatSendInput): Promise<void> {
     const root = this.#projectRootProvider();
     const store = this.#store();
+    if (this.#controllers.has(input.conversationId)) throw new Error("A chat turn is already streaming in this conversation.");
+    if (this.#archiving.has(input.conversationId)) throw new Error("Wait for this conversation to finish archiving before sending a message.");
+    const controller = new AbortController();
+    this.#controllers.set(input.conversationId, controller);
+    try {
+      await this.#send(input, root, store, controller);
+    } catch (error) {
+      if (this.#controllers.get(input.conversationId) === controller) this.#controllers.delete(input.conversationId);
+      throw error;
+    }
+  }
+
+  async #send(input: DesktopChatSendInput, root: string, store: ChatSessionStore, controller: AbortController): Promise<void> {
     const record = await this.#loadRecord(input.conversationId);
-    if (this.#controllers.has(record.id)) throw new Error("A chat turn is already streaming in this conversation.");
+    controller.signal.throwIfAborted();
 
     const history = record.messages.slice();
     let promptContent = input.content;
@@ -241,26 +261,25 @@ export class DesktopChatService {
     const override = input.providerId || input.model ? { providerId: input.providerId, model: input.model } : undefined;
 
     const persisted: ChatSessionRecord = { ...record, messages: history, role: selection, override, grounded: ground };
-    await store.save(persisted);
-    this.#emit({ type: "chat.changed", timestamp: this.#clock(), conversation: toConversation(persisted) });
-
-    const turnId = `turn-${Date.now().toString(36)}-${(this.#turnCounter += 1)}`;
-    this.#emit({ type: "chat.started", timestamp: this.#clock(), conversationId: record.id, turnId });
-
-    const controller = new AbortController();
-    this.#controllers.set(record.id, controller);
 
     let groundPack = this.#groundPacks.get(record.id) ?? null;
     if (ground && groundPack === null) {
       groundPack = await this.#buildGrounding(root, promptContent);
       this.#groundPacks.set(record.id, groundPack);
     }
+    controller.signal.throwIfAborted();
     const grounding = ground && groundPack ? groundPack : undefined;
 
     const engine = this.#engineFor(root, record.id, this.#engines);
     const systemPrompt = grounding ? `${grounding}\n\n---\n\n${CHAT_ROLE_META[slug].systemPrompt}` : CHAT_ROLE_META[slug].systemPrompt;
     const context = renderHistory(compactHistory(persisted.messages.slice(0, -1), HISTORY_CHAR_BUDGET).kept);
     const prompt = context ? `${context}\n\nUser: ${promptContent}` : promptContent;
+
+    controller.signal.throwIfAborted();
+    await store.save(persisted);
+    this.#emit({ type: "chat.changed", timestamp: this.#clock(), conversation: toConversation(persisted) });
+    const turnId = `turn-${Date.now().toString(36)}-${(this.#turnCounter += 1)}`;
+    this.#emit({ type: "chat.started", timestamp: this.#clock(), conversationId: record.id, turnId });
 
     let buffer = "";
     let bufferedChars = 0;
@@ -304,6 +323,12 @@ export class DesktopChatService {
       if (flushTimer) clearTimeout(flushTimer);
       if (this.#controllers.get(record.id) === controller) this.#controllers.delete(record.id);
     };
+
+    if (controller.signal.aborted) {
+      await fail(controller.signal.reason);
+      cleanup();
+      return;
+    }
 
     if (input.agent) {
       let toolSeq = 0;

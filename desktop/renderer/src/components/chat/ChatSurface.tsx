@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
+import React, { useState, useRef, useEffect, useId, useLayoutEffect } from "react";
 import type { DesktopViewState } from "../../state";
 import type { DesktopCommandInput } from "../../bridge";
 import type { DesktopEvent } from "../../../../../src/desktop/types";
@@ -22,6 +22,7 @@ export interface ChatSurfaceProps {
   onSelectModel?: (choice: ChatModelOption) => void;
   onOpenModelPicker?: () => void;
   onOpenSettings?: () => void;
+  onOpenRepositoryPicker?: () => void;
   onHandoffToCoder?: (threadId?: string) => void;
 }
 
@@ -45,12 +46,12 @@ function greeting(now = new Date()): string {
 export function ChatSurface({
   state,
   send,
-  activeModelName = "No model",
   modelOptions = [],
   selectedModel = null,
   onSelectModel,
   onOpenModelPicker,
   onOpenSettings,
+  onOpenRepositoryPicker,
   onHandoffToCoder,
 }: ChatSurfaceProps) {
   const { chat } = state;
@@ -58,17 +59,20 @@ export function ChatSurface({
   const streaming = active ? chat.streaming[active.id] : undefined;
   const { prefs } = usePrefs();
   const sendWithEnter = prefs.composerSendWithEnter !== false;
-  const matchedModel = modelOptions.find((option) => option.providerId === selectedModel?.providerId && option.model === selectedModel?.model);
-  const displayModel = matchedModel ? matchedModel.model : activeModelName;
+  const configuredModels = modelOptions.filter((option) => option.model.trim() && state.providers.some((provider) => provider.id === option.providerId && provider.configured));
+  const matchedModel = configuredModels.find((option) => option.providerId === selectedModel?.providerId && option.model === selectedModel?.model);
+  const displayModel = matchedModel ? matchedModel.model : "No model";
 
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendFailure, setSendFailure] = useState<{ draftKey: string; message: string } | null>(null);
   const [sending, setSending] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const lastSentRef = useRef<string | null>(null);
+  const readinessRef = useRef<HTMLDivElement>(null);
+  const readinessId = useId();
+  const lastSentRef = useRef<{ draftKey: string; text: string } | null>(null);
   const draftKey = active?.id ?? "new";
   const inputMessage = drafts[draftKey] ?? "";
   const setInputMessage = (value: string) => {
@@ -76,24 +80,40 @@ export function ChatSurface({
   };
   const quietStop = chat.lastFailed?.message === "Cancelled.";
   const turnFailed = Boolean(active && chat.lastFailed?.conversationId === active.id && !quietStop);
-  const composerError = sendError ?? (turnFailed ? chat.lastFailed?.message ?? null : null);
+  const composerError = (sendFailure?.draftKey === draftKey ? sendFailure.message : null) ?? (turnFailed ? chat.lastFailed?.message ?? null : null);
   const lastAssistantId = [...(active?.messages ?? [])].reverse().find((message) => message.role === "assistant")?.id;
   const lastUserContent = [...(active?.messages ?? [])].reverse().find((message) => message.role === "user")?.content;
   const hasMessages = Boolean(active && active.messages.length > 0) || Boolean(streaming);
+  const readiness = !state.repositoryRoot
+    ? { message: "Open a project folder before sending a message. Your draft will stay here.", label: "Open folder", action: onOpenRepositoryPicker }
+    : !state.providers.some((provider) => provider.configured)
+      ? { message: "Configure an API provider or approve a local provider in Settings before sending. Your draft will stay here.", label: "Open Settings", action: onOpenSettings }
+      : !matchedModel
+        ? { message: "Choose a model from a configured provider before sending. Your draft will stay here.", label: "Choose model", action: onOpenModelPicker ?? onOpenSettings }
+        : null;
+  const currentRouteRef = useRef({ repositoryRoot: state.repositoryRoot, model: matchedModel });
+  currentRouteRef.current = { repositoryRoot: state.repositoryRoot, model: matchedModel };
+
+  function readyToSend(): boolean {
+    if (!readiness) return true;
+    readinessRef.current?.focus();
+    return false;
+  }
 
   useEffect(() => {
     textareaRef.current?.focus();
-    setSendError(null);
+    setSendFailure(null);
     setModelMenuOpen(false);
   }, [active?.id]);
 
   useEffect(() => {
-    if (turnFailed && lastSentRef.current) {
-      setInputMessage(lastSentRef.current);
+    if (turnFailed && lastSentRef.current?.draftKey === draftKey) {
+      const failedDraft = lastSentRef.current.text;
+      setDrafts((prev) => prev[draftKey] ? prev : { ...prev, [draftKey]: failedDraft });
       lastSentRef.current = null;
     }
-    if (streaming) lastSentRef.current = null;
-  }, [turnFailed, streaming]);
+    if (streaming && lastSentRef.current?.draftKey === draftKey) lastSentRef.current = null;
+  }, [turnFailed, streaming, draftKey]);
 
   useEffect(() => {
     try {
@@ -113,50 +133,58 @@ export function ChatSurface({
     node.style.height = `${Math.min(node.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
   }, [inputMessage, hasMessages]);
 
-  function modelOverride(): { providerId?: string; model?: string } {
-    if (!selectedModel) return {};
-    return { providerId: selectedModel.providerId, model: selectedModel.model };
-  }
-
   const handleSend = async (event?: React.FormEvent) => {
     if (event) event.preventDefault();
-    if (streaming || !inputMessage.trim() || sending) return;
+    if (!readyToSend() || !matchedModel || streaming || !inputMessage.trim() || sending) return;
     const text = inputMessage.trim();
-    lastSentRef.current = text;
-    setSendError(null);
+    const model = { providerId: matchedModel.providerId, model: matchedModel.model };
+    let conversationKey = draftKey;
+    lastSentRef.current = { draftKey, text: inputMessage };
+    setSendFailure(null);
     setSending(true);
     try {
       if (active) {
         const sent = await send({
           type: "chat.send",
-          input: { conversationId: active.id, content: text, ...modelOverride() },
+          input: { conversationId: active.id, content: text, ...model },
         });
         if (sent.type === "request.failed") {
-          setSendError(sent.message);
+          setSendFailure({ draftKey: conversationKey, message: sent.message });
           return;
         }
       } else {
         const created = await send({ type: "chat.create", input: {} });
         if (created.type === "request.failed") {
-          setSendError(created.message);
+          setSendFailure({ draftKey, message: created.message });
           return;
         }
         if (created.type !== "chat.changed") {
-          setSendError("Could not start a chat. Try again.");
+          setSendFailure({ draftKey, message: "Could not start a chat. Try again." });
           return;
         }
+        conversationKey = created.conversation.id;
+        lastSentRef.current = { draftKey: conversationKey, text: inputMessage };
+        setDrafts((prev) => ({ ...prev, [conversationKey]: prev[conversationKey] ?? prev[draftKey] ?? inputMessage }));
+        const currentRoute = currentRouteRef.current;
+        if (currentRoute.repositoryRoot !== state.repositoryRoot || currentRoute.model?.providerId !== model.providerId || currentRoute.model?.model !== model.model) return;
         const sent = await send({
           type: "chat.send",
-          input: { conversationId: created.conversation.id, content: text, ...modelOverride() },
+          input: { conversationId: conversationKey, content: text, ...model },
         });
         if (sent.type === "request.failed") {
-          setSendError(sent.message);
+          setSendFailure({ draftKey: conversationKey, message: sent.message });
           return;
         }
       }
-      setInputMessage("");
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const key of [draftKey, conversationKey]) {
+          if (next[key] === inputMessage) next[key] = "";
+        }
+        return next;
+      });
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Could not send that message.");
+      setSendFailure({ draftKey: conversationKey, message: error instanceof Error ? error.message : "Could not send that message." });
     } finally {
       setSending(false);
       textareaRef.current?.focus();
@@ -169,13 +197,20 @@ export function ChatSurface({
   };
 
   const handleRegenerate = async () => {
-    if (!active || streaming || !lastUserContent) return;
-    setSendError(null);
-    const sent = await send({
-      type: "chat.send",
-      input: { conversationId: active.id, content: lastUserContent, regenerate: true, ...modelOverride() },
-    });
-    if (sent.type === "request.failed") setSendError(sent.message);
+    if (!readyToSend() || !matchedModel || !active || streaming || sending || !lastUserContent) return;
+    setSendFailure(null);
+    setSending(true);
+    try {
+      const sent = await send({
+        type: "chat.send",
+        input: { conversationId: active.id, content: lastUserContent, regenerate: true, providerId: matchedModel.providerId, model: matchedModel.model },
+      });
+      if (sent.type === "request.failed") setSendFailure({ draftKey, message: sent.message });
+    } catch (error) {
+      setSendFailure({ draftKey, message: error instanceof Error ? error.message : "Could not regenerate that reply. Try again." });
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -203,8 +238,7 @@ export function ChatSurface({
     });
   };
 
-  const needsProvider = state.providers.length > 0 && !state.providers.some((provider) => provider.configured);
-  const groupedModels = modelOptions.reduce<Array<{ providerId: string; providerName: string; models: ChatModelOption[] }>>((groups, option) => {
+  const groupedModels = configuredModels.reduce<Array<{ providerId: string; providerName: string; models: ChatModelOption[] }>>((groups, option) => {
     const existing = groups.find((group) => group.providerId === option.providerId);
     if (existing) existing.models.push(option);
     else groups.push({ providerId: option.providerId, providerName: option.providerName, models: [option] });
@@ -212,12 +246,12 @@ export function ChatSurface({
   }, []);
   const hint = sendWithEnter ? "Enter sends. Shift+Enter adds a line." : "Ctrl+Enter sends. Enter adds a line.";
 
-  const setupBanner = needsProvider && (
-    <div className="chat-setup-banner" role="status">
-      <p>Add an API key in Settings so HIVE can reply.</p>
-      {onOpenSettings && (
-        <button type="button" className="chat-setup-btn" onClick={onOpenSettings}>
-          Open Settings
+  const setupBanner = readiness && (
+    <div ref={readinessRef} className="chat-setup-banner" role="status" tabIndex={-1}>
+      <p id={readinessId}>{readiness.message}</p>
+      {readiness.action && (
+        <button type="button" className="chat-setup-btn" onClick={readiness.action}>
+          {readiness.label}
         </button>
       )}
     </div>
@@ -232,7 +266,7 @@ export function ChatSurface({
           className="hive-composer-input"
           placeholder="Message HIVE..."
           aria-label="Message HIVE"
-          aria-describedby="chat-composer-hint"
+          aria-describedby={`chat-composer-hint${readiness ? ` ${readinessId}` : ""}`}
           value={inputMessage}
           onChange={(event) => setInputMessage(event.target.value)}
           onKeyDown={handleKeyDown}
@@ -245,9 +279,9 @@ export function ChatSurface({
               aria-haspopup="listbox"
               aria-expanded={modelMenuOpen}
               aria-label="Select model"
-              title={matchedModel ? `${matchedModel.providerName} / ${matchedModel.model}` : activeModelName}
+              title={matchedModel ? `${matchedModel.providerName} / ${matchedModel.model}` : "Choose a model in Settings"}
               onClick={() => {
-                if (modelOptions.length === 0) {
+                if (configuredModels.length === 0) {
                   (onOpenModelPicker ?? onOpenSettings)?.();
                   return;
                 }
@@ -257,7 +291,7 @@ export function ChatSurface({
               <span className="hive-model-name">{displayModel}</span>
               <ChevronDownIcon size={14} />
             </button>
-            {modelMenuOpen && modelOptions.length > 0 && (
+            {modelMenuOpen && configuredModels.length > 0 && (
               <ul className="hive-model-menu" role="listbox" aria-label="Configured models">
                 {groupedModels.map((group) => (
                   <li key={group.providerId}>
@@ -310,8 +344,9 @@ export function ChatSurface({
             <button
               type="submit"
               className="hive-send-btn"
-              disabled={!inputMessage.trim() || sending}
+              disabled={Boolean(readiness) || !inputMessage.trim() || sending}
               aria-label="Send message"
+              aria-describedby={readiness ? readinessId : undefined}
             >
               <ArrowUpIcon size={16} />
             </button>
@@ -332,7 +367,9 @@ export function ChatSurface({
           <div className="chat-hero">
             <span className="chat-hero-mark"><HiveMark size={30} /></span>
             <h2 className="chat-hero-title">{greeting()}</h2>
-            <p className="chat-hero-sub">Ask HIVE about this workspace, think a problem through, or hand real work to Hive Code.</p>
+            <p className="chat-hero-sub">{state.repositoryRoot
+              ? "Ask HIVE about this workspace, think a problem through, or hand real work to Hive Code."
+              : "Open a project folder to chat about your workspace. You can draft a message while you set up."}</p>
           </div>
           {setupBanner}
           {composer}
@@ -374,7 +411,7 @@ export function ChatSurface({
                               {copiedId === msg.id ? "Copied" : "Copy"}
                             </button>
                             {lastUserContent && (
-                              <button type="button" disabled={Boolean(streaming)} onClick={() => void handleRegenerate()}>
+                              <button type="button" disabled={Boolean(readiness) || Boolean(streaming) || sending} aria-describedby={readiness ? readinessId : undefined} onClick={() => void handleRegenerate()}>
                                 <RefreshIcon size={14} />
                                 Regenerate
                               </button>

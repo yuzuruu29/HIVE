@@ -111,6 +111,15 @@ test('locateSkillRoot preserves repository and cwd override precedence before bu
   assert.equal(await locateSkillRoot(cwd), builtinSkillRoot);
 });
 
+test('locateSkillRoot skips a directory named Queen.md and keeps looking for a readable prompt file', async (t) => {
+  const cwd = await makeTempDir(t);
+  await fs.mkdir(path.join(cwd, nestedSkillPath, 'agents', 'Queen.md'), { recursive: true });
+  const validSkillRoot = path.join(cwd, flatSkillPath);
+  await writeFile(validSkillRoot, path.join('agents', 'Queen.md'), '# Project-local Queen\n');
+
+  assert.equal(await locateSkillRoot(cwd), validSkillRoot);
+});
+
 test('locateSkillRoot loads real bundled council assets from an unrelated unnamed project', async (t) => {
   const cwd = await makeTempDir(t);
   await writeFile(cwd, 'package.json', JSON.stringify({ private: true }));

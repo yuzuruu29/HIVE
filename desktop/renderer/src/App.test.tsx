@@ -1,12 +1,14 @@
-import { cleanup, render, screen, within, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { DesktopCommand, DesktopEvent, ThreadRecordV1 } from "../../../src/desktop/types";
 import { parseUnifiedDiff } from "./diff";
 import { initialDesktopState, reduceDesktopEvent } from "./state";
 // styles.css only imports the per-area sheets, so check their combined text.
 const styles = Object.values(import.meta.glob<string>("./styles/*.css", { query: "?raw", import: "default", eager: true })).join("\n");
+
+afterEach(() => localStorage.clear());
 
 const now = "2026-07-14T00:00:00.000Z";
 const activeThread: ThreadRecordV1 = {
@@ -72,17 +74,83 @@ async function openRepository(api = bridge()) {
 }
 
 describe("HIVE desktop cockpit", () => {
-  it("loads chats and providers on launch without opening a repository", async () => {
+  it.each(["coder", "split"] as const)("uses the displayed provider and model for a %s task", async (mode) => {
+    const api = bridge({ request: async (command) => command.type === "provider.list"
+      ? { type: "provider.listed", timestamp: now, providers: [{ id: "selected-local", name: "Selected local", kind: "local", authType: "none", approved: true, configured: true, defaultModel: "selected-model" }] }
+      : eventFor(command) });
+    const { user } = await openRepository(api);
+    if (mode === "split") await user.click(screen.getByRole("button", { name: /side by side/i }));
+    await screen.findByRole("button", { name: "Model: Selected local / selected-model" });
+    const code = screen.getByLabelText("Hive Code Surface");
+    await user.type(within(code).getByLabelText("Message HIVE"), "Use the displayed route");
+    await user.click(within(code).getByRole("button", { name: "Send task" }));
+    await waitFor(() => expect(api.request.mock.calls.map(([command]) => command)).toContainEqual(expect.objectContaining({
+      type: "run.start", input: expect.objectContaining({ options: expect.objectContaining({ providerId: "selected-local", model: "selected-model" }) }),
+    })));
+  });
+
+  it("uses the displayed route when resuming a task", async () => {
+    const api = bridge();
+    const { user } = await openRepository(api);
+    await screen.findByRole("button", { name: "Model: Local model / hive-local" });
+    api.emit({ type: "run.changed", timestamp: now, run: { ...activeThread.runs[0], status: "paused" } });
+    await user.click(await screen.findByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(api.request.mock.calls.map(([command]) => command)).toContainEqual(expect.objectContaining({
+      type: "run.resume", input: expect.objectContaining({ options: expect.objectContaining({ providerId: "local", model: "hive-local" }) }),
+    })));
+  });
+
+  it("refreshes changes and verification evidence when an active run completes", async () => {
+    const api = bridge({ request: async (command) => command.type === "run.report" && command.input.codingSessionId === "session-finished"
+      ? { type: "run.reported", timestamp: now, codingSessionId: "session-finished", report: { result: "Verified completion", subagents: { total: 0, active: 0, working: 0, waiting: 0, blocked: 0, done: 0, completed: 0, failed: 0, cancelled: 0, skipped: 0 }, filesChanged: [], validation: [{ label: "Recorded validation", status: "passed" }], review: [], outstanding: [], completedAt: now } }
+      : eventFor(command) });
+    const { user } = await openRepository(api);
+    api.emit({ type: "thread.changed", timestamp: now, thread: { ...activeThread, runs: [{ ...activeThread.runs[0], codingSessionId: "session-finished", status: "running" }] } });
+    await screen.findByRole("button", { name: "Stop run" });
+    api.emit({ type: "run.changed", timestamp: now, run: { ...activeThread.runs[0], codingSessionId: "session-finished", status: "completed" } });
+    await waitFor(() => {
+      const commands = api.request.mock.calls.map(([command]) => command);
+      expect(commands).toContainEqual(expect.objectContaining({ type: "run.report", input: expect.objectContaining({ codingSessionId: "session-finished" }) }));
+      expect(commands).toContainEqual(expect.objectContaining({ type: "changes.diff", input: expect.objectContaining({ codingSessionId: "session-finished" }) }));
+    });
+    await user.click(screen.getByRole("tab", { name: "Evidence" }));
+    expect(await screen.findByText("Recorded validation")).toBeInTheDocument();
+    expect(screen.getByText("passed", { exact: true })).toBeInTheDocument();
+  });
+
+  it.each(["run.report", "changes.diff"] as const)("ignores a rejected %s request after switching tasks", async (requestType) => {
+    let rejectRequest!: (error: Error) => void;
+    const api = bridge({ request: (command) => command.type === requestType
+      ? new Promise<DesktopEvent>((_resolve, reject) => { rejectRequest = reject; })
+      : Promise.resolve(eventFor(command)) });
+    render(<App api={api} />);
+    act(() => {
+      api.emit({ type: "desktop.ready", timestamp: now, repositoryRoot: "C:\\HIVE" });
+      api.emit({ type: "thread.changed", timestamp: now, thread: activeThread });
+    });
+    await waitFor(() => expect(rejectRequest).toBeTypeOf("function"));
+    act(() => api.emit({ type: "thread.changed", timestamp: now, thread: { ...activeThread, id: "other-thread", title: "Other thread", runs: [] } }));
+    await act(async () => rejectRequest(new Error("Obsolete inspector failure")));
+    expect(screen.queryByText("Obsolete inspector failure")).not.toBeInTheDocument();
+  });
+
+  it("loads global setup on launch and defers chat history until a workspace is open", async () => {
     const api = bridge();
     render(<App api={api} />);
     await waitFor(() => {
       const types = api.request.mock.calls.map(([command]) => command.type);
       expect(types).toContain("repository.list");
-      expect(types).toContain("chat.list");
       expect(types).toContain("provider.list");
+      expect(types).not.toContain("chat.list");
     });
     expect(screen.getByRole("button", { name: /^chat$/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("chat-empty-state")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^open folder$/i })).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^open folder$/i }));
+    await waitFor(() => expect(api.request.mock.calls.some(([command]) => command.type === "chat.list")).toBe(true));
+    const types = api.request.mock.calls.map(([command]) => command.type);
+    expect(types.indexOf("repository.open")).toBeLessThan(types.indexOf("chat.list"));
   });
 
   it("opens on Chat and can switch to the workbench Codex surface", async () => {
@@ -332,8 +400,8 @@ describe("HIVE desktop cockpit", () => {
     render(<App api={api} />);
     const user = userEvent.setup();
 
-    // 1. Quiet empty chat, ready to type
-    expect(screen.getByTestId("chat-empty-state")).toHaveTextContent(/ask hive about this workspace/i);
+    // 1. Keep the draft editable while making the required workspace setup clear.
+    expect(screen.getByTestId("chat-empty-state")).toHaveTextContent(/open a project folder to chat/i);
     expect(screen.getByTestId("chat-empty-state")).toHaveTextContent(/enter sends/i);
 
     // 2. Command palette opening via Ctrl+K
@@ -376,6 +444,7 @@ describe("HIVE desktop cockpit", () => {
     });
     const user = userEvent.setup();
     render(<App api={api} />);
+    await user.click(screen.getByRole("button", { name: /^open folder$/i }));
 
     const composer = screen.getByRole("textbox", { name: /message hive/i });
     await user.type(composer, sentContent);
@@ -464,6 +533,7 @@ describe("HIVE desktop cockpit", () => {
     });
     const user = userEvent.setup();
     render(<App api={api} />);
+    await user.click(screen.getByRole("button", { name: /^open folder$/i }));
 
     const sidebar = screen.getByRole("navigation", { name: /global navigation/i });
     const newerButton = await within(sidebar).findByRole("button", { name: "Newer plan" });
