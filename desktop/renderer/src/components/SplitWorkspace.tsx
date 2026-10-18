@@ -52,6 +52,7 @@ export function SplitWorkspace({
           onSelectModel={onSelectModel}
           onOpenModelPicker={onOpenModelPicker}
           onOpenSettings={onOpenSettings}
+          onOpenRepositoryPicker={onOpenRepositoryPicker}
           onHandoffToCoder={onHandoffToCoder}
         />
       </div>

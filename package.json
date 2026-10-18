@@ -58,7 +58,7 @@
     "test:desktop-shell": "npm run build:desktop-shell && node --test --test-concurrency=1 --test-reporter=spec tests/desktop-electron.test.mjs",
     "test:desktop-renderer": "vitest run --config desktop/vite.config.ts",
     "test:desktop": "npm run test:desktop-shell && npm run test:desktop-renderer",
-    "test:desktop-release": "node --test --test-reporter=spec tests/desktop-release-config.test.mjs tests/desktop-release-hardening.test.mjs",
+    "test:desktop-release": "node --test --test-reporter=spec tests/desktop-release-config.test.mjs tests/desktop-release-hardening.test.mjs tests/desktop-package-safety.test.mjs",
     "desktop:e2e": "npm run build:desktop && playwright test --config tests/e2e/playwright.config.ts",
     "desktop:pack": "npm run build:desktop && electron-builder --dir --win --x64 --publish never",
     "desktop:smoke": "node tests/e2e/packaged-smoke.mjs",
@@ -114,7 +114,14 @@
     "files": [
       "dist/**/*",
       "dist-desktop/renderer/**/*",
-      "package.json"
+      "package.json",
+      "skills/hive-mind-council/skills/hive-mind-council/SKILL.md",
+      "skills/hive-mind-council/skills/hive-mind-council/agents/*.md",
+      "skills/hive-mind-council/skills/hive-mind-council/references/*.md",
+      "skills/hive-mind-council/LICENSE",
+      "skills/hive-mind-council/README.md",
+      "LICENSE",
+      "NOTICE.md"
     ],
     "extraMetadata": {
       "main": "dist/desktop/electron/main.js"

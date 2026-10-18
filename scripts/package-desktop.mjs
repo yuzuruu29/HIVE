@@ -1,74 +1,97 @@
-import { execSync } from "node:child_process";
-import { cpSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, cpSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
+import { finished } from "node:stream/promises";
+import { fileURLToPath } from "node:url";
 import asar from "@electron/asar";
+import { stageDesktopApplication } from "./stage-desktop-app.mjs";
 
-const rootDir = process.cwd();
-const outDir = path.join(rootDir, "dist-binaries");
-const unpackedDir = path.join(outDir, "win-unpacked");
-const resourcesDir = path.join(unpackedDir, "resources");
-const stagingDir = path.join(rootDir, "build", "staging-app");
-const electronDist = path.join(rootDir, "node_modules", "electron", "dist");
+const require = createRequire(import.meta.url);
 
-console.log("==> 1. Assembling staging app...");
-if (existsSync(stagingDir)) {
-  rmSync(stagingDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
-}
-mkdirSync(stagingDir, { recursive: true });
-
-if (existsSync(unpackedDir)) {
-  try {
-    rmSync(unpackedDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
-  } catch {
-    // If folder is busy on Windows, clean directory contents
-    try {
-      execSync(`powershell -NoProfile -Command "Remove-Item -Path '${unpackedDir}\\*' -Recurse -Force -ErrorAction SilentlyContinue"`);
-    } catch {}
+export function desktopPackageOptions(args = [], cwd = process.cwd()) {
+  const values = {};
+  const names = new Set(["--source-root", "--staging-dir", "--unpacked-dir", "--output-dir", "--manifest"]);
+  for (let index = 0; index < args.length; index += 2) {
+    const name = args[index];
+    if (!names.has(name)) throw new Error(`Unknown packaging argument: ${name}`);
+    if (!args[index + 1] || args[index + 1].startsWith("--")) throw new Error(`${name} requires a value.`);
+    if (values[name]) throw new Error(`Duplicate packaging argument: ${name}`);
+    values[name] = path.resolve(cwd, args[index + 1]);
   }
-}
-mkdirSync(unpackedDir, { recursive: true });
-
-
-
-// Copy package.json with desktop main entrypoint, dist, and dist-desktop/renderer
-const pkg = JSON.parse(readFileSync(path.join(rootDir, "package.json"), "utf8"));
-pkg.main = "dist/desktop/electron/main.js";
-writeFileSync(path.join(stagingDir, "package.json"), JSON.stringify(pkg, null, 2), "utf8");
-
-cpSync(path.join(rootDir, "dist"), path.join(stagingDir, "dist"), { recursive: true });
-cpSync(path.join(rootDir, "dist-desktop", "renderer"), path.join(stagingDir, "dist-desktop", "renderer"), { recursive: true });
-
-console.log("==> 2. Populating win-unpacked base from Electron...");
-mkdirSync(resourcesDir, { recursive: true });
-cpSync(electronDist, unpackedDir, { recursive: true });
-
-// Remove default_app.asar if present
-const defaultAppAsar = path.join(resourcesDir, "default_app.asar");
-if (existsSync(defaultAppAsar)) {
-  rmSync(defaultAppAsar, { force: true });
+  const sourceRoot = values["--source-root"] ?? path.resolve(cwd);
+  const outDir = values["--output-dir"] ?? path.join(sourceRoot, "dist-binaries");
+  const stagingDir = values["--staging-dir"] ?? path.join(sourceRoot, "build", "staging-app");
+  const unpackedDir = values["--unpacked-dir"] ?? path.join(outDir, "win-unpacked");
+  if ([outDir, stagingDir, unpackedDir].some((target) => contains(target, sourceRoot))
+    || contains(stagingDir, outDir) || contains(outDir, stagingDir)
+    || contains(unpackedDir, stagingDir) || contains(stagingDir, unpackedDir)
+    || contains(unpackedDir, outDir)) {
+    throw new Error("Packaging paths overlap source files or each other.");
+  }
+  return {
+    sourceRoot, outDir, stagingDir, unpackedDir,
+    manifest: values["--manifest"] ?? path.join(outDir, "cleanup-manifest.txt"),
+    electronDist: path.join(path.dirname(require.resolve("electron/package.json")), "dist"),
+    builderCli: require.resolve("electron-builder/cli.js"),
+  };
 }
 
-// Rename electron.exe to HIVE.exe
-const defaultExe = path.join(unpackedDir, "electron.exe");
-const targetExe = path.join(unpackedDir, "HIVE.exe");
-if (existsSync(defaultExe)) {
-  cpSync(defaultExe, targetExe);
-  rmSync(defaultExe, { force: true });
+function contains(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
-console.log("==> 3. Creating app.asar with unpacked worker...");
-const appAsarPath = path.join(resourcesDir, "app.asar");
-await asar.createPackageWithOptions(stagingDir, appAsarPath, {
-  unpack: "**/worker.mjs",
-});
+export function prepareDesktopPackageDirectories(options) {
+  const targets = [options.outDir, options.stagingDir, options.unpackedDir];
+  // Existing artifacts may belong to the user or another running packaging task.
+  for (const target of targets) {
+    if (existsSync(target)) throw new Error(`Packaging path already exists; choose a new isolated path: ${target}`);
+  }
+  const manifestParent = path.dirname(options.manifest);
+  if (manifestParent !== options.outDir && !existsSync(manifestParent)) {
+    throw new Error(`Packaging manifest parent must already exist: ${manifestParent}`);
+  }
+  mkdirSync(options.outDir);
+  appendFileSync(options.manifest, `${[...targets, options.manifest].join("\n")}\n`, "utf8");
+  mkdirSync(options.stagingDir);
+  mkdirSync(options.unpackedDir);
+}
 
-await new Promise((resolve) => setTimeout(resolve, 1500));
+export async function writeDesktopAsar(stagingDir, destination) {
+  const output = await asar.createPackageWithOptions(stagingDir, destination, { unpack: "**/worker.mjs" });
+  // The pinned ASAR API resolves with its stream before that stream finishes.
+  await finished(output);
+  return output;
+}
 
-console.log("==> 4. Packaging NSIS installer & Portable executable with electron-builder...");
+export async function packageDesktop(options) {
+  prepareDesktopPackageDirectories(options);
+  const { sourceRoot, stagingDir, unpackedDir, outDir, electronDist, builderCli } = options;
+  const resourcesDir = path.join(unpackedDir, "resources");
 
-execSync("npx electron-builder --win nsis portable --x64 --prepackaged dist-binaries/win-unpacked --publish never", {
-  stdio: "inherit",
-  cwd: rootDir,
-});
+  console.log("==> 1. Assembling staging app...");
+  stageDesktopApplication({ sourceRoot, stagingRoot: stagingDir });
 
-console.log("==> 5. Desktop packaging completed successfully!");
+  console.log("==> 2. Populating win-unpacked base from Electron...");
+  cpSync(electronDist, unpackedDir, { recursive: true });
+  const defaultAppAsar = path.join(resourcesDir, "default_app.asar");
+  if (existsSync(defaultAppAsar)) rmSync(defaultAppAsar);
+  const defaultExe = path.join(unpackedDir, "electron.exe");
+  cpSync(defaultExe, path.join(unpackedDir, "HIVE.exe"));
+  rmSync(defaultExe);
+
+  console.log("==> 3. Creating app.asar with unpacked worker...");
+  await writeDesktopAsar(stagingDir, path.join(resourcesDir, "app.asar"));
+
+  console.log("==> 4. Packaging NSIS installer & Portable executable with electron-builder...");
+  execFileSync(process.execPath, [
+    builderCli, "--win", "nsis", "portable", "--x64", "--prepackaged", unpackedDir,
+    `--config.directories.output=${outDir}`, "--publish", "never",
+  ], { stdio: "inherit", cwd: sourceRoot, windowsHide: true });
+  console.log("==> 5. Desktop packaging completed successfully!");
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await packageDesktop(desktopPackageOptions(process.argv.slice(2)));
+}

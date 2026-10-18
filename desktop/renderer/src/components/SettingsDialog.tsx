@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import type { DesktopModelInfo, DesktopProviderMetadata } from "../../../../src/desktop/types";
 import { Dialog } from "../Dialog";
 import { CubeIcon, HiveMark, KeyIcon, SlidersIcon } from "../shell/icons";
@@ -39,6 +39,8 @@ export function SettingsDialog({
   const [baseUrl, setBaseUrl] = useState("");
   const [defaultModel, setDefaultModel] = useState("");
   const [busy, setBusy] = useState(false);
+  const addingProviderRef = useRef(false);
+  const [addProviderFailed, setAddProviderFailed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   const density = prefs.density ?? "comfortable";
@@ -57,10 +59,16 @@ export function SettingsDialog({
 
   async function addProvider(event: FormEvent): Promise<void> {
     event.preventDefault();
+    if (addingProviderRef.current) return;
+    setAddProviderFailed(false);
     if (!onAddCompatibleProvider || !name.trim() || !baseUrl.trim() || !defaultModel.trim()) return;
+    addingProviderRef.current = true;
     setBusy(true);
     try {
-      const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "custom";
+      const baseId = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 90) || "custom";
+      let id = baseId;
+      let suffix = 2;
+      while (providers.some((provider) => provider.id === id)) id = `${baseId}-${suffix++}`;
       await onAddCompatibleProvider({
         id,
         name: name.trim(),
@@ -71,7 +79,10 @@ export function SettingsDialog({
       setBaseUrl("");
       setDefaultModel("");
       setAdding(false);
+    } catch {
+      setAddProviderFailed(true);
     } finally {
+      addingProviderRef.current = false;
       setBusy(false);
     }
   }
@@ -311,7 +322,7 @@ export function SettingsDialog({
                         <strong>{provider.name}</strong>
                         <span className="provider-settings-meta">
                           {provider.defaultModel ?? provider.kind}
-                          {provider.configured ? " · connected" : " · not connected"}
+                          {provider.configured ? " · configured" : " · not configured"}
                         </span>
                       </div>
                     </div>
@@ -339,13 +350,18 @@ export function SettingsDialog({
                 adding ? (
                   <form className="stack compact add-provider-form" onSubmit={(event) => void addProvider(event)}>
                     <label htmlFor="custom-provider-name">Provider name</label>
-                    <input id="custom-provider-name" value={name} onChange={(event) => setName(event.target.value)} required placeholder="DeepSeek" />
+                    <input id="custom-provider-name" disabled={busy} value={name} onChange={(event) => setName(event.target.value)} required placeholder="DeepSeek" />
                     <label htmlFor="custom-provider-url">OpenAI-compatible base URL</label>
-                    <input id="custom-provider-url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required placeholder="https://api.example.com/v1" />
+                    <input id="custom-provider-url" disabled={busy} value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required placeholder="https://api.example.com/v1" />
                     <label htmlFor="custom-provider-model">Default model</label>
-                    <input id="custom-provider-model" value={defaultModel} onChange={(event) => setDefaultModel(event.target.value)} required placeholder="model-id" />
+                    <input id="custom-provider-model" disabled={busy} value={defaultModel} onChange={(event) => setDefaultModel(event.target.value)} required placeholder="model-id" />
+                    {addProviderFailed && (
+                      <p className="composer-send-error" role="alert">
+                        Provider could not be added. Check the details and try again. Your entries have been kept.
+                      </p>
+                    )}
                     <div className="settings-inline-actions">
-                      <button type="button" className="secondary" onClick={() => setAdding(false)}>Cancel</button>
+                      <button type="button" className="secondary" disabled={busy} onClick={() => { setAddProviderFailed(false); setAdding(false); }}>Cancel</button>
                       <button type="submit" disabled={busy}>Save provider</button>
                     </div>
                   </form>
@@ -378,18 +394,18 @@ export function SettingsDialog({
               )}
 
               {allModelItems.length === 0 && !isAnyLoading ? (
-                unconfiguredProviders.length > 0 ? (
+                configuredProviders.length === 0 ? (
                   <div className="unconfigured-provider-hint">
-                    <span>Connect provider to see available models</span>
+                    <span>Configure an API or local provider to see available models</span>
                     <div className="unconfigured-provider-actions">
                       <button
                         type="button"
                         className="secondary connect-btn"
                         onClick={() => setTab("models")}
                       >
-                        Connect provider
+                        Open Providers
                       </button>
-                      {onConfigureProvider && (
+                      {onConfigureProvider && unconfiguredProviders[0] && (
                         <button
                           type="button"
                           className="secondary connect-btn"
@@ -446,7 +462,7 @@ export function SettingsDialog({
                     })}
                   </ul>
                   <p className="settings-hint">
-                    Models come from connected providers. Turned-off models are hidden from the model picker.
+                    Models come from configured providers. Turned-off models are hidden from the model picker.
                   </p>
                 </div>
               )}

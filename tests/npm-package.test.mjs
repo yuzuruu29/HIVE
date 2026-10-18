@@ -52,7 +52,13 @@ test("npm allowlist contains compiled code and built-in council assets, not deve
     assert.ok(manifest.files.includes(required), `Missing npm allowlist entry: ${required}`);
   }
   assert.ok(manifest.files.every((entry) => !/^(?:\.|src(?:\/|$)|tests(?:\/|$)|scripts(?:\/|$)|desktop(?:\/|$)|web(?:\/|$)|node_modules(?:\/|$)|\*\*)/.test(entry)));
-  assert.deepEqual(manifest.build.files, ["dist/**/*", "dist-desktop/renderer/**/*", "package.json"]);
+  assert.deepEqual(manifest.build.files, [
+    "dist/**/*", "dist-desktop/renderer/**/*", "package.json",
+    "skills/hive-mind-council/skills/hive-mind-council/SKILL.md",
+    "skills/hive-mind-council/skills/hive-mind-council/agents/*.md",
+    "skills/hive-mind-council/skills/hive-mind-council/references/*.md",
+    "skills/hive-mind-council/LICENSE", "skills/hive-mind-council/README.md", "LICENSE", "NOTICE.md",
+  ]);
   assert.ok(!Object.hasOwn(manifest.dependencies, "typescript"));
   assert.ok(!Object.hasOwn(manifest.dependencies, "electron"));
 });

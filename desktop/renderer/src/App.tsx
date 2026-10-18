@@ -35,6 +35,8 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   const [modelChoice, setModelChoice] = useState<{ providerId: string; model: string } | null>(null);
 
   const [providerDialog, setProviderDialog] = useState(false);
+  const [providerSaving, setProviderSaving] = useState(false);
+  const [providerError, setProviderError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"general" | "models" | "catalog">("general");
   const [modelsLoading, setModelsLoading] = useState<Record<string, boolean>>({});
@@ -56,6 +58,9 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
 
   const [credential, setCredential] = useState("");
   const credentialRef = useRef("");
+  const providerSavingRef = useRef(false);
+  const providerDialogEpochRef = useRef(0);
+  const inlineRequestIds = useRef(new Set<string>());
   const mainRef = useRef<HTMLElement>(null);
   const tabRefs = useRef<Record<CenterTab, HTMLButtonElement | null>>({ conversation: null, changes: null, report: null });
   const repositoryRef = useRef<string | null>(null);
@@ -86,18 +91,20 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
     }
   }, []);
 
-  const send = async (command: DesktopCommandInput, scope?: { epoch?: number; repositoryRoot?: string }): Promise<DesktopEvent> => {
+  const send = async (command: DesktopCommandInput, scope?: { epoch?: number; repositoryRoot?: string; inlineFailure?: boolean }): Promise<DesktopEvent> => {
     const requestId = command.requestId ?? identifier("request");
+    if (scope?.inlineFailure) inlineRequestIds.current.add(requestId);
     if (command.type === "chat.send" || command.type === "chat.create" || command.type === "chat.cancel") {
       chatRequestIds.current.add(requestId);
     }
     const expectedEpoch = scope?.epoch ?? openEpochRef.current;
     const event = await api.request({ ...command, requestId } as DesktopCommand);
+    if (event.type !== "request.failed") inlineRequestIds.current.delete(requestId);
     if (expectedEpoch !== openEpochRef.current) return { type: "request.failed", timestamp: new Date().toISOString(), requestId, message: "Request superseded by a repository switch.", recoverable: true };
     if (scope?.repositoryRoot && event.repositoryRoot && event.repositoryRoot.toLowerCase() !== scope.repositoryRoot.toLowerCase()) return event;
     if (!scope?.epoch && event.repositoryRoot && (!repositoryRef.current || event.repositoryRoot.toLowerCase() !== repositoryRef.current.toLowerCase())) return event;
     dispatch(event);
-    if (event.type === "request.failed" && command.type !== "chat.send" && command.type !== "chat.create") {
+    if (event.type === "request.failed" && !scope?.inlineFailure && command.type !== "chat.send" && command.type !== "chat.create") {
       setStickyError(event.message);
     } else if (event.type === "worker.failed") {
       setStickyError(event.message);
@@ -120,7 +127,9 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
       if (event.repositoryRoot && (!repositoryRef.current || event.repositoryRoot.toLowerCase() !== repositoryRef.current.toLowerCase())) return;
       dispatch(event);
       if (event.type === "request.failed") {
-        if (event.requestId && chatRequestIds.current.has(event.requestId)) {
+        if (event.requestId && inlineRequestIds.current.has(event.requestId)) {
+          inlineRequestIds.current.delete(event.requestId);
+        } else if (event.requestId && chatRequestIds.current.has(event.requestId)) {
           chatRequestIds.current.delete(event.requestId);
         } else {
           setStickyError(event.message);
@@ -145,23 +154,37 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
         setTimeout(() => {
           setToasts((prev) => prev.filter((t) => t.id !== toastId));
         }, 6000);
-
-        // The inspector's Changes and Evidence tabs show the finished run without reselecting the thread.
-        const repositoryRoot = repositoryRef.current;
-        if (ownerThread && repositoryRoot) {
-          const input = { repositoryRoot, codingSessionId: event.run.codingSessionId };
-          void send({ type: "run.report", input: { ...input, threadId: ownerThread.id } }).then(() => send({ type: "changes.diff", input }));
-        }
       }
     });
     void send({ type: "repository.list" });
-    void send({ type: "chat.list" });
     void send({ type: "provider.list" });
     return unsubscribe;
   }, [api]);
 
+  useEffect(() => {
+    if (!state.repositoryRoot) return;
+    void send({ type: "chat.list" }, { epoch: openEpochRef.current, repositoryRoot: state.repositoryRoot });
+  }, [state.repositoryRoot]);
+
   function clearCredential(): void { credentialRef.current = ""; setCredential(""); }
-  function closeProviderDialog(): void { clearCredential(); setProviderDialog(false); }
+  function closeProviderDialog(): void {
+    providerDialogEpochRef.current += 1;
+    clearCredential();
+    setProviderError(null);
+    setProviderDialog(false);
+  }
+  function dismissProviderDialog(): void {
+    if (!providerSavingRef.current) closeProviderDialog();
+  }
+  function openProviderDialog(provider: DesktopProviderMetadata): void {
+    if (providerSavingRef.current) return;
+    providerDialogEpochRef.current += 1;
+    clearCredential();
+    setProviderError(null);
+    dispatch({ type: "provider.changed", timestamp: new Date().toISOString(), provider });
+    setSettingsOpen(false);
+    setProviderDialog(true);
+  }
 
   const activeThread = state.threads.find((thread) => thread.id === state.activeThreadId);
   const currentRun = state.run ?? latestRun(activeThread);
@@ -170,6 +193,23 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   const sessionId = currentRun?.codingSessionId;
   const report = sessionId ? state.reports[sessionId] : null;
   const modalOpen = Boolean(state.preview || providerDialog || settingsOpen || paletteOpen || shortcutHelpOpen);
+
+  useEffect(() => {
+    if (!state.repositoryRoot || !activeThread || !currentRun || !terminalStatuses.has(currentRun.status)) return;
+    const epoch = openEpochRef.current;
+    let active = true;
+    const showFailure = (message: string) => { if (active && epoch === openEpochRef.current) setStickyError(message); };
+    const input = { repositoryRoot: state.repositoryRoot, codingSessionId: currentRun.codingSessionId };
+    const scope = { epoch, repositoryRoot: state.repositoryRoot, inlineFailure: true };
+    // Refresh both inspector tabs for the selected finished run, with failures scoped to this task.
+    void Promise.all([
+      send({ type: "run.report", input: { ...input, threadId: activeThread.id } }, scope),
+      send({ type: "changes.diff", input }, scope),
+    ])
+      .then((events) => { for (const event of events) if (event.type === "request.failed") showFailure(event.message); })
+      .catch((error) => showFailure(error instanceof Error ? error.message : "Could not load finished run details."));
+    return () => { active = false; };
+  }, [state.repositoryRoot, activeThread?.id, currentRun?.codingSessionId, currentRun?.status]);
 
   // --- Shell-derived navigation/tabs -------------------------------------------------
   const openSettings = (tab: "general" | "models" | "catalog" = "models") => { setSettingsTab(tab); setSettingsOpen(true); };
@@ -184,7 +224,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
           if (prefs.enabledModels?.[model.id] === false) continue;
           options.push({ providerId: provider.id, providerName: provider.name, model: model.id });
         }
-      } else if (provider.defaultModel) {
+      } else if (provider.defaultModel && prefs.enabledModels?.[provider.defaultModel] !== false) {
         options.push({ providerId: provider.id, providerName: provider.name, model: provider.defaultModel });
       }
     }
@@ -196,6 +236,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
     : "No model";
 
   useEffect(() => {
+    if (providerSavingRef.current) return;
     for (const provider of state.providers) {
       if (!provider.configured || modelsRequested.current.has(provider.id)) continue;
       modelsRequested.current.add(provider.id);
@@ -255,6 +296,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   const handleNewTask = async (): Promise<void> => {
     dispatch({ type: "ui.mode", mode: "chat" });
     updatePrefs({ mode: "chat" });
+    if (!state.repositoryRoot) { await pickRepository(); return; }
     await send({ type: "chat.create", input: {} });
   };
   startNewChatRef.current = () => { void handleNewTask(); };
@@ -294,7 +336,6 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
           send({ type: "thread.list" }, { epoch, repositoryRoot: ready.repositoryRoot }),
           send({ type: "provider.list" }, { epoch }),
           send({ type: "git.inspect", repositoryRoot: ready.repositoryRoot }, { epoch, repositoryRoot: ready.repositoryRoot }),
-          send({ type: "chat.list" }, { epoch }),
           send({ type: "workspace.list", input: { repositoryRoot: ready.repositoryRoot } }, { epoch, repositoryRoot: ready.repositoryRoot }),
         ]);
       }
@@ -333,7 +374,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
       const persisted = await send({ type: "thread.message.append", input: { threadId: activeThread.id, message } });
       if (persisted.type !== "thread.changed") return;
       setComposer("");
-      const started = await send({ type: "run.start", input: { repositoryRoot: state.repositoryRoot, threadId: activeThread.id, currentUserMessageId: message.id, options: { mode: "auto", approvalPolicy: "changes", providerId: state.selectedProviderId || undefined } } });
+      const started = await send({ type: "run.start", input: { repositoryRoot: state.repositoryRoot, threadId: activeThread.id, currentUserMessageId: message.id, options: { mode: "auto", approvalPolicy: "changes", ...(modelChoice ?? {}) } } });
       setRetryMessageId(started.type === "request.failed" ? message.id : null);
     } catch { setComposer(content); }
     finally { setSaving(false); }
@@ -343,7 +384,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
     if (!activeThread || !state.repositoryRoot || repositoryActiveRun) return;
     setSaving(true);
     try {
-      const started = await send({ type: "run.start", input: { repositoryRoot: state.repositoryRoot, threadId: activeThread.id, currentUserMessageId: messageId, options: { mode: "auto", approvalPolicy: "changes", providerId: state.selectedProviderId || undefined } } });
+      const started = await send({ type: "run.start", input: { repositoryRoot: state.repositoryRoot, threadId: activeThread.id, currentUserMessageId: messageId, options: { mode: "auto", approvalPolicy: "changes", ...(modelChoice ?? {}) } } });
       if (started.type !== "request.failed") setRetryMessageId(null);
     } finally { setSaving(false); }
   }
@@ -358,7 +399,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   async function runAction(type: "pause" | "resume" | "cancel"): Promise<void> {
     if (!state.repositoryRoot || !activeThread || !currentRun) return;
     if (type === "pause") await send({ type: "run.pause", input: { repositoryRoot: state.repositoryRoot, threadId: activeThread.id, codingSessionId: currentRun.codingSessionId } });
-    else if (type === "resume") await send({ type: "run.resume", input: { repositoryRoot: state.repositoryRoot, threadId: activeThread.id, codingSessionId: currentRun.codingSessionId, options: { mode: "auto", approvalPolicy: "changes", providerId: state.selectedProviderId || undefined } } });
+    else if (type === "resume") await send({ type: "run.resume", input: { repositoryRoot: state.repositoryRoot, threadId: activeThread.id, codingSessionId: currentRun.codingSessionId, options: { mode: "auto", approvalPolicy: "changes", ...(modelChoice ?? {}) } } });
     else await send({ type: "run.cancel", input: { repositoryRoot: state.repositoryRoot, threadId: activeThread.id, codingSessionId: currentRun.codingSessionId } });
   }
 
@@ -378,27 +419,63 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
     if (result.type === "request.failed") dispatch({ type: "ui.close-preview" });
   }
 
+  async function refreshProvider(providerId: string): Promise<void> {
+    modelsRequested.current.add(providerId);
+    await send({ type: "provider.list" });
+    await fetchModels(providerId);
+  }
+
   async function storeCredential(event: FormEvent, kind: DesktopCredentialKind, configuration: DesktopProviderConfigurationInput): Promise<void> {
-    event.preventDefault(); if (!state.selectedProviderId || !credential) return;
+    event.preventDefault();
+    if (providerSavingRef.current || !state.selectedProviderId || !credentialRef.current || configuration.id !== state.selectedProviderId) return;
     const providerId = state.selectedProviderId;
+    const epoch = providerDialogEpochRef.current;
     const input = { providerId, kind, secret: credentialRef.current };
+    providerSavingRef.current = true;
+    setProviderSaving(true);
+    setProviderError(null);
     try {
-      const configured = await send({ type: "provider.configure", input: configuration });
-      if (configured.type === "request.failed") return;
-      const setCred = await send({ type: "credential.set", input });
-      if (setCred.type !== "request.failed") {
-        await fetchModels(providerId);
+      const credentials = await send({ type: "credential.list" }, { inlineFailure: true });
+      if (credentials.type !== "credential.listed") throw new Error("Credential metadata unavailable.");
+      const configured = await send({ type: "provider.configure", input: configuration }, { inlineFailure: true });
+      if (configured.type !== "provider.changed") throw new Error("Provider configuration was not saved.");
+      const replacing = credentials.credentials.some((entry) => entry.providerId === providerId && entry.configured);
+      const stored = await send({ type: replacing ? "credential.replace" : "credential.set", input }, { inlineFailure: true });
+      if (stored.type !== "credential.changed" || stored.credential.providerId !== providerId || !stored.credential.configured) {
+        throw new Error("Credential was not saved.");
       }
+      if (epoch === providerDialogEpochRef.current) closeProviderDialog();
+    } catch {
+      if (epoch === providerDialogEpochRef.current) setProviderError("Provider setup could not be saved.");
+      return;
+    } finally {
+      input.secret = "";
+      providerSavingRef.current = false;
+      setProviderSaving(false);
     }
-    finally { input.secret = ""; closeProviderDialog(); }
+    await refreshProvider(providerId);
   }
 
   async function approveProvider(provider: DesktopProviderMetadata): Promise<void> {
-    const configured = await send({ type: "provider.configure", input: { id: provider.id, name: provider.name, kind: provider.kind, authType: provider.authType, ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}), ...(provider.defaultModel ? { defaultModel: provider.defaultModel } : {}), approved: true } });
-    if (configured.type !== "request.failed") {
-      closeProviderDialog();
-      await fetchModels(provider.id);
+    if (providerSavingRef.current) return;
+    const epoch = providerDialogEpochRef.current;
+    providerSavingRef.current = true;
+    setProviderSaving(true);
+    setProviderError(null);
+    try {
+      modelsRequested.current.add(provider.id);
+      const configured = await send({ type: "provider.configure", input: { id: provider.id, name: provider.name, kind: provider.kind, authType: provider.authType, ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}), ...(provider.defaultModel ? { defaultModel: provider.defaultModel } : {}), approved: true } }, { inlineFailure: true });
+      if (configured.type !== "provider.changed") throw new Error("Provider approval was not saved.");
+      if (epoch === providerDialogEpochRef.current) closeProviderDialog();
+    } catch {
+      modelsRequested.current.delete(provider.id);
+      if (epoch === providerDialogEpochRef.current) setProviderError("Provider setup could not be saved.");
+      return;
+    } finally {
+      providerSavingRef.current = false;
+      setProviderSaving(false);
     }
+    await refreshProvider(provider.id);
   }
 
   const toggleRail = (side: "left" | "right") => {
@@ -521,7 +598,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
         if (paletteOpen) { setPaletteOpen(false); return; }
         if (shortcutHelpOpen) { setShortcutHelpOpen(false); return; }
         if (settingsOpen) { setSettingsOpen(false); return; }
-        if (providerDialog) { closeProviderDialog(); return; }
+        if (providerDialog) { dismissProviderDialog(); return; }
         if (state.preview) {
           dispatch({
             type: "git.action-completed",
@@ -677,6 +754,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
             onSelectModel={(choice) => setModelChoice({ providerId: choice.providerId, model: choice.model })}
             onOpenModelPicker={() => openSettings("catalog")}
             onOpenSettings={() => openSettings("models")}
+            onOpenRepositoryPicker={() => void pickRepository()}
             onHandoffToCoder={() => dispatch({ type: "ui.mode", mode: "coder" })}
           />
         )}
@@ -716,8 +794,10 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
         <ProviderDialog
           provider={state.providers.find((item) => item.id === state.selectedProviderId)}
           credential={credential}
-          onCredential={(value) => { credentialRef.current = value; setCredential(value); }}
-          onClose={closeProviderDialog}
+          busy={providerSaving}
+          error={providerError}
+          onCredential={(value) => { credentialRef.current = value; setCredential(value); setProviderError(null); }}
+          onClose={dismissProviderDialog}
           onSubmit={storeCredential}
           onApprove={approveProvider}
         />
@@ -743,12 +823,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
           onFetchModels={fetchModels}
           onConfigureProvider={(providerId) => {
             const provider = state.providers.find((entry) => entry.id === providerId);
-            if (provider) {
-              clearCredential();
-              dispatch({ type: "provider.changed", timestamp: new Date().toISOString(), provider });
-              setSettingsOpen(false);
-              setProviderDialog(true);
-            }
+            if (provider) openProviderDialog(provider);
           }}
           onAddCompatibleProvider={async (input) => {
             const configured = await send({
@@ -762,11 +837,9 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
                 defaultModel: input.defaultModel,
                 approved: true,
               },
-            });
-            if (configured.type === "request.failed") return;
-            clearCredential();
-            setSettingsOpen(false);
-            setProviderDialog(true);
+            }, { inlineFailure: true });
+            if (configured.type !== "provider.changed") throw new Error("Provider configuration could not be saved.");
+            openProviderDialog(configured.provider);
           }}
         />
       )}

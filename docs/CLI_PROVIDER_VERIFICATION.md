@@ -47,6 +47,16 @@ before making generation requests. Exit codes are 0 for pass, 1 for failure, and
 
 ## Current evidence
 
+On **2026-10-18 (Asia/Manila)**, fresh bounded checks passed buffered output,
+actual streaming and exact-file HIVE tool execution for **`gemini-3.5-flash-lite`**
+and the existing HIVE-owned **`gpt-6-astra`** subscription account. Gemini used
+512 output tokens per request; the subscription protocol used wall-clock,
+turn/tool and output-byte bounds because it does not support a token cap.
+The saved `local-ollama` / `test-model` endpoint remained unreachable and its
+generation checks were skipped. Provider/role files retained identical hashes;
+no credential values or generated private output were saved. Evidence:
+`test-results/live-release-20261018/live/live-provider-evidence.json`.
+
 On **2026-10-17 (Asia/Manila)**, the owner completed HIVE's isolated ChatGPT
 device sign-in. A fresh Codex app-server process confirmed a ChatGPT Plus account
 and seven catalog entries without exporting identity or credentials. Real

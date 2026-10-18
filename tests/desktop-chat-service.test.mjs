@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { DesktopChatService } from "../dist/desktop/chat-service.js";
+import { ChatSessionStore } from "../dist/chat/session-store.js";
 
 const clockNow = "2026-08-17T00:00:00.000Z";
 let tick = 0;
@@ -49,6 +50,223 @@ async function until(predicate, label, timeoutMs = 2_000) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
+
+test("simultaneous sends reserve a conversation before loading or saving its transcript", async (t) => {
+  const { root, events, requests, service } = await fixture();
+  let releaseLoad;
+  const loadGate = new Promise((resolve) => { releaseLoad = resolve; });
+  let loads = 0;
+  const originalLoad = ChatSessionStore.prototype.load;
+  let attempts;
+  try {
+    const conversation = await service.create({});
+    t.mock.method(ChatSessionStore.prototype, "load", async function (id) {
+      loads += 1;
+      const record = await originalLoad.call(this, id);
+      await loadGate;
+      return record;
+    });
+    attempts = Promise.allSettled([
+      service.send({ conversationId: conversation.id, content: "first" }),
+      service.send({ conversationId: conversation.id, content: "duplicate" }),
+    ]);
+    assert.equal(loads, 1, "A duplicate send must be rejected before a second transcript read.");
+    releaseLoad();
+    const outcomes = await attempts;
+    assert.equal(outcomes[0].status, "fulfilled");
+    assert.equal(outcomes[1].status, "rejected");
+    assert.match(outcomes[1].reason.message, /already streaming/);
+    await until(() => events.some((event) => event.type === "chat.completed"), "chat.completed");
+    assert.equal(requests.length, 1);
+    assert.deepEqual((await service.load(conversation.id)).messages.map((message) => message.content), ["first", "Hello world."]);
+  } finally {
+    releaseLoad();
+    await attempts;
+    await until(() => events.filter((event) => event.type === "chat.completed").length === requests.length, "all initiated turns to finish");
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("archive cannot move a conversation while a send is preparing its transcript", async (t) => {
+  const { root, events, requests, service } = await fixture();
+  let releaseLoad;
+  const loadGate = new Promise((resolve) => { releaseLoad = resolve; });
+  let loaded;
+  const recordLoaded = new Promise((resolve) => { loaded = resolve; });
+  const originalLoad = ChatSessionStore.prototype.load;
+  let sending;
+  try {
+    const conversation = await service.create({});
+    t.mock.method(ChatSessionStore.prototype, "load", async function (id) {
+      const record = await originalLoad.call(this, id);
+      loaded();
+      await loadGate;
+      return record;
+    });
+    sending = service.send({ conversationId: conversation.id, content: "first" });
+    await recordLoaded;
+    await assert.rejects(service.archive(conversation.id), /streaming/);
+    releaseLoad();
+    await sending;
+    await until(() => events.some((event) => event.type === "chat.completed"), "chat.completed");
+    assert.equal((await service.list()).filter((entry) => entry.archived).length, 0);
+  } finally {
+    releaseLoad();
+    await sending;
+    await until(() => events.filter((event) => event.type === "chat.completed").length === requests.length, "all initiated turns to finish");
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("send cannot recreate a conversation while its archive is preparing", async (t) => {
+  const { root, service, requests } = await fixture();
+  let releaseArchive;
+  const archiveGate = new Promise((resolve) => { releaseArchive = resolve; });
+  const originalMkdir = fs.mkdir;
+  let archiving;
+  try {
+    const conversation = await service.create({});
+    t.mock.method(fs, "mkdir", async function (directory, options) {
+      if (path.basename(directory) === "archived") await archiveGate;
+      return originalMkdir.call(this, directory, options);
+    });
+    archiving = service.archive(conversation.id);
+    await assert.rejects(service.send({ conversationId: conversation.id, content: "too late" }), /archiv/);
+    releaseArchive();
+    assert.equal((await archiving).find((entry) => entry.id === conversation.id).archived, true);
+    assert.equal(requests.length, 0);
+    await assert.rejects(service.load(conversation.id), /not found/);
+  } finally {
+    releaseArchive();
+    await archiving;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("failed transcript reads, writes, and grounding release the send reservation", async (t) => {
+  let failGrounding = true;
+  const { root, events, requests, service } = await fixture({ buildGrounding: async () => {
+    if (failGrounding) throw new Error("Fixture grounding failed.");
+    return null;
+  } });
+  try {
+    const conversation = await service.create({});
+    const originalLoad = ChatSessionStore.prototype.load;
+    let failLoad = true;
+    t.mock.method(ChatSessionStore.prototype, "load", async function (id) {
+      if (failLoad) throw new Error("Fixture transcript read failed.");
+      return originalLoad.call(this, id);
+    });
+    await assert.rejects(service.send({ conversationId: conversation.id, content: "read" }), /transcript read failed/);
+    failLoad = false;
+    assert.equal((await service.load(conversation.id)).messages.length, 0);
+    const originalSave = ChatSessionStore.prototype.save;
+    let failSave = true;
+    t.mock.method(ChatSessionStore.prototype, "save", async function (record) {
+      if (failSave) throw new Error("Fixture transcript write failed.");
+      return originalSave.call(this, record);
+    });
+    await assert.rejects(service.send({ conversationId: conversation.id, content: "write" }), /transcript write failed/);
+    failSave = false;
+    assert.equal((await service.load(conversation.id)).messages.length, 0);
+    await assert.rejects(service.send({ conversationId: conversation.id, content: "ground", ground: true }), /grounding failed/);
+    assert.equal(events.some((event) => event.type === "chat.started"), false, "Failed preparation must not leave a visible streaming turn.");
+    assert.equal((await service.load(conversation.id)).messages.length, 0, "Failed grounding must not persist an invisible user message.");
+    failGrounding = false;
+    await service.send({ conversationId: conversation.id, content: "ground", ground: false });
+    await until(() => events.some((event) => event.type === "chat.completed"), "chat.completed");
+    assert.equal(requests.length, 1);
+    assert.deepEqual((await service.load(conversation.id)).messages.map((message) => message.content), ["ground", "Hello world."]);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("failed engine setup preserves the transcript and permits a single-message retry", async () => {
+  let failEngine = true;
+  let generations = 0;
+  const { root, events, service } = await fixture({}, { createEngine() {
+    if (failEngine) throw new Error("Fixture engine setup failed.");
+    return { async complete(request) {
+      generations += 1;
+      return { output: "Reply.", receipt: { role: request.role, providerId: "fixture", model: "fixture-model" } };
+    } };
+  } });
+  try {
+    const conversation = await service.create({});
+    await assert.rejects(service.send({ conversationId: conversation.id, content: "first" }), /engine setup failed/);
+    assert.equal((await service.load(conversation.id)).messages.length, 0);
+    assert.equal(events.length, 0);
+    failEngine = false;
+    await service.send({ conversationId: conversation.id, content: "first" });
+    await until(() => events.some((event) => event.type === "chat.completed"), "retry completion");
+    assert.equal(generations, 1);
+    assert.deepEqual((await service.load(conversation.id)).messages.map((message) => message.content), ["first", "Reply."]);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("cancel during transcript preparation stops generation and releases the conversation", async (t) => {
+  const { root, events, requests, service } = await fixture();
+  let releaseLoad;
+  const loadGate = new Promise((resolve) => { releaseLoad = resolve; });
+  const originalLoad = ChatSessionStore.prototype.load;
+  let sending;
+  try {
+    const conversation = await service.create({});
+    t.mock.method(ChatSessionStore.prototype, "load", async function (id) {
+      const record = await originalLoad.call(this, id);
+      await loadGate;
+      return record;
+    });
+    sending = service.send({ conversationId: conversation.id, content: "cancel this" });
+    service.cancel(conversation.id);
+    releaseLoad();
+    await assert.rejects(sending, { name: "AbortError" });
+    assert.equal(requests.length, 0);
+    assert.equal(events.some((event) => event.type === "chat.started"), false);
+    await service.send({ conversationId: conversation.id, content: "retry" });
+    await until(() => events.some((event) => event.type === "chat.completed"), "retry completion");
+    assert.equal(requests.length, 1);
+  } finally {
+    releaseLoad();
+    await sending?.catch(() => undefined);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("cancel during transcript save publishes the committed user message and never starts generation", async (t) => {
+  const { root, events, requests, service } = await fixture();
+  let releaseSave;
+  const saveGate = new Promise((resolve) => { releaseSave = resolve; });
+  let saved;
+  const recordSaved = new Promise((resolve) => { saved = resolve; });
+  const originalSave = ChatSessionStore.prototype.save;
+  let sending;
+  try {
+    const conversation = await service.create({});
+    t.mock.method(ChatSessionStore.prototype, "save", async function (record) {
+      const result = await originalSave.call(this, record);
+      saved();
+      await saveGate;
+      return result;
+    });
+    sending = service.send({ conversationId: conversation.id, content: "cancel during save" });
+    await recordSaved;
+    service.cancel(conversation.id);
+    releaseSave();
+    await sending;
+    assert.equal(requests.length, 0);
+    assert.equal(events.find((event) => event.type === "chat.changed").conversation.messages[0].content, "cancel during save");
+    assert.equal(events.find((event) => event.type === "chat.failed").message, "Cancelled.");
+    assert.equal((await service.load(conversation.id)).messages.length, 1);
+  } finally {
+    releaseSave();
+    await sending?.catch(() => undefined);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
 
 test("send persists the user turn, emits started, batched chunk, completed with receipt", async () => {
   const { root, events, requests, service } = await fixture();
