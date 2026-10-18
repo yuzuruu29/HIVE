@@ -4,6 +4,8 @@ import { DefaultDesktopRunManager } from "../../dist/desktop/run-manager.js";
 import { CodingSessionStore } from "../../dist/coding/session-store.js";
 import { WorktreeManager, branchNameForTask } from "../../dist/worktree.js";
 import { validateDesktopCommand } from "../../dist/desktop/electron/contracts.js";
+import { createProjectWorkerHost } from "../../dist/desktop/electron/project-worker-host.js";
+import { randomUUID } from "node:crypto";
 
 const port = process.parentPort;
 if (!port) throw new Error("The deterministic desktop fixture requires an Electron utility-process parent port.");
@@ -11,6 +13,28 @@ let current = null;
 let exiting = false;
 let exitRequested = false;
 let commandsInFlight = 0;
+const handleProject = createProjectWorkerHost((message) => port.postMessage(message), requestExit, {
+  runCoding: async (options) => {
+    const currentText = options.objective ?? "";
+    if (currentText.includes("[crash]")) process.exit(9);
+    if (currentText.includes("[fail]")) throw new Error("Deterministic fixture provider failure");
+    const sessionId = options.resumeId ?? `fixture-${randomUUID()}`;
+    const input = { repositoryRoot: options.cwd, objective: currentText, sessionId, options: { mode: options.codeMode ?? "auto", approvalPolicy: options.approvalPolicy ?? "safe" }, signal: options.signal, onEvent: options.onEvent };
+    if (!options.resumeId) {
+      const approvalWorktree = currentText.includes("[approval]") ? await new WorktreeManager(options.cwd).createWorktree(sessionId) : undefined;
+      const initial = makeRecord(input, new Date().toISOString(), approvalWorktree, "modified", "created");
+      if (!approvalWorktree) initial.repository.branch = "main";
+      initial.validationResults = []; initial.reviewResults = []; initial.files = [];
+      await new CodingSessionStore(options.cwd).save(initial);
+      options.onEvent(runtimeEvent(sessionId, 1, "session.created", { objective: currentText, mode: input.options.mode, approvalPolicy: input.options.approvalPolicy }));
+    }
+    if (currentText.includes("[approval]")) {
+      const approved = await options.requestToolPermission({ tool: "fixture_command", description: "Deterministic fixture command in the selected test workspace", input: { command: "fixture:validate", cwd: path.join(options.cwd, ".hivemind", "worktrees", sessionId) }, external: false, alwaysAsk: true }, options.signal);
+      if (!approved) throw new Error("Deterministic fixture approval declined");
+    }
+    return deterministicLaunch(input).completion;
+  },
+});
 
 const manager = new DefaultDesktopRunManager({
   onEvent: emit,
@@ -18,6 +42,7 @@ const manager = new DefaultDesktopRunManager({
 });
 
 port.on("message", ({ data: message }) => {
+  if (handleProject(message)) return;
   commandsInFlight += 1;
   void handle(message).catch((error) => {
     port.postMessage({ type: "error", message: error instanceof Error ? error.message : String(error) });
@@ -73,7 +98,7 @@ function deterministicLaunch(input) {
     await writeFile(outputPath, `${previous}verified session ${input.sessionId}\n`, "utf8");
     const created = makeRecord(input, timestamp, worktreePath, previous ? "modified" : "created", "running");
     await new CodingSessionStore(input.repositoryRoot).save(created);
-    input.onEvent(runtimeEvent(input.sessionId, 1, "session.started", { repository: created.repository }));
+    input.onEvent(runtimeEvent(input.sessionId, 2, "session.started", { repository: created.repository }));
     const outcome = hold ? await gate : "complete";
     input.signal.removeEventListener("abort", abort);
     const completedAt = new Date().toISOString();
@@ -85,7 +110,7 @@ function deterministicLaunch(input) {
     if (outcome === "pause") {
       const paused = { ...created, status: "paused", updatedAt: completedAt };
       await new CodingSessionStore(input.repositoryRoot).save(paused);
-      input.onEvent(runtimeEvent(input.sessionId, 2, "session.paused", { reason: "Desktop pause requested." }));
+      input.onEvent(runtimeEvent(input.sessionId, 3, "session.paused", { reason: "Desktop pause requested." }));
       return paused;
     }
     const completed = {
@@ -102,7 +127,7 @@ function deterministicLaunch(input) {
       },
     };
     await new CodingSessionStore(input.repositoryRoot).save(completed);
-    input.onEvent(runtimeEvent(input.sessionId, 2, "session.completed", { report: completed.finalReport }));
+    input.onEvent(runtimeEvent(input.sessionId, 3, "session.completed", { report: completed.finalReport }));
     return completed;
   })();
   return { completion, requestPause: () => { if (!hold) return false; settle("pause"); return true; } };

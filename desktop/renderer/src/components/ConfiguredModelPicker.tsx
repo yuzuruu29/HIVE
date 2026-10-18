@@ -18,6 +18,7 @@ export interface ConfiguredModelPickerProps {
   placeholder?: string;
   className?: string;
   resetKey?: string;
+  showSavedRoute?: boolean;
 }
 
 export function ConfiguredModelPicker({
@@ -30,6 +31,7 @@ export function ConfiguredModelPicker({
   placeholder = "Select model",
   className,
   resetKey,
+  showSavedRoute = false,
 }: ConfiguredModelPickerProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -215,10 +217,10 @@ export function ConfiguredModelPicker({
         aria-expanded={isOpen}
         aria-controls={isOpen ? listId : undefined}
         aria-label={label}
-        title={selected ? `${selected.providerName} / ${selected.model}` : "Choose a model in Settings"}
+        title={selected ? `${selected.providerName} / ${selected.model}` : showSavedRoute && selectedModel ? `${selectedModel.providerId} / ${selectedModel.model} (saved session route)` : "Choose a model in Settings"}
         onClick={() => { if (isOpen) closeMenu(); else openMenu(); }}
       >
-        <span className="hive-model-name">{selected?.model ?? placeholder}</span>
+        <span className="hive-model-name">{selected?.model ?? (showSavedRoute ? selectedModel?.model : undefined) ?? placeholder}</span>
         <ChevronDownIcon size={14} />
       </button>
       {isOpen && createPortal(

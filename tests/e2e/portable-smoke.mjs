@@ -4,6 +4,7 @@ import { access, appendFile, mkdir, readFile, readdir, writeFile } from "node:fs
 import { createServer } from "node:http";
 import path from "node:path";
 import { promisify } from "node:util";
+import { attachSmokeProject, persistedSmokeDiagnostic, runSmokeDiagnostic } from "./shared-smoke-ui.mjs";
 
 const execute = promisify(execFile);
 const executable = path.resolve(process.env.HIVE_DESKTOP_PORTABLE_EXE ?? process.env.HIVE_DESKTOP_PACKAGED_EXE ?? "dist-binaries/HIVE-0.6.0-x64-portable.exe");
@@ -80,28 +81,10 @@ try {
   const unpackedFiles = await relativeFiles(path.join(extractedRoot, "resources", "app.asar.unpacked"));
   if (JSON.stringify(unpackedFiles) !== JSON.stringify([path.join("dist", "desktop", "electron", "worker.mjs")])) throw new Error("Portable payload did not unpack exactly the production utility worker.");
 
-  await page.getByLabel("Repository path").fill(repository);
-  await page.getByRole("button", { name: /^Open(?: another)?$/ }).click();
-  await expect(page.getByLabel("Repository path")).toHaveValue(repository);
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
-  await page.getByRole("button", { name: "Select model", exact: true }).click();
-  const diagnosticModel = page.getByRole("listbox", { name: "Configured models" }).locator("li").filter({ has: page.getByText(providerName, { exact: true }) }).getByRole("option");
-  await diagnosticModel.click();
-  await page.getByRole("button", { name: "Code", exact: true }).click();
-  await page.getByLabel("Message HIVE").fill(message);
-  await page.getByRole("button", { name: "Send task", exact: true }).click();
-  const inspector = page.getByRole("complementary", { name: "Harness Inspector" });
-  await inspector.getByRole("tab", { name: /^Run/ }).click();
-  await expect(inspector.locator(".hive-evidence-row").filter({ hasText: "Active Run Status" })).toContainText("completed", { timeout: 30_000 });
-  await inspector.getByRole("tab", { name: /^Evidence/ }).click();
-  await expect(page.getByLabel("Verification evidence")).toContainText("Diagnostic objective and provider matched exactly.", { timeout: 15_000 });
-  const threadRoot = path.join(repository, ".hivemind", "threads");
-  const threads = await Promise.all((await readdir(threadRoot, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => readFile(path.join(threadRoot, entry.name, "thread.json"), "utf8").then(JSON.parse)));
-  const thread = threads.find((entry) => entry.title === message);
-  const run = thread?.runs.at(-1);
-  if (run?.status !== "completed") throw new Error("Portable run was not persisted as completed.");
-  const session = JSON.parse(await readFile(path.join(repository, ".hivemind", "sessions", run.codingSessionId, "session.json"), "utf8"));
-  if (session.status !== "completed" || session.finalReport?.result !== report) throw new Error("Portable session did not persist the exact diagnostic report.");
+  await attachSmokeProject(page, repository);
+  await runSmokeDiagnostic(page, { providerName, message, report });
+  const persisted = await persistedSmokeDiagnostic(repository, userData, message);
+  if (persisted.sharedRunStatus !== "completed" || persisted.sessionStatus !== "completed" || persisted.report !== report) throw new Error("Portable shared run did not persist the exact diagnostic report.");
   if (rendererErrors.length) throw new Error(`Portable renderer errors: ${rendererErrors.join("\n")}`);
   await page.screenshot({ path: screenshot, fullPage: true });
   evidence = {
@@ -109,7 +92,7 @@ try {
     runtime, rendererUrl: page.url(), extractedRoot, unpackedFiles,
     selectedRoute: { providerId: "hive-packaged-smoke", model: "network-free" },
     assertions: { packagedAsarRenderer: true, codeRunCompletedVisible: true, productionUtilityEvidenceVisible: true, exactPersistedReport: true, rendererErrorCount: 0 },
-    persisted: { threadStatus: run.status, sessionStatus: session.status, report: session.finalReport.result },
+    persisted,
     screenshot, retainedRoot: root,
   };
 } catch (error) {

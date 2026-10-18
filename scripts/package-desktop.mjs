@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, cpSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { appendFileSync, cpSync, mkdirSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { finished } from "node:stream/promises";
@@ -8,6 +8,8 @@ import asar from "@electron/asar";
 import { stageDesktopApplication } from "./stage-desktop-app.mjs";
 
 const require = createRequire(import.meta.url);
+const { AppInfo } = require("app-builder-lib/out/appInfo.js");
+const { editWindowsResources } = require("app-builder-lib/out/util/resEdit.js");
 
 export function desktopPackageOptions(args = [], cwd = process.cwd()) {
   const values = {};
@@ -59,10 +61,35 @@ export function prepareDesktopPackageDirectories(options) {
 }
 
 export async function writeDesktopAsar(stagingDir, destination) {
-  const output = await asar.createPackageWithOptions(stagingDir, destination, { unpack: "**/worker.mjs" });
+  // ASAR matches the absolute source name with matchBase. A globstar skips
+  // hidden ancestors such as .codex worktrees; basename matching does not.
+  const output = await asar.createPackageWithOptions(stagingDir, destination, { unpack: "worker.mjs" });
   // The pinned ASAR API resolves with its stream before that stream finishes.
   await finished(output);
   return output;
+}
+
+export async function decorateDesktopExecutable({ sourceRoot, executablePath }) {
+  const metadata = JSON.parse(readFileSync(path.join(sourceRoot, "package.json"), "utf8"));
+  const config = metadata.build;
+  const author = typeof metadata.author === "string" ? { name: metadata.author } : metadata.author;
+  const appInfo = new AppInfo({ metadata: { ...metadata, author }, config }, undefined, config.win);
+  const versionStrings = {
+    FileDescription: appInfo.productName,
+    ProductName: appInfo.productName,
+    LegalCopyright: appInfo.copyright,
+    InternalName: path.basename(executablePath, ".exe"),
+    OriginalFilename: path.basename(executablePath),
+    ...(appInfo.companyName ? { CompanyName: appInfo.companyName } : {}),
+  };
+  // --prepackaged skips electron-builder's executable resource editing.
+  await editWindowsResources({
+    file: executablePath, versionStrings,
+    fileVersion: appInfo.shortVersion || appInfo.buildVersion,
+    productVersion: appInfo.shortVersionWindows || appInfo.getVersionInWeirdWindowsForm(),
+    iconPath: path.resolve(sourceRoot, config.win.icon),
+    requestedExecutionLevel: "asInvoker",
+  });
 }
 
 export async function packageDesktop(options) {
@@ -78,8 +105,10 @@ export async function packageDesktop(options) {
   const defaultAppAsar = path.join(resourcesDir, "default_app.asar");
   if (existsSync(defaultAppAsar)) rmSync(defaultAppAsar);
   const defaultExe = path.join(unpackedDir, "electron.exe");
-  cpSync(defaultExe, path.join(unpackedDir, "HIVE.exe"));
+  const executablePath = path.join(unpackedDir, "HIVE.exe");
+  cpSync(defaultExe, executablePath);
   rmSync(defaultExe);
+  await decorateDesktopExecutable({ sourceRoot, executablePath });
 
   console.log("==> 3. Creating app.asar with unpacked worker...");
   await writeDesktopAsar(stagingDir, path.join(resourcesDir, "app.asar"));

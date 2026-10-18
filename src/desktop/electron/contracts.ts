@@ -4,6 +4,7 @@ import { containsKnownSecret, isCredentialFieldName } from "../../security/secre
 import { CHAT_SESSION_ID_PATTERN } from "../../chat/session-store.js";
 import { normalizeChatRole } from "../../chat/roles.js";
 import { DESKTOP_COMMAND_TYPE_SET } from "./command-manifest.js";
+import { parseProjectAction, validateProjectSnapshot } from "../../projects/store.js";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
@@ -21,6 +22,17 @@ const RUNTIME_PAYLOAD_FIELDS: Record<string, { required: string[]; optional: str
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object.`);
   return value as Record<string, unknown>;
+}
+
+for (const [type, fields] of Object.entries({
+  "verdict.computed": ["verdict", "reasons"],
+  "failure.recorded": ["failure"],
+  "integration.completed": ["record"],
+  "evidence.invalidated": ["evidenceId", "reason"],
+  "session.reconciled": ["reconciliation"],
+})) {
+  RUNTIME_EVENT_TYPES.add(type);
+  RUNTIME_PAYLOAD_FIELDS[type] = { required: fields, optional: [] };
 }
 
 function exact(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
@@ -306,9 +318,21 @@ export function validateDesktopCommand(value: unknown): DesktopCommand {
   const type = string(root.type, "desktop command type", 80);
   if (!DESKTOP_COMMAND_TYPE_SET.has(type)) throw new Error(`Unsupported desktop command type: ${type}.`);
   const requestId = id(root.requestId, "request id");
-  const noPayload = new Set(["repository.list", "thread.list", "provider.list", "credential.list", "chat.list"]);
+  const noPayload = new Set(["projects.snapshot", "repository.list", "thread.list", "provider.list", "credential.list", "chat.list"]);
   if (noPayload.has(type)) exact(root, ["requestId", "type"], "desktop command");
   else switch (type) {
+    case "projects.action": {
+      exact(root, ["requestId", "type", "action"], "desktop command");
+      const action = parseProjectAction(root.action);
+      if (action.requestId !== requestId) throw new Error("Project action request id must match its IPC envelope.");
+      break;
+    }
+    case "projects.import.preview": case "projects.import.confirm": {
+      optionalExact(root, ["requestId", "type", "projectId", ...(type === "projects.import.confirm" ? ["digest"] : [])], ["workspaceId"], "history import command");
+      id(root.projectId, "project id"); if (root.workspaceId !== undefined) id(root.workspaceId, "workspace id");
+      if (type === "projects.import.confirm" && (typeof root.digest !== "string" || !/^[a-f0-9]{64}$/.test(root.digest))) throw new Error("History import digest is invalid.");
+      break;
+    }
     case "repository.open": exact(root, ["requestId", "type", "repositoryRoot"], "desktop command"); absolutePath(root.repositoryRoot, "repository root"); break;
     case "thread.create": { exact(root, ["requestId", "type", "input"], "desktop command"); const input = optionalExact(root.input, ["title"], ["id"], "thread create input"); string(input.title, "thread title", 200); if (input.id !== undefined) id(input.id, "thread id"); break; }
     case "thread.load": case "thread.archive": exact(root, ["requestId", "type", "threadId"], "desktop command"); id(root.threadId, "thread id"); break;
@@ -407,6 +431,9 @@ function validateModelInfo(value: unknown): void {
 }
 
 const EVENT_KEYS: Record<DesktopEvent["type"], readonly string[]> = {
+  "projects.snapshot": ["type", "timestamp", "snapshot", "result"],
+  "projects.import.previewed": ["type", "timestamp", "preview"],
+  "projects.imported": ["type", "timestamp", "result"],
   "desktop.ready": ["type", "timestamp", "repositoryRoot"], "repository.listed": ["type", "timestamp", "repositories"], "thread.changed": ["type", "timestamp", "thread"], "thread.listed": ["type", "timestamp", "threads"],
   "run.changed": ["type", "timestamp", "run"], "run.pause-requested": ["type", "timestamp", "codingSessionId"], "run.reported": ["type", "timestamp", "codingSessionId", "report"], "runtime.event": ["type", "timestamp", "event"], "worker.starting": ["type", "timestamp", "codingSessionId"],
   "worker.started": ["type", "timestamp", "codingSessionId", "processId"], "worker.stopped": ["type", "timestamp", "codingSessionId", "exitCode", "signal", "expected"],
@@ -435,13 +462,41 @@ export function validateDesktopEvent(value: unknown): DesktopEvent {
   const eventKeys = EVENT_KEYS[type];
   if (!eventKeys) throw new Error("Unsupported desktop event type.");
   const allowed = [...eventKeys, "requestId", "repositoryRoot"];
-  const optional = new Set(["codingSessionId", "signal", "head", "summary", "url", "requestId", "repositoryRoot"]);
+  const optional = new Set(["codingSessionId", "signal", "head", "summary", "url", "requestId", "repositoryRoot", "result"]);
   const required = allowed.filter((key) => !optional.has(key));
   optionalExact(candidate, required, allowed.filter((key) => optional.has(key)), "desktop event");
   iso(candidate.timestamp, "desktop event timestamp");
   if (candidate.requestId !== undefined) id(candidate.requestId, "request id");
   if (candidate.repositoryRoot !== undefined) absolutePath(candidate.repositoryRoot, "event repository root");
   switch (type) {
+    case "projects.import.previewed": {
+      const preview = exact(candidate.preview, ["projectId", "workspaceId", "digest", "counts", "warnings", "sessions", "alreadyImported"], "history preview");
+      id(preview.projectId, "project id"); id(preview.workspaceId, "workspace id");
+      if (typeof preview.digest !== "string" || !/^[a-f0-9]{64}$/.test(preview.digest)) throw new Error("History preview digest is invalid.");
+      const counts = exact(preview.counts, ["cli", "thread", "chat", "messages"], "history counts");
+      for (const count of Object.values(counts)) if (!Number.isSafeInteger(count) || Number(count) < 0) throw new Error("History count is invalid.");
+      boolean(preview.alreadyImported, "history already imported");
+      if (!Array.isArray(preview.warnings) || preview.warnings.length > 10_000 || !Array.isArray(preview.sessions) || preview.sessions.length > 10_000) throw new Error("History preview lists are invalid.");
+      preview.warnings.forEach((warning) => boundaryString(warning, "history warning", 32_768));
+      preview.sessions.forEach((value) => { const session = exact(value, ["id", "title", "messages"], "history preview session"); id(session.id, "history session id"); boundaryString(session.title, "history title", 200); if (!Number.isSafeInteger(session.messages) || Number(session.messages) < 0) throw new Error("History message count is invalid."); });
+      break;
+    }
+    case "projects.imported": {
+      const result = exact(candidate.result, ["imported", "duplicate", "backupDirectory", "snapshot"], "history import result");
+      if (!Number.isSafeInteger(result.imported) || Number(result.imported) < 0) throw new Error("Imported count is invalid.");
+      boolean(result.duplicate, "duplicate import"); absolutePath(result.backupDirectory, "migration backup directory"); validateProjectSnapshot(result.snapshot);
+      break;
+    }
+    case "projects.snapshot": {
+      const snapshot = exact(candidate.snapshot, ["schemaVersion", "revision", "projects", "sessions", "warnings"], "project snapshot");
+      validateProjectSnapshot(snapshot);
+      if (candidate.result !== undefined) {
+        const result = optionalExact(candidate.result, [], ["projectId", "sessionId", "runId", "duplicate"], "project action result");
+        for (const key of ["projectId", "sessionId", "runId"]) if (result[key] !== undefined) id(result[key], key);
+        if (result.duplicate !== undefined) boolean(result.duplicate, "duplicate action");
+      }
+      break;
+    }
     case "desktop.ready": absolutePath(candidate.repositoryRoot, "repository root"); break;
     case "repository.listed": if (!Array.isArray(candidate.repositories) || candidate.repositories.length > 100) throw new Error("Recent repository list is invalid."); candidate.repositories.forEach(validateRecentRepository); break;
     case "thread.changed": validateThread(candidate.thread); break;
@@ -560,6 +615,38 @@ function validateRuntimeEvent(value: unknown): void {
   const runtime = exact(value, ["schemaVersion", "id", "sequence", "sessionId", "timestamp", "type", "payload"], "runtime event");
   if (runtime.schemaVersion !== 1) throw new Error("Runtime event schema is invalid."); id(runtime.id, "runtime event id"); if (!Number.isSafeInteger(runtime.sequence) || Number(runtime.sequence) < 1 || Number(runtime.sequence) > Number.MAX_SAFE_INTEGER) throw new Error("Runtime event sequence is invalid."); id(runtime.sessionId, "runtime session id"); iso(runtime.timestamp, "runtime timestamp"); const eventType = boundaryString(runtime.type, "runtime event type", 80); if (!RUNTIME_EVENT_TYPES.has(eventType)) throw new Error("Runtime event type is invalid."); const fields = RUNTIME_PAYLOAD_FIELDS[eventType]; const payload = optionalExact(runtime.payload, fields.required, fields.optional, "runtime event payload"); validateRuntimePayloadFields(payload); validateBoundedJson(payload, 0, { nodes: 0 });
   if (Buffer.byteLength(JSON.stringify(runtime.payload), "utf8") > 1024 * 1024) throw new Error("Runtime event payload is too large.");
+  validateCurrentRuntimePayload(eventType, payload);
+}
+
+function validateCurrentRuntimePayload(type: string, payload: Record<string, unknown>): void {
+  const strings = (value: unknown, label: string) => {
+    if (!Array.isArray(value) || value.length > 2_000) throw new Error(`${label} is invalid.`);
+    value.forEach((item) => boundaryString(item, label, 4_000));
+  };
+  if (type === "verdict.computed") {
+    if (!["ACCEPTED", "REPAIRABLE", "REJECTED", "BLOCKED"].includes(String(payload.verdict))) throw new Error("Runtime verdict is invalid.");
+    strings(payload.reasons, "verdict reasons");
+  } else if (type === "evidence.invalidated") {
+    id(payload.evidenceId, "evidence id"); boundaryString(payload.reason, "invalidation reason", 4_000);
+  } else if (type === "integration.completed") {
+    const item = optionalExact(payload.record, ["integratedSha", "integratedFiles", "hadConflicts", "timestamp"], ["conflicts"], "integration record");
+    boundaryString(item.integratedSha, "integrated SHA", 128); strings(item.integratedFiles, "integrated files"); boolean(item.hadConflicts, "integration conflicts"); iso(item.timestamp, "integration timestamp");
+    if (item.conflicts !== undefined) strings(item.conflicts, "integration conflict details");
+  } else if (type === "session.reconciled") {
+    const item = exact(payload.reconciliation, ["baseCommitChanged", "workingTreeChanged", "reusableNodes", "staleNodes", "invalidatedNodes", "missingWorktrees", "externalConflicts", "requiredAction"], "session reconciliation");
+    boolean(item.baseCommitChanged, "base commit changed"); boolean(item.workingTreeChanged, "working tree changed");
+    for (const key of ["reusableNodes", "staleNodes", "invalidatedNodes", "missingWorktrees", "externalConflicts"]) strings(item[key], key);
+    boundaryString(item.requiredAction, "required action", 4_000);
+  } else if (type === "failure.recorded") {
+    const item = optionalExact(payload.failure, ["failureClass", "attemptNumber", "actionTaken", "description", "timestamp"], ["affectedNodeId", "repairSucceeded", "remainingRisk"], "failure record");
+    if (!["BUILD_FAILURE", "TYPECHECK_FAILURE", "TEST_FAILURE", "SCOPE_VIOLATION", "PROTECTED_PATH_VIOLATION", "INTEGRATION_CONFLICT", "MISSING_EVIDENCE", "INVALID_PLAN", "SECURITY_FINDING", "ARCHITECTURE_REJECTION", "PROVIDER_FAILURE", "PROVIDER_TIMEOUT", "INFRASTRUCTURE_BLOCKER", "APPROVAL_DENIED", "REPOSITORY_DRIFT", "WORKTREE_MISSING", "EVIDENCE_STALE", "BUDGET_EXCEEDED", "CANCELLED"].includes(String(item.failureClass))) throw new Error("Failure class is invalid.");
+    if (!["retry", "route_provider_fallback", "invoke_fixer", "replan_affected_nodes", "request_approval", "reject_patch", "mark_blocked", "terminate_run"].includes(String(item.actionTaken))) throw new Error("Failure action is invalid.");
+    if (!Number.isSafeInteger(item.attemptNumber) || Number(item.attemptNumber) < 0) throw new Error("Failure attempt is invalid.");
+    boundaryString(item.description, "failure description", 20_000); iso(item.timestamp, "failure timestamp");
+    if (item.affectedNodeId !== undefined) id(item.affectedNodeId, "failure node id");
+    if (item.repairSucceeded !== undefined) boolean(item.repairSucceeded, "repair succeeded");
+    if (item.remainingRisk !== undefined) boundaryString(item.remainingRisk, "remaining risk", 4_000);
+  }
 }
 
 function validateRuntimePayloadFields(payload: Record<string, unknown>): void {

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { createRequire } from "node:module";
 
 const executeFile = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -273,8 +274,9 @@ async function main() {
     assert.equal(manifest.bin?.hive?.replace(/^\.\//, ""), "bin/hive.mjs");
     assert.equal(manifest.main?.replace(/^\.\//, ""), "dist/index.js");
     assert.equal(manifest.types?.replace(/^\.\//, ""), "dist/index.d.ts");
-    await fs.access(path.join(root, "node_modules/typescript/bin/tsc"));
-    await fs.symlink(path.join(root, "node_modules"), compilerLink, windows ? "junction" : "dir");
+    const compilerModules = path.dirname(path.dirname(createRequire(import.meta.url).resolve("typescript/package.json")));
+    await fs.access(path.join(compilerModules, "typescript/bin/tsc"));
+    await fs.symlink(compilerModules, compilerLink, windows ? "junction" : "dir");
     compilerLinked = true;
 
     progress("Packing with real lifecycle hooks; prepack must generate dist.");

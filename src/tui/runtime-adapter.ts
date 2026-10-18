@@ -47,6 +47,7 @@ export interface TuiSessionRunnerOptions {
   images?: readonly ProviderImageInput[];
   requestToolPermission?: (request: ToolPermissionRequest, signal: AbortSignal) => Promise<boolean>;
   extensionOptions?: ExtensionOptions;
+  providerRegistries?: import("../coding/queen.js").QueenSessionOptions["providerRegistries"];
   requestMcpInput?: McpUserInput;
 }
 
@@ -100,6 +101,7 @@ export const runQueenTuiSession: TuiSessionRunner = async ({
   requestToolPermission,
   requestMcpInput,
   extensionOptions,
+  providerRegistries,
 }) => {
   const hiveMode = await new ConfigStore(cwd).getMode();
   const posture = resolveSessionPosture(hiveMode, {
@@ -149,6 +151,7 @@ export const runQueenTuiSession: TuiSessionRunner = async ({
     requestToolPermission,
     requestMcpInput,
     extensionOptions,
+    providerRegistries,
     maxAgents: 4,
     maxRetries: 2,
     signal,

@@ -15,8 +15,10 @@ import { redactDesktopFailure } from "./security.js";
 import { CodingSessionStore } from "../../coding/session-store.js";
 import { listWorkspaceEntries, readWorkspaceFile } from "../workspace-tree.js";
 import { DesktopModelLister } from "../model-lister.js";
+import type { ProjectSessionService } from "../../projects/service.js";
 
 export interface DesktopCommandRouterOptions {
+  projects?: Pick<ProjectSessionService, "snapshot" | "action" | "previewImport" | "importHistory">;
   stateStore: JsonDesktopAppStateStore;
   credentialVault: DesktopCredentialVaultService;
   workerSupervisor: WorkerProcessSupervisor;
@@ -98,6 +100,23 @@ export class DesktopCommandRouter {
   async #dispatch(command: DesktopCommand): Promise<DesktopEvent> {
     const timestamp = this.#clock();
     switch (command.type) {
+      case "projects.import.preview": {
+        if (!this.options.projects) throw new Error("Shared project service is unavailable.");
+        return { type: "projects.import.previewed", timestamp, preview: await this.options.projects.previewImport(command.projectId, command.workspaceId) };
+      }
+      case "projects.import.confirm": {
+        if (!this.options.projects) throw new Error("Shared project service is unavailable.");
+        return { type: "projects.imported", timestamp, result: await this.options.projects.importHistory(command.projectId, command.digest, command.workspaceId) };
+      }
+      case "projects.snapshot": {
+        if (!this.options.projects) throw new Error("Shared project service is unavailable.");
+        return { type: "projects.snapshot", timestamp, snapshot: await this.options.projects.snapshot() };
+      }
+      case "projects.action": {
+        if (!this.options.projects) throw new Error("Shared project service is unavailable.");
+        const { snapshot, result } = await this.options.projects.action(command.action);
+        return { type: "projects.snapshot", timestamp, snapshot, result };
+      }
       case "repository.list": {
         const state = await this.options.stateStore.load();
         return { type: "repository.listed", timestamp, repositories: state.recentRepositories };

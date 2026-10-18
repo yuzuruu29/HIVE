@@ -264,7 +264,7 @@ export async function maybeLaunchSession(args: string[], options: TuiLaunchOptio
     if (print && !launch.prompt && launch.mode !== "review") throw new Error("Headless sessions require a prompt. Use hive -p \"your task\" or hive -p - for explicit stdin.");
     if (print) return await headless(launch, cwd, options);
     const initialCommands = setupCommands(launch);
-    if (launch.mode === "review") initialCommands.push(`/review${launch.prompt ? ` ${launch.prompt}` : ""}`);
+    if (launch.mode === "review") initialCommands.push(`/review run${launch.prompt ? ` ${launch.prompt}` : ""}`);
     else if (launch.prompt) initialCommands.push(launch.prompt.startsWith("/") ? `/run ${launch.prompt}` : launch.prompt);
     const startTui = options.startTui ?? (await import("./index.js")).startHiveTui;
     await startTui(cwd, { initialCommands, initialMode: launch.mode });

@@ -59,6 +59,19 @@ test("launch plan mode is invocation-local, including resumed interactive sessio
   assert.equal(await new ConfigStore(cwd).getMode(), "guarded");
 });
 
+test("interactive review launch invokes a read-only review run rather than the completed-run marker", async (t) => {
+  const cwd = await workspace(t);
+  const starts = [];
+  for (const prompt of [[], ["Inspect authorization"]]) {
+    const result = await runCoderCli(["--review", ...prompt], { cwd, isTTY: true, startTui: async (_cwd, options) => { starts.push(options); } });
+    assert.equal(result.exitCode, 0);
+  }
+  assert.deepEqual(starts, [
+    { initialMode: "review", initialCommands: ["/review run"] },
+    { initialMode: "review", initialCommands: ["/review run Inspect authorization"] },
+  ]);
+});
+
 test("-p runs headlessly even on a terminal and persists real conversation messages", async (t) => {
   const cwd = await workspace(t);
   const requests = [];

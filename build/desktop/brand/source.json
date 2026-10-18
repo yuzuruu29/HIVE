@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "sourceSha256": "6764ed07ce41f0bbc341c6a1aaad07968c0c40090f3e0a90db417a547dd9ed0a",
+  "smallSha256": "d555eaa850c4886e8692ce756e3fe4f442e3710189a749448943a0f44247ce16",
+  "images": [
+    {
+      "file": "icon-16.png",
+      "size": 16,
+      "sha256": "6c3ff20bfe21da1b73c85240f1ad8a0e6939ee3d1a29b634bfa49f522def5194"
+    },
+    {
+      "file": "icon-24.png",
+      "size": 24,
+      "sha256": "0a04f65aee7f664e10a0e0d88bb556dae395f0c4f91ef47b82c2a112e11780da"
+    },
+    {
+      "file": "icon-32.png",
+      "size": 32,
+      "sha256": "b19b584ec234833476afe0dbfbe4150c9b20a3f3d774f7dc227249d75fa9a647"
+    },
+    {
+      "file": "icon-48.png",
+      "size": 48,
+      "sha256": "d7894babf3d761358b19d2ce304cb2ce18aabb19473ed6716db699c402da89c3"
+    },
+    {
+      "file": "icon-64.png",
+      "size": 64,
+      "sha256": "43e7215846d1443f7e885f3d708aa65b52ae20300721f65166650320cde78699"
+    },
+    {
+      "file": "icon-128.png",
+      "size": 128,
+      "sha256": "2bf6dac4501da5b51ee214b0b4d9637228ba918abba68542af40063043b3ea37"
+    },
+    {
+      "file": "icon-256.png",
+      "size": 256,
+      "sha256": "9f82f3d2e815e75ec78a5d290e8e9b2183ab7ac2256a6a348477ce17c19479eb"
+    }
+  ]
+}

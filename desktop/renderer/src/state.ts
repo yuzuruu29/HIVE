@@ -137,6 +137,8 @@ export function initialDesktopState(): DesktopViewState {
 
 export function reduceDesktopEvent(state: DesktopViewState, event: DesktopEvent | DesktopUiAction): DesktopViewState {
   switch (event.type) {
+    case "projects.snapshot": return state;
+    case "projects.import.previewed": case "projects.imported": return state;
     case "ui.tab": return { ...state, tab: event.tab, notice: null };
     case "ui.dismiss-error": return { ...state, error: null };
     case "ui.close-preview": return { ...state, preview: null };

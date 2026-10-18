@@ -62,6 +62,12 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   { name: "providers", summary: "Configure BYOK or local providers", acceptsArgs: true },
   { name: "connect", summary: "Choose BYOK, local models or ChatGPT sign-in", acceptsArgs: false },
   { name: "agents", summary: "Show or inspect subagents", acceptsArgs: true, aliases: ["subagents"] },
+  { name: "projects", summary: "Choose or attach a project", acceptsArgs: false },
+  { name: "archive", summary: "Archive the selected idle session", acceptsArgs: false },
+  { name: "restore", summary: "Restore an archived session", acceptsArgs: true },
+  { name: "activity", summary: "Toggle role and tool activity", acceptsArgs: false },
+  { name: "stop", summary: "Cancel the active run", acceptsArgs: false },
+  { name: "import", summary: "Preview and explicitly import legacy histories", acceptsArgs: true },
 ];
 
 export interface PickerItem {
@@ -72,7 +78,7 @@ export interface PickerItem {
 }
 
 export interface ComposerPicker {
-  kind: "command" | "file" | "session" | "model";
+  kind: "command" | "file" | "session" | "model" | "project";
   query: string;
   selected: number;
   items: PickerItem[];
