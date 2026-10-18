@@ -1,6 +1,8 @@
-import { getLargeHiveTitle, getQueenBeeAscii, getCompactQueenBeeAscii, getHiveTextBanner } from "./banner.js";
-import { TERMINAL_LINE_GRADIENT, gradientText, BRAND_COLORS, applyColor, stripAnsi } from "./colors.js";
-import fs from "fs";
+import fs from "node:fs";
+import { BRAND_COLORS, applyColor } from "./colors.js";
+import { sanitizeTerminalText, wrapDisplayLine } from "../tui/display-text.js";
+import { ASCII_GLYPHS } from "../tui/glyphs.js";
+import { padRow, renderHiveMascot, sessionFrameWidth, type Row, type Tone } from "../tui/transcript-view.js";
 
 function getVersion(): string {
   try {
@@ -11,158 +13,81 @@ function getVersion(): string {
   }
 }
 
-function repeatChar(char: string, count: number): string {
-  return new Array(Math.max(0, count + 1)).join(char);
+function paint(row: Row, useColor: boolean): string {
+  return row.map(({ text, tone }) => {
+    if (!useColor || tone === "text") return text;
+    const color = tone === "gold" ? { r: 245, g: 197, b: 66 } : BRAND_COLORS.primary_bright;
+    return applyColor(text, color.r, color.g, color.b);
+  }).join("");
 }
 
-function padRight(text: string, width: number): string {
-  const stripped = stripAnsi(text);
-  if (stripped.length >= width) return text;
-  return text + repeatChar(" ", width - stripped.length);
+function wrapped(text: string, width: number, tone: Tone = "text"): Row[] {
+  return sanitizeTerminalText(text).split("\n").flatMap((line) => wrapDisplayLine(line, width, true).map((part): Row => [{ text: part, tone }]));
 }
 
-function padLeft(text: string, width: number): string {
-  const stripped = stripAnsi(text);
-  if (stripped.length >= width) return text;
-  return repeatChar(" ", width - stripped.length) + text;
+/** The startup and help surfaces share the session's cell-aware framing. */
+function frame(body: Row[], width: number, useColor: boolean): string {
+  const inner = width - 4;
+  const border = [{ text: `+${"-".repeat(width - 2)}+`, tone: "accent" }] satisfies Row;
+  return [
+    paint(border, useColor),
+    ...body.map((row) => paint([{ text: "| ", tone: "accent" }, ...padRow(row, inner), { text: " |", tone: "accent" }], useColor)),
+    paint(border, useColor),
+  ].join("\n");
+}
+
+function startupFrame(width: number, useColor: boolean): string {
+  const safeWidth = sessionFrameWidth(width);
+  if (safeWidth < 24) return renderPlainStartupText(useColor, safeWidth);
+  const inner = safeWidth - 4;
+  const withMascot = inner >= 13 + 2 + 24;
+  const mascot = withMascot ? renderHiveMascot(ASCII_GLYPHS) : [];
+  const textWidth = inner - (withMascot ? 15 : 0);
+  const lines: Row[] = [
+    ...wrapped("HIVE - Verified Agentic Coding", textWidth, "accent"),
+    ...wrapped("Hyper Intelligence for Verified Engineering", textWidth),
+    [],
+    ...wrapped("Type /help to explore commands.", textWidth),
+    ...wrapped("Run hive providers setup to configure models.", textWidth),
+    ...wrapped("Run hive providers status to inspect provider health.", textWidth),
+    [],
+    ...wrapped("Shift+Tab cycles the permission mode.", textWidth),
+  ];
+  const body = Array.from({ length: Math.max(lines.length, mascot.length) }, (_, index): Row => withMascot
+    ? [...(mascot[index] ?? [{ text: " ".repeat(13), tone: "text" }]), { text: "  ", tone: "text" }, ...(lines[index] ?? [])]
+    : lines[index] ?? []);
+  return frame([
+    [], ...body, [],
+    ...wrapped(getVersion(), inner),
+    ...wrapped(`Workspace: ${sanitizeTerminalText(process.cwd()).replace(/\n/g, " ")}`, inner),
+  ], safeWidth, useColor);
 }
 
 export function renderStartupFrame(width: number, useColor: boolean): string {
-  const safeW = Math.max(width, 100);
-  const borderH = repeatChar("-", safeW - 2);
-  const topBorder = useColor ? gradientText("+" + borderH + "+", TERMINAL_LINE_GRADIENT) : "+" + borderH + "+";
-  const bottomBorder = topBorder;
-
-  const titleLines = getLargeHiveTitle(useColor);
-  const beeLines = getQueenBeeAscii(useColor);
-  
-  const rightLines = [
-    "HIVE CLI/IDE COMMAND COCKPIT",
-    useColor ? gradientText(repeatChar("-", 58), TERMINAL_LINE_GRADIENT) : repeatChar("-", 58),
-    "Welcome to HIVE.",
-    "Terminal-native intelligence for verified agentic builds.",
-    "",
-    "Type /help to explore commands.",
-    "Run hive providers setup to configure models.",
-    "Run hive providers status to inspect provider health.",
-    "",
-    "TIP: Use Shift+Tab to toggle permissions mode."
-  ];
-
-  const content: string[] = [];
-  content.push(useColor ? gradientText("|", TERMINAL_LINE_GRADIENT) + repeatChar(" ", safeW - 2) + gradientText("|", TERMINAL_LINE_GRADIENT) : "|" + repeatChar(" ", safeW - 2) + "|");
-  
-  const maxLines = Math.max(titleLines.length + beeLines.length + 1, rightLines.length);
-  const leftColW = 34;
-  
-  for (let i = 0; i < maxLines; i++) {
-    let left = "";
-    if (i < titleLines.length) {
-      left = titleLines[i];
-    } else if (i === titleLines.length) {
-      left = "";
-    } else {
-      const beeIdx = i - titleLines.length - 1;
-      if (beeIdx < beeLines.length) {
-        left = beeLines[beeIdx];
-      }
-    }
-    
-    const right = rightLines[i] || "";
-    const leftPad = padRight(left, leftColW);
-    const middlePad = "    ";
-    const rightContent = right;
-    
-    const rawLen = stripAnsi(leftPad).length + middlePad.length + stripAnsi(rightContent).length;
-    const remaining = safeW - 2 - rawLen - 2; // -2 for margins
-    const rightPadStr = repeatChar(" ", Math.max(0, remaining));
-    
-    const pipe = useColor ? gradientText("|", TERMINAL_LINE_GRADIENT) : "|";
-    content.push(pipe + "  " + leftPad + middlePad + rightContent + rightPadStr + pipe);
-  }
-
-  content.push(useColor ? gradientText("|", TERMINAL_LINE_GRADIENT) + repeatChar(" ", safeW - 2) + gradientText("|", TERMINAL_LINE_GRADIENT) : "|" + repeatChar(" ", safeW - 2) + "|");
-  
-  const footer1 = "HYPER INTELLIGENCE FOR VERIFIED ENGINEERING";
-  const footer2 = `${getVersion()} - ${process.cwd()}`;
-  
-  const pipe = useColor ? gradientText("|", TERMINAL_LINE_GRADIENT) : "|";
-  content.push(pipe + "  " + padRight(useColor ? applyColor(footer1, BRAND_COLORS.muted.r, BRAND_COLORS.muted.g, BRAND_COLORS.muted.b) : footer1, safeW - 4) + pipe);
-  content.push(pipe + "  " + padRight(useColor ? applyColor(footer2, BRAND_COLORS.dim.r, BRAND_COLORS.dim.g, BRAND_COLORS.dim.b) : footer2, safeW - 4) + pipe);
-  
-  content.push(useColor ? gradientText("|", TERMINAL_LINE_GRADIENT) + repeatChar(" ", safeW - 2) + gradientText("|", TERMINAL_LINE_GRADIENT) : "|" + repeatChar(" ", safeW - 2) + "|");
-  
-  return [topBorder, ...content, bottomBorder].join("\n");
+  return startupFrame(width, useColor);
 }
 
 export function renderCompactStartupFrame(width: number, useColor: boolean): string {
-  const safeW = Math.max(width, 70);
-  const borderH = repeatChar("-", safeW - 2);
-  const topBorder = useColor ? gradientText("+" + borderH + "+", TERMINAL_LINE_GRADIENT) : "+" + borderH + "+";
-  const bottomBorder = topBorder;
-
-  const beeLines = getCompactQueenBeeAscii(useColor);
-  const banner = getHiveTextBanner(useColor);
-  const subtitle = "Terminal-native intelligence for verified builds.";
-  
-  const content: string[] = [];
-  const pipe = useColor ? gradientText("|", TERMINAL_LINE_GRADIENT) : "|";
-  
-  content.push(pipe + repeatChar(" ", safeW - 2) + pipe);
-  content.push(pipe + "  " + padRight(banner, safeW - 4) + pipe);
-  content.push(pipe + "  " + padRight(subtitle, safeW - 4) + pipe);
-  content.push(pipe + repeatChar(" ", safeW - 2) + pipe);
-  
-  for (let i = 0; i < beeLines.length; i++) {
-    const r = i === 0 ? "Type /help to explore commands." : i === 1 ? "Run hive providers setup" : "";
-    const lPad = padRight(beeLines[i], 12);
-    const rPad = r;
-    const rawLen = stripAnsi(lPad).length + stripAnsi(rPad).length + 4;
-    const rem = safeW - 2 - rawLen;
-    content.push(pipe + "  " + lPad + "  " + rPad + repeatChar(" ", Math.max(0, rem)) + pipe);
-  }
-  
-  content.push(pipe + repeatChar(" ", safeW - 2) + pipe);
-  const footer2 = `${getVersion()} - ${process.cwd()}`;
-  content.push(pipe + "  " + padRight(useColor ? applyColor(footer2, BRAND_COLORS.dim.r, BRAND_COLORS.dim.g, BRAND_COLORS.dim.b) : footer2, safeW - 4) + pipe);
-  content.push(pipe + repeatChar(" ", safeW - 2) + pipe);
-  
-  return [topBorder, ...content, bottomBorder].join("\n");
+  return startupFrame(width, useColor);
 }
 
-export function renderPlainStartupText(useColor: boolean): string {
-  const banner = getHiveTextBanner(useColor);
-  const lines = [
-    banner,
-    "Terminal-native intelligence for verified agentic builds.",
-    "",
-    "Usage:",
-    "  hive run \"<task>\"",
-    "  hive providers setup",
-    "  hive --help",
-    "",
-    `${getVersion()} - ${process.cwd()}`
-  ];
-  return lines.join("\n");
+export function renderPlainStartupText(useColor: boolean, width = 80): string {
+  const safeWidth = sessionFrameWidth(width);
+  return [
+    ...wrapped("HIVE - Verified Agentic Coding", safeWidth, "accent"),
+    ...wrapped("Hyper Intelligence for Verified Engineering", safeWidth),
+    [],
+    ...wrapped('hive run "<task>"', safeWidth),
+    ...wrapped("hive providers setup", safeWidth),
+    ...wrapped("hive --help", safeWidth),
+    [],
+    ...wrapped(`${getVersion()} - ${sanitizeTerminalText(process.cwd()).replace(/\n/g, " ")}`, safeWidth),
+  ].map((row) => paint(row, useColor)).join("\n");
 }
 
 export function renderHelpFrame(width: number, useColor: boolean, text: string): string {
-  if (width < 70) {
-    return text;
-  }
-  
-  const lines = text.split("\n");
-  const maxLineW = Math.max(...lines.map(l => stripAnsi(l).length));
-  const safeW = Math.max(width, Math.min(100, maxLineW + 4));
-  
-  const borderH = repeatChar("-", safeW - 2);
-  const topBorder = useColor ? gradientText("+" + borderH + "+", TERMINAL_LINE_GRADIENT) : "+" + borderH + "+";
-  
-  const content = lines.map(l => {
-    const pipe = useColor ? gradientText("|", TERMINAL_LINE_GRADIENT) : "|";
-    const rem = safeW - 2 - stripAnsi(l).length - 2;
-    return pipe + " " + l + repeatChar(" ", Math.max(0, rem)) + " " + pipe;
-  });
-  
-  return [topBorder, ...content, topBorder].join("\n");
+  const safeWidth = sessionFrameWidth(width);
+  const body = wrapped(text, safeWidth >= 24 ? safeWidth - 4 : safeWidth);
+  if (safeWidth < 24) return body.map((row) => paint(row, false)).join("\n");
+  return frame(body, safeWidth, useColor);
 }

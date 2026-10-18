@@ -233,3 +233,23 @@
   color: var(--ink);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 0 0 1px var(--line);
 }
+
+.hive-composer-left { flex: 1; }
+.hive-model-picker { position: relative; min-width: 0; max-width: 280px; flex: 0 1 auto; }
+.hive-model-picker .hive-model-btn { width: 100%; max-width: 100%; }
+.hive-model-btn svg { flex: none; }
+.hive-model-name { min-width: 0; }
+.hive-model-menu { position: fixed; bottom: auto; }
+.hive-model-menu:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.hive-model-menu ul:focus { outline: none; }
+.hive-model-option { gap: 8px; min-height: 34px; padding-block: 7px; line-height: 1.4; overflow-wrap: anywhere; }
+.hive-model-option.is-active { background: var(--hover); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.hive-model-option.is-selected.is-active { background: var(--accent-wash); }
+.hive-model-option.is-selected::after { flex: none; }
+.hive-code-layout .hive-composer-bar { flex-wrap: wrap; }
+@container workspace (max-width: 600px) {
+  .hive-composer { padding: 10px 10px 8px 12px; }
+  .hive-composer-input { font-size: var(--text-md); }
+  .hive-model-btn, .hive-pill-btn { padding-inline: 8px; }
+  .hive-segment button { padding-inline: 9px; }
+}

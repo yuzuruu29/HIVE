@@ -10,17 +10,19 @@ import {
 } from "../dist/ui/index.js";
 
 test("UI Branding", async (t) => {
-  await t.test("full startup frame contains queen bee and HIVE", () => {
+  await t.test("full startup frame uses the session's skep and bee", () => {
     const frame = renderStartupFrame(100, false);
     assert.ok(frame.includes("HIVE"));
-    assert.ok(frame.includes("HYPER INTELLIGENCE FOR VERIFIED ENGINEERING"));
-    assert.ok(frame.includes("/\\_/\\")); // queen bee ears
+    assert.ok(frame.includes("Hyper Intelligence for Verified Engineering"));
+    assert.ok(frame.includes("(=====n=====)"));
+    assert.ok(frame.includes("{o}"));
+    assert.equal(frame.includes("/\\_/\\"), false);
   });
 
-  await t.test("compact startup frame contains queen bee and banner", () => {
+  await t.test("compact startup frame uses the same skep and banner", () => {
     const frame = renderCompactStartupFrame(70, false);
     assert.ok(frame.includes("HIVE - Verified Agentic Coding"));
-    assert.ok(frame.includes("/\\_/\\")); // compact queen bee ears
+    assert.ok(frame.includes("(=====n=====)"));
   });
   
   await t.test("plain startup text contains banner", () => {
@@ -77,12 +79,45 @@ test("UI Branding", async (t) => {
   await t.test("output remains readable without ANSI", () => {
     const frame = stripAnsi(renderStartupFrame(100, true));
     assert.ok(frame.includes("HIVE"));
-    assert.ok(frame.includes("HYPER INTELLIGENCE FOR VERIFIED ENGINEERING"));
+    assert.ok(frame.includes("Hyper Intelligence for Verified Engineering"));
     
     const compact = stripAnsi(renderCompactStartupFrame(70, true));
     assert.ok(compact.includes("HIVE"));
     assert.ok(compact.includes("Verified"));
   });
+});
+
+test("startup and help frames fit terminal cells and retain long workspace paths", async () => {
+  const { terminalCellWidth } = await import("../dist/tui/display-text.js");
+  const { renderHiveMascot, plainRow } = await import("../dist/tui/transcript-view.js");
+  const { ASCII_GLYPHS } = await import("../dist/tui/glyphs.js");
+  const mascot = new Set(renderHiveMascot(ASCII_GLYPHS).map(plainRow));
+  const content = (output) => stripAnsi(output).split("\n").map((line) => {
+    const body = line.startsWith("| ") ? line.slice(2, -2) : line;
+    return mascot.has(body.slice(0, 13)) && body.slice(13, 15) === "  " ? body.slice(15) : body;
+  }).join("").replace(/\s/g, "");
+  const originalCwd = process.cwd;
+  const workspace = `C:\\工程👩🏽‍💻\\${"long-workspace-name-".repeat(14)}tail`;
+  process.cwd = () => workspace;
+  try {
+    for (const width of [12, 24, 40, 60, 70, 100, 160]) {
+      for (const color of [false, true]) {
+        for (const output of [renderStartupFrame(width, color), renderCompactStartupFrame(width, color), renderPlainStartupText(color, width)]) {
+          assert.ok(output.split("\n").every((line) => terminalCellWidth(line) <= width), `${width}-cell startup overflow`);
+          const plain = content(output);
+          assert.ok(plain.includes(workspace.replace(/\s/g, "")), "the full workspace survives wrapping");
+          assert.ok(plain.includes("hiveproviderssetup"));
+          assert.ok(plain.includes("HyperIntelligenceforVerifiedEngineering"));
+        }
+        const help = renderHelpFrame(width, color, `hive run <task>\n${"你👩🏽‍💻e\u0301".repeat(60)}\nUse --help for commands.`);
+        assert.ok(help.split("\n").every((line) => terminalCellWidth(line) <= width), `${width}-cell help overflow`);
+        const text = stripAnsi(help).split("\n").map((line) => line.startsWith("| ") ? line.slice(2, -2) : line).join("").replace(/\s/g, "");
+        assert.ok(text.includes("你👩🏽‍💻e\u0301".repeat(60)), "help wraps whole graphemes without losing content");
+      }
+    }
+  } finally {
+    process.cwd = originalCwd;
+  }
 });
 
 // --- TUI Actions Tests ---

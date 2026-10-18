@@ -131,3 +131,18 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+.hive-main { container-name: workspace; container-type: inline-size; }
+.hive-topbar-right { min-width: 0; max-width: 45%; }
+.hive-chip.is-button { min-width: 0; max-width: 100%; }
+.hive-chip.is-button svg { flex: none; }
+.hive-workspace-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 900px) {
+  .hive-sidebar { --sidebar-w: 212px; }
+  .hive-topbar { gap: 8px; padding-inline: 14px; }
+}
+@media (max-width: 600px) {
+  .hive-sidebar { --sidebar-w: 180px; }
+  .hive-topbar { padding-inline: 10px; }
+  .hive-topbar-right { max-width: 40%; }
+}

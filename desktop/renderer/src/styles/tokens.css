@@ -59,8 +59,8 @@
 
   --ink: #eceaf3;
   --ink-2: #b9b5c6;
-  --ink-3: #8a859b;
-  --ink-4: #615c72;
+  --ink-3: #aaa2b7;
+  --ink-4: #9b93a8;
 
   --accent: #8b5cf6;
   --accent-strong: #7c3aed;
@@ -68,6 +68,7 @@
   --accent-wash: rgba(139, 92, 246, 0.14);
   --accent-ring: rgba(139, 92, 246, 0.45);
   --on-accent: #ffffff;
+  --focus-ring: var(--accent-ink);
 
   --user-bubble: #262130;
   --code-bg: #0d0c11;
@@ -101,8 +102,8 @@
 
     --ink: #1e1b26;
     --ink-2: #4a4557;
-    --ink-3: #757085;
-    --ink-4: #a29eae;
+    --ink-3: #625b6d;
+    --ink-4: #6b6375;
 
     --accent: #7c3aed;
     --accent-strong: #6d28d9;
@@ -110,6 +111,7 @@
     --accent-wash: rgba(124, 58, 237, 0.08);
     --accent-ring: rgba(124, 58, 237, 0.35);
     --on-accent: #ffffff;
+  --focus-ring: var(--accent-ink);
 
     --user-bubble: #efebf6;
     --code-bg: #f6f4f1;
@@ -141,14 +143,15 @@
   --line-strong: rgba(30, 20, 50, 0.15);
   --ink: #1e1b26;
   --ink-2: #4a4557;
-  --ink-3: #757085;
-  --ink-4: #a29eae;
+  --ink-3: #625b6d;
+  --ink-4: #6b6375;
   --accent: #7c3aed;
   --accent-strong: #6d28d9;
   --accent-ink: #6d28d9;
   --accent-wash: rgba(124, 58, 237, 0.08);
   --accent-ring: rgba(124, 58, 237, 0.35);
   --on-accent: #ffffff;
+  --focus-ring: var(--accent-ink);
   --user-bubble: #efebf6;
   --code-bg: #f6f4f1;
   --ok: #15803d;
@@ -168,6 +171,7 @@
 :root[data-accent="contrast"] {
   --line: var(--line-strong);
   --ink-3: var(--ink-2);
+  --ink-4: var(--ink-2);
 }
 
 :root[data-density="compact"] {

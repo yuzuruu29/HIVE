@@ -4,9 +4,10 @@ import type { DesktopCommandInput } from "../../bridge";
 import type { DesktopEvent, ThreadMessage } from "../../../../../src/desktop/types";
 import { identifier, preferredScrollBehavior, terminalStatuses } from "../../utils";
 import { renderMarkdown } from "../../markdown";
-import { InspectorTabs } from "../inspector/InspectorTabs";
+import { InspectorTabs, type InspectorTab } from "../inspector/InspectorTabs";
+import { ConfiguredModelPicker, type ConfiguredModelOption } from "../ConfiguredModelPicker";
 import { AgentActivity } from "./AgentActivity";
-import { ArrowUpIcon, ChevronDownIcon, CodeIcon, FolderIcon, HiveMark, StopIcon } from "../../shell/icons";
+import { ArrowUpIcon, CodeIcon, FolderIcon, HiveMark, StopIcon } from "../../shell/icons";
 
 export interface CodexSurfaceProps {
   state: DesktopViewState;
@@ -14,6 +15,8 @@ export interface CodexSurfaceProps {
   activeModelName?: string;
   /** The model shown in the composer; new runs use it. */
   selectedModel?: { providerId: string; model: string } | null;
+  modelOptions?: ConfiguredModelOption[];
+  onSelectModel?: (choice: ConfiguredModelOption) => void;
   onOpenModelPicker?: () => void;
   onOpenSettings?: () => void;
   onOpenRepositoryPicker?: () => void;
@@ -24,6 +27,8 @@ export interface CodexSurfaceProps {
   onRunAction?: (action: "pause" | "resume" | "cancel") => Promise<void>;
   hideInspector?: boolean;
   defaultInspectorTab?: "changes" | "files" | "terminal" | "evidence" | "run";
+  inspectorTab?: InspectorTab;
+  onSelectInspectorTab?: (tab: InspectorTab) => void;
 }
 
 export type CodexComposerMode = "agent" | "plan";
@@ -42,6 +47,8 @@ export function CodexSurface({
   send,
   activeModelName = "No model",
   selectedModel = null,
+  modelOptions = [],
+  onSelectModel,
   onOpenModelPicker,
   onOpenSettings,
   onOpenRepositoryPicker,
@@ -51,6 +58,8 @@ export function CodexSurface({
   onRunAction,
   hideInspector = false,
   defaultInspectorTab = "changes",
+  inspectorTab,
+  onSelectInspectorTab,
 }: CodexSurfaceProps) {
   const { repositoryRoot, threads, activeThreadId, reports, runtimeEvents, run, selectedSessionId } = state;
 
@@ -161,10 +170,9 @@ export function CodexSurface({
                 Plan
               </button>
             </div>
-            <button type="button" className="hive-model-btn" onClick={onOpenModelPicker || onOpenSettings} aria-label={`Model: ${activeModelName}`}>
-              <span className="hive-model-name">{activeModelName}</span>
-              <ChevronDownIcon size={14} />
-            </button>
+            <ConfiguredModelPicker options={modelOptions} selectedModel={selectedModel} onSelectModel={onSelectModel}
+              onOpenModelPicker={onOpenModelPicker} onOpenSettings={onOpenSettings} label={`Model: ${activeModelName}`}
+              placeholder={activeModelName} resetKey={repositoryRoot ?? ""} />
           </div>
           {running && onRunAction ? (
             <button type="button" className="hive-send-btn is-stop" aria-label="Stop run" onClick={() => void onRunAction("cancel")}>
@@ -260,6 +268,8 @@ export function CodexSurface({
           report={activeReport}
           sessionId={codingSessionId ?? undefined}
           defaultTab={defaultInspectorTab}
+          selectedTab={inspectorTab}
+          onSelectTab={onSelectInspectorTab}
           onSelectFile={onSelectFile}
           onToggleDir={onToggleDir}
           onPreviewGit={onPreviewGit}

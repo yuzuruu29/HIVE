@@ -5,13 +5,10 @@ import type { DesktopEvent } from "../../../../../src/desktop/types";
 import { copyTextToClipboard, renderMarkdown } from "../../markdown";
 import { usePrefs } from "../../prefs";
 import { preferredScrollBehavior } from "../../utils";
-import { ArrowRightIcon, ArrowUpIcon, BookIcon, CheckIcon, ChevronDownIcon, CopyIcon, DiffIcon, FlaskIcon, HiveMark, ListIcon, RefreshIcon, StopIcon } from "../../shell/icons";
+import { ArrowRightIcon, ArrowUpIcon, BookIcon, CheckIcon, CopyIcon, DiffIcon, FlaskIcon, HiveMark, ListIcon, RefreshIcon, StopIcon } from "../../shell/icons";
+import { ConfiguredModelPicker, type ConfiguredModelOption } from "../ConfiguredModelPicker";
 
-export interface ChatModelOption {
-  providerId: string;
-  providerName: string;
-  model: string;
-}
+export type ChatModelOption = ConfiguredModelOption;
 
 export interface ChatSurfaceProps {
   state: DesktopViewState;
@@ -61,12 +58,10 @@ export function ChatSurface({
   const sendWithEnter = prefs.composerSendWithEnter !== false;
   const configuredModels = modelOptions.filter((option) => option.model.trim() && state.providers.some((provider) => provider.id === option.providerId && provider.configured));
   const matchedModel = configuredModels.find((option) => option.providerId === selectedModel?.providerId && option.model === selectedModel?.model);
-  const displayModel = matchedModel ? matchedModel.model : "No model";
 
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [sendFailure, setSendFailure] = useState<{ draftKey: string; message: string } | null>(null);
   const [sending, setSending] = useState(false);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -103,7 +98,6 @@ export function ChatSurface({
   useEffect(() => {
     textareaRef.current?.focus();
     setSendFailure(null);
-    setModelMenuOpen(false);
   }, [active?.id]);
 
   useEffect(() => {
@@ -238,12 +232,6 @@ export function ChatSurface({
     });
   };
 
-  const groupedModels = configuredModels.reduce<Array<{ providerId: string; providerName: string; models: ChatModelOption[] }>>((groups, option) => {
-    const existing = groups.find((group) => group.providerId === option.providerId);
-    if (existing) existing.models.push(option);
-    else groups.push({ providerId: option.providerId, providerName: option.providerName, models: [option] });
-    return groups;
-  }, []);
   const hint = sendWithEnter ? "Enter sends. Shift+Enter adds a line." : "Ctrl+Enter sends. Enter adds a line.";
 
   const setupBanner = readiness && (
@@ -273,68 +261,15 @@ export function ChatSurface({
         />
         <div className="hive-composer-bar">
           <div className="hive-composer-left">
-            <button
-              type="button"
-              className="hive-model-btn"
-              aria-haspopup="listbox"
-              aria-expanded={modelMenuOpen}
-              aria-label="Select model"
-              title={matchedModel ? `${matchedModel.providerName} / ${matchedModel.model}` : "Choose a model in Settings"}
-              onClick={() => {
-                if (configuredModels.length === 0) {
-                  (onOpenModelPicker ?? onOpenSettings)?.();
-                  return;
-                }
-                setModelMenuOpen((open) => !open);
-              }}
-            >
-              <span className="hive-model-name">{displayModel}</span>
-              <ChevronDownIcon size={14} />
-            </button>
-            {modelMenuOpen && configuredModels.length > 0 && (
-              <ul className="hive-model-menu" role="listbox" aria-label="Configured models">
-                {groupedModels.map((group) => (
-                  <li key={group.providerId}>
-                    <div className="hive-model-group">{group.providerName}</div>
-                    <ul>
-                      {group.models.map((option) => {
-                        const selected = option.providerId === selectedModel?.providerId && option.model === selectedModel?.model;
-                        return (
-                          <li key={`${option.providerId}:${option.model}`}>
-                            <button
-                              type="button"
-                              role="option"
-                              aria-selected={selected}
-                              className={`hive-model-option${selected ? " is-selected" : ""}`}
-                              onClick={() => {
-                                onSelectModel?.(option);
-                                setModelMenuOpen(false);
-                              }}
-                            >
-                              {option.model}
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </li>
-                ))}
-                {onOpenSettings && (
-                  <li className="hive-model-foot">
-                    <button
-                      type="button"
-                      className="hive-model-option"
-                      onClick={() => {
-                        setModelMenuOpen(false);
-                        onOpenSettings();
-                      }}
-                    >
-                      Configure providers
-                    </button>
-                  </li>
-                )}
-              </ul>
-            )}
+            <ConfiguredModelPicker
+              options={configuredModels}
+              selectedModel={selectedModel}
+              onSelectModel={onSelectModel}
+              onOpenModelPicker={onOpenModelPicker}
+              onOpenSettings={onOpenSettings}
+              placeholder="No model"
+              resetKey={draftKey}
+            />
           </div>
           {streaming ? (
             <button type="button" className="hive-send-btn is-stop" aria-label="Stop generation" onClick={() => void handleStop()}>

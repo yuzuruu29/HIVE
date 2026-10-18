@@ -117,3 +117,17 @@
 .hive-kpi-card.is-wide {
   grid-column: span 2;
 }
+
+.hive-kpi-card { min-width: 0; }
+.hive-kpi-val { overflow-wrap: anywhere; }
+@container workspace (max-width: 780px) {
+  .hive-usage-inner { gap: 16px; padding: 20px 20px 32px; }
+  .hive-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto; }
+  .hive-kpi-card.is-lead { grid-column: 1 / -1; grid-row: auto; }
+}
+@container workspace (max-width: 480px) {
+  .hive-usage-inner { padding-inline: 14px; }
+  .hive-kpi-grid { grid-template-columns: minmax(0, 1fr); }
+  .hive-kpi-card.is-wide { grid-column: auto; }
+  .hive-kpi-card { padding: 16px; }
+}

@@ -1,11 +1,64 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsDialog } from "./SettingsDialog";
 
 describe("SettingsDialog component", () => {
+  afterEach(() => vi.unstubAllGlobals());
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  it("uses one tab stop and vertical Arrow, Home and End navigation with labeled panels", () => {
+    render(<SettingsDialog onClose={vi.fn()} />);
+    const general = screen.getByRole("tab", { name: "General" });
+    const providers = screen.getByRole("tab", { name: "Providers" });
+    expect(general).toHaveAttribute("tabindex", "0");
+    expect(providers).toHaveAttribute("tabindex", "-1");
+    general.focus();
+    fireEvent.keyDown(general, { key: "ArrowDown" });
+    expect(providers).toHaveFocus();
+    expect(providers).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: "Providers" })).toHaveAttribute("id", providers.getAttribute("aria-controls"));
+    fireEvent.keyDown(providers, { key: "End" });
+    const models = screen.getByRole("tab", { name: "Models" });
+    expect(models).toHaveFocus();
+    expect(screen.getByRole("tabpanel", { name: "Models" })).toHaveTextContent(/configure an api or local provider/i);
+    fireEvent.keyDown(models, { key: "ArrowDown" });
+    expect(general).toHaveFocus();
+    fireEvent.keyDown(general, { key: "ArrowUp" });
+    expect(models).toHaveFocus();
+    fireEvent.keyDown(models, { key: "Home" });
+    expect(general).toHaveFocus();
+  });
+
+  it("matches responsive tab orientation and keyboard navigation, and removes its media listener", () => {
+    let compact = true;
+    let syncOrientation: (() => void) | undefined;
+    const removeEventListener = vi.fn();
+    const matchMedia = vi.fn(() => ({
+      get matches() { return compact; },
+      addEventListener: (_type: string, listener: () => void) => { syncOrientation = listener; },
+      removeEventListener,
+    }));
+    vi.stubGlobal("matchMedia", matchMedia);
+    const { unmount } = render(<SettingsDialog onClose={vi.fn()} />);
+    expect(matchMedia).toHaveBeenCalledWith("(max-width: 800px)");
+    const tabs = screen.getByRole("tablist", { name: "Settings sections" });
+    expect(tabs).toHaveAttribute("aria-orientation", "horizontal");
+    const general = screen.getByRole("tab", { name: "General" });
+    general.focus();
+    fireEvent.keyDown(general, { key: "ArrowRight" });
+    const providers = screen.getByRole("tab", { name: "Providers" });
+    expect(providers).toHaveFocus();
+    expect(screen.getByRole("tabpanel", { name: "Providers" })).toBeInTheDocument();
+    compact = false;
+    act(() => syncOrientation?.());
+    expect(tabs).toHaveAttribute("aria-orientation", "vertical");
+    fireEvent.keyDown(providers, { key: "ArrowDown" });
+    expect(screen.getByRole("tab", { name: "Models" })).toHaveFocus();
+    unmount();
+    expect(removeEventListener).toHaveBeenCalledExactlyOnceWith("change", syncOrientation);
   });
 
   it("updates density and accent settings in localStorage", async () => {

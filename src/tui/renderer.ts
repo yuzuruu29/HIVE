@@ -18,6 +18,8 @@ import {
   fitVisible,
   layoutComposer,
   padRow,
+  permissionContextRows,
+  permissionDisplayPrompt,
   planSessionFrame,
   renderTranscriptRows,
   rowWidth,
@@ -41,7 +43,7 @@ type Rgb = { r: number; g: number; b: number };
 type Palette = Record<Tone, { fg: Rgb; bg?: Rgb; band?: boolean }>;
 
 /**
- * Semantic colors: violet for HIVE, gold for the queen's crown, green and red
+ * Semantic colors: violet for HIVE, gold for the bee, green and red
  * only for change and outcome. Banded tones paint a background to the row's end.
  */
 const DARK: Palette = {
@@ -114,17 +116,20 @@ function paintRow(row: Row, palette: Palette | undefined, width?: number): strin
 // -- Picker --------------------------------------------------------------------
 
 /** Suggestions under the input box, Claude Code style. */
-export function renderPickerRows(state: TuiState): string[] {
+export function renderPickerRows(state: TuiState, availableRows = Infinity): string[] {
   const picker = state.picker;
-  if (!picker) return [];
+  if (!picker || availableRows <= 0) return [];
   const width = sessionFrameWidth(state.width);
   const g = glyphsFor(state);
   if (picker.items.length === 0) {
     if (picker.loading) return [paintRow([{ text: "  Searching files", tone: "dim" }], paletteFor(state))];
     return [paintRow([{ text: picker.kind === "file" ? "  No matching files" : "  No matching commands", tone: "dim" }], paletteFor(state))];
   }
-  return picker.items.map((item, index) => {
-    const selected = index === picker.selected;
+  const limit = Math.max(0, Math.min(picker.items.length, Math.floor(availableRows)));
+  const selectedIndex = Math.max(0, Math.min(picker.items.length - 1, picker.selected));
+  const start = Math.min(Math.max(0, selectedIndex - Math.floor(limit / 2)), picker.items.length - limit);
+  return picker.items.slice(start, start + limit).map((item, index) => {
+    const selected = start + index === selectedIndex;
     return paintRow(fitSpans([
       { text: selected ? `  ${g.focus} ` : "    ", tone: "accent" },
       { text: item.label, tone: selected ? "accent" : "text" },
@@ -248,6 +253,10 @@ function statusHint(state: TuiState, g: Glyphs): string {
 /** Mode and context hint on the left; runtime, workspace and usage on the right. */
 export function renderStatusBar(state: TuiState, width: number): string {
   const g = glyphsFor(state);
+  if (state.pendingPermission && !state.mcpInput && width < 64) {
+    const hint = `${g.bullet === "*" ? "up/down" : "↑↓ select"} ${g.dot} enter ${g.dot} esc`;
+    return paintRow(fitSpans([{ text: hint, tone: "warn" }], width), paletteFor(state));
+  }
   const mode = fitVisible(state.sessionMode || "guarded", 16);
   const left: Row = [
     { text: `  ${g.mode} ${mode} mode`, tone: MODE_TONES[mode] ?? "accent" },
@@ -267,11 +276,12 @@ export function renderStatusBar(state: TuiState, width: number): string {
   ]
     .map((part) => fitVisible(part, width))
     .filter(Boolean);
-  // The hint is the first thing to go when the runtime info would not fit.
+  // Approval instructions take priority over runtime metadata.
   const withHint = fitSpans(left, width);
-  const leftFit = width - rowWidth(withHint) - 3 >= 24 ? withHint : fitSpans(left.slice(0, 1), width);
+  const approvalPending = Boolean(state.pendingPermission) && !state.mcpInput;
+  const leftFit = approvalPending || width - rowWidth(withHint) - 3 >= 24 ? withHint : fitSpans(left.slice(0, 1), width);
   const room = width - rowWidth(leftFit) - 3;
-  if (room < 8) return paintRow(leftFit, paletteFor(state));
+  if (room < (approvalPending ? 24 : 8)) return paintRow(leftFit, paletteFor(state));
   // Drop whole trailing segments rather than cutting one mid-word; only the first may be truncated.
   const sep = ` ${g.dot} `;
   let right = parts[0] ? fitVisible(parts[0], room) : "";
@@ -416,6 +426,7 @@ function selectorBody(state: TuiState, g: Glyphs): Row[] {
  * while a decision is pending. Short terminals drop the box borders.
  */
 export function renderComposerBand(state: TuiState, width: number, composerRows: number, now = Date.now()): string[] {
+  if (composerRows <= 0) return [];
   const g = glyphsFor(state);
   const paint = (row: Row) => paintRow(fitSpans(row, width), paletteFor(state));
   const prompt = boxPrompt(state);
@@ -424,18 +435,37 @@ export function renderComposerBand(state: TuiState, width: number, composerRows:
   const queueText = state.mcpInput ? undefined : formatMessageQueue(state.messageQueue);
   if (queueText) activity.push([{ text: `  ${queueText}`, tone: "dim" }]);
 
+  if (state.pendingPermission && !state.mcpInput) {
+    const title = permissionDisplayPrompt(state);
+    const context = permissionContextRows(state, width);
+    const body: Row[] = [
+      ...context.map((text): Row => [{ text, tone: "text" }]),
+      ...(context.length > 0 ? [[]] : []),
+      ...selectorBody(state, g),
+    ];
+    const since = now - (state.permissionAskedAt ?? now);
+    const flash = permissionPulsing(state, now) && Math.floor(since / 300) % 2 === 0;
+    const box = boxRows(body, width, g, flash ? "gold" : "warn", context.length > 0 ? "Approval" : title);
+    if (box.length <= composerRows) return [...activity.slice(0, composerRows - box.length), ...box].map(paint);
+
+    // A short viewport still shows the request and the actual highlighted choice.
+    const choice = state.permissionChoice === 1 ? "1.Yes / [2.No]" : "[1.Yes] / 2.No";
+    const options: Row = [
+      { text: choice, tone: "accent" },
+      { text: state.input ? ` > ${sanitizeTerminalText(state.input).replace(/\n/g, " ")}_` : "", tone: "text" },
+    ];
+    if (composerRows === 1) return [paint([...options, { text: ` ${g.dot} ${title}`, tone: "warn" }])];
+    const request = wrapDisplayLine(title, Math.max(1, width), true);
+    const budget = composerRows - 1;
+    const visible = request.slice(0, budget);
+    if (request.length > budget) visible[budget - 1] = fitVisible(visible[budget - 1] ?? "", Math.max(0, width - terminalCellWidth(g.ellipsis))) + g.ellipsis;
+    return [...visible.map((text): Row => [{ text, tone: "warn" }]), options].map(paint);
+  }
+
   if (composerRows < 3) {
     const layout = layoutComposer(state.input ?? "", state.cursor, width, prompt);
     const line = composerSpans(visibleComposerRows(layout, 1)[0] ?? prompt, state.colorEnabled, prompt);
     return (composerRows <= 1 ? [line] : [activity[0] ?? [], line]).map(paint);
-  }
-
-  if (state.pendingPermission && !state.mcpInput) {
-    const title = (state.permissionPrompt ?? "Allow this action?").replace(/\s*\[y\/n\]\s*$/i, "");
-    const since = now - (state.permissionAskedAt ?? now);
-    const flash = permissionPulsing(state, now) && Math.floor(since / 300) % 2 === 0;
-    const box = boxRows(selectorBody(state, g), width, g, flash ? "gold" : "warn", title);
-    return [...activity, ...box].slice(-composerRows).map(paint);
   }
 
   const inner = Math.max(1, width - COMPOSER_BOX_INSET);
@@ -454,8 +484,8 @@ export function renderTuiScreen(state: TuiState, now = Date.now()): string {
   const colorEnabled = state.colorEnabled;
   const modalState = state.mcpInput ? { ...state, subagentsExpanded: false, picker: undefined, messageQueue: [] } : state;
   const subagentLines = expandedSubagentLines(modalState, width);
-  const pickerLines = renderPickerRows(modalState);
   const plan = planSessionFrame(modalState);
+  const pickerLines = renderPickerRows(modalState, plan.pickerRows);
 
   const lines: string[] = [];
   const modalRows = state.mcpInput ? renderMcpInputRows(state, width) : undefined;

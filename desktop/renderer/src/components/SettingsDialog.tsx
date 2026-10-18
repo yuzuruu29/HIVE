@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useId, useRef, useState } from "react";
 import type { DesktopModelInfo, DesktopProviderMetadata } from "../../../../src/desktop/types";
 import { Dialog } from "../Dialog";
 import { CubeIcon, HiveMark, KeyIcon, SlidersIcon } from "../shell/icons";
@@ -34,6 +34,9 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const { prefs, updatePrefs } = usePrefs();
   const [tab, setTab] = useState<"general" | "models" | "catalog">(initialTab);
+  const tabId = useId();
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [horizontalTabs, setHorizontalTabs] = useState(false);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -47,6 +50,15 @@ export function SettingsDialog({
   const accent = prefs.accent ?? "vivid";
   const notifications = prefs.notifications ?? true;
   const enabledModels = prefs.enabledModels ?? {};
+
+  useEffect(() => {
+    const compact = window.matchMedia?.("(max-width: 800px)");
+    if (!compact) return;
+    const syncOrientation = () => setHorizontalTabs(compact.matches);
+    syncOrientation();
+    compact.addEventListener("change", syncOrientation);
+    return () => compact.removeEventListener("change", syncOrientation);
+  }, []);
 
   useEffect(() => {
     if (tab !== "catalog" || !onFetchModels) return;
@@ -128,13 +140,24 @@ export function SettingsDialog({
           </button>
 
           <div className="settings-sidebar-scroll">
-            <div className="settings-sidebar-group" role="tablist" aria-label="Settings sections">
+            <div className="settings-sidebar-group" role="tablist" aria-label="Settings sections" aria-orientation={horizontalTabs ? "horizontal" : "vertical"} ref={tabsRef} onKeyDown={(event) => {
+              const tabs = ["general", "models", "catalog"] as const;
+              const index = tabs.indexOf(tab);
+              const next = event.key === (horizontalTabs ? "ArrowRight" : "ArrowDown") ? tabs[(index + 1) % tabs.length]
+                : event.key === (horizontalTabs ? "ArrowLeft" : "ArrowUp") ? tabs[(index + tabs.length - 1) % tabs.length]
+                : event.key === "Home" ? tabs[0] : event.key === "End" ? tabs[tabs.length - 1] : undefined;
+              if (!next) return;
+              event.preventDefault();
+              setTab(next);
+              tabsRef.current?.querySelector<HTMLButtonElement>(`[data-settings-tab="${next}"]`)?.focus();
+            }}>
               <span className="settings-sidebar-heading">Settings</span>
               <button
                 type="button"
                 role="tab"
                 className={`settings-nav-item ${tab === "general" ? "is-active" : ""}`}
                 aria-selected={tab === "general"}
+                id={`${tabId}-general`} data-settings-tab="general" aria-controls={`${tabId}-panel`} tabIndex={tab === "general" ? 0 : -1}
                 onClick={() => setTab("general")}
               >
                 <span className="settings-nav-icon" aria-hidden="true"><SlidersIcon /></span>
@@ -145,6 +168,7 @@ export function SettingsDialog({
                 role="tab"
                 className={`settings-nav-item ${tab === "models" ? "is-active" : ""}`}
                 aria-selected={tab === "models"}
+                id={`${tabId}-models`} data-settings-tab="models" aria-controls={`${tabId}-panel`} tabIndex={tab === "models" ? 0 : -1}
                 onClick={() => setTab("models")}
               >
                 <span className="settings-nav-icon" aria-hidden="true"><KeyIcon /></span>
@@ -155,6 +179,7 @@ export function SettingsDialog({
                 role="tab"
                 className={`settings-nav-item ${tab === "catalog" ? "is-active" : ""}`}
                 aria-selected={tab === "catalog"}
+                id={`${tabId}-catalog`} data-settings-tab="catalog" aria-controls={`${tabId}-panel`} tabIndex={tab === "catalog" ? 0 : -1}
                 onClick={() => setTab("catalog")}
               >
                 <span className="settings-nav-icon" aria-hidden="true"><CubeIcon /></span>
@@ -173,7 +198,7 @@ export function SettingsDialog({
           </div>
         </aside>
 
-        <section className="settings-content-pane">
+        <section className="settings-content-pane" role="tabpanel" id={`${tabId}-panel`} aria-labelledby={`${tabId}-${tab}`} tabIndex={0}>
           <header className="settings-page-header">
             <div>
               <h2 className="settings-page-title">{pageTitle}</h2>

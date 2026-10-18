@@ -80,7 +80,7 @@ export function Shell({
             {workspaceName && (
               <button type="button" className="hive-chip is-button" onClick={onPickRepository} title={repositoryPath} disabled={!onPickRepository}>
                 <FolderIcon size={14} />
-                {workspaceName}
+                <span className="hive-workspace-chip-label">{workspaceName}</span>
               </button>
             )}
           </div>

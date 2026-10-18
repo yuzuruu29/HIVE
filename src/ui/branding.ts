@@ -1,5 +1,5 @@
 import { getRenderMode, safeWidth } from "./terminal.js";
-import { renderStartupFrame, renderCompactStartupFrame, renderPlainStartupText, renderHelpFrame } from "./frame.js";
+import { renderStartupFrame, renderCompactStartupFrame, renderPlainStartupText } from "./frame.js";
 import { renderStatusRail, StatusRailOptions } from "./status-rail.js";
 import { renderHiveCompactHeader } from "./banner.js";
 import { gradientText, VIOLET_GRADIENT } from "./colors.js";
@@ -21,7 +21,7 @@ export function getHiveStartup(): string {
     return renderCompactStartupFrame(width, mode === 'compact');
   }
   
-  return renderPlainStartupText(mode !== 'nocolor' && mode !== 'plain'); // Plain typically means narrow or non-TTY. We can still apply color if it's just narrow TTY, but getRenderMode returns plain if !interactive.
+  return renderPlainStartupText(mode !== 'nocolor' && mode !== 'plain', width);
 }
 
 export function getHiveHelpHeader(): string {
