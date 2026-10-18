@@ -212,12 +212,15 @@ export function renderMarkdown(source: string): ReactNode {
     }
 
     // 6. Regular Paragraph
-    const paragraphLines: string[] = [];
+    // Consume the current line first: partial streaming headings such as "#"
+    // and unsupported levels are ordinary text, and must always advance.
+    const paragraphLines: string[] = [line];
+    index++;
     while (
       index < lines.length &&
       lines[index].trim() &&
       !lines[index].trim().startsWith("```") &&
-      !lines[index].startsWith("#") &&
+      !/^#{1,3} /.test(lines[index]) &&
       !lines[index].match(/^[-*]\s+/) &&
       !lines[index].match(/^\d+\.\s+/)
     ) {

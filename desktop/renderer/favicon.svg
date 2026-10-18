@@ -1,32 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none" role="img" aria-label="HIVE">
-  <defs>
-    <linearGradient id="fav-bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1b1235" />
-      <stop offset="100%" stop-color="#08060e" />
-    </linearGradient>
-    <linearGradient id="fav-core" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#c4b5fd" />
-      <stop offset="50%" stop-color="#8b5cf6" />
-      <stop offset="100%" stop-color="#6d28d9" />
-    </linearGradient>
-  </defs>
-
-  <!-- Container Squircle -->
-  <rect width="32" height="32" rx="7" fill="url(#fav-bg)" stroke="#8b5cf6" stroke-opacity="0.5" stroke-width="1" />
-
-  <!-- Triad Cluster -->
-  <!-- Top Left Satellite -->
-  <polygon points="11,6 14,8 14,12 11,14 8,12 8,8" fill="#140d28" stroke="#a78bfa" stroke-width="1" stroke-linejoin="round" />
-  
-  <!-- Top Right Satellite -->
-  <polygon points="21,6 24,8 24,12 21,14 18,12 18,8" fill="#140d28" stroke="#818cf8" stroke-width="1" stroke-linejoin="round" />
-
-  <!-- Bottom Sentry -->
-  <polygon points="16,18 19,20 19,24 16,26 13,24 13,20" fill="#140d28" stroke="#a78bfa" stroke-width="1" stroke-linejoin="round" />
-
-  <!-- Central Queen Node -->
-  <polygon points="16,11 20,13.5 20,18.5 16,21 12,18.5 12,13.5" fill="#1e133c" stroke="url(#fav-core)" stroke-width="1.4" stroke-linejoin="round" />
-  
-  <!-- Center Core Star -->
-  <polygon points="16,14.5 17.5,16 16,17.5 14.5,16" fill="#ffffff" />
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 80 80" role="img" aria-labelledby="title desc">
+  <title id="title">HIVE bee and beehive</title>
+  <desc id="desc">A honey-gold worker bee rises across an orderly lavender beehive.</desc><rect width="80" height="80" rx="18" fill="#171717"/><g transform="translate(8 8)">
+  <g fill="#A78BFA">
+    <path d="M34 12C35 4 50 2 54 14C48 12 41 11 34 12Z"/>
+    <path d="M26 22C29 11 54 12 58 26C48 23 37 22 28 24Z"/>
+    <path d="M30 27C42 24 60 28 61 39C56 37 51 37 46 38C45 29 37 28 33 32Z"/>
+    <path d="M44 42C53 40 62 44 61 52C53 49 43 50 34 53C41 49 44 47 44 42Z"/>
+    <path d="M20 57C25 52 48 51 58 55C63 61 26 63 20 58Z"/>
+  </g>
+  <g fill="#F0BE55">
+    <path d="M4 10C18 9 26 20 31 32C19 23 8 25 4 10Z"/>
+    <path d="M3 26C14 23 23 29 29 33C17 36 7 36 3 26Z"/>
+    <path d="M6 54C3 49 4 44 8 43C12 43 15 47 13 50C9 50 7 52 6 54Z"/>
+    <path d="M10 40C14 37 19 40 21 44C20 47 17 49 15 49C17 43 14 40 10 40Z"/>
+    <path d="M17 35C22 32 27 34 29 38C28 42 24 44 23 44C25 39 22 35 17 35Z"/>
+    <path d="M26 34C33 31 35 37 32 43C30 47 26 49 22 49C28 44 30 39 26 34Z"/>
+    <ellipse cx="36" cy="35" rx="4.1" ry="5.4" transform="rotate(-20 36 35)"/>
+  </g>
+  <path d="M36 29C37 25 40 24 42 25M39 31C42 28 45 28 46 30" fill="none" stroke="#F0BE55" stroke-width="2.3" stroke-linecap="round"/>
+</g></svg>

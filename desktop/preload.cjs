@@ -4,6 +4,10 @@ const { contextBridge, ipcRenderer } = require("electron");
 const REQUEST_CHANNEL = "hive-desktop:request";
 const EVENT_CHANNEL = "hive-desktop:event";
 const COMMANDS = new Set([
+  "projects.snapshot",
+  "projects.action",
+  "projects.import.preview",
+  "projects.import.confirm",
   "repository.list",
   "repository.open",
   "thread.list",
@@ -67,7 +71,7 @@ function validatedCommand(value) {
 function validatedEvent(value) {
   if (!value || typeof value !== "object" || Array.isArray(value) || typeof value.type !== "string" || typeof value.timestamp !== "string") throw new TypeError("Malformed HIVE desktop event.");
   const serialized = JSON.stringify(value);
-  if (!serialized || serialized.length > 1_000_000) throw new TypeError("HIVE desktop event is too large.");
+  if (!serialized || serialized.length > (["projects.snapshot", "projects.imported"].includes(value.type) ? 33_600_000 : 1_000_000)) throw new TypeError("HIVE desktop event is too large.");
   return JSON.parse(serialized);
 }
 

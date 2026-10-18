@@ -631,7 +631,7 @@ export async function executeTuiCommand(
         if (!selected) return { state: withOutput(state, [`Selected output style: ${state.conversation?.outputStyleId ?? "none"}`, "/plugins use-style <id> | off"]), shouldExit: false };
         const conversation = { ...(state.conversation ?? newConversation(cwd, state.sessionMode)) };
         conversation.outputStyleId = selected === "off" ? undefined : (await loadTrustedPluginOutputStyle(cwd, selected, options.extensionOptions)).id;
-        const next = { ...state, conversation }; await persistConversation(cwd, next);
+        const next = { ...state, conversation }; if (options.persistSession !== false) await persistConversation(cwd, next);
         return { state: withOutput(next, [`Selected final-response style: ${conversation.outputStyleId ?? "none"}`]), shouldExit: false };
       }
       if (cmd.kind === "plugins" && /^use-agent(?:\s|$)/u.test(cmd.args)) {
@@ -639,7 +639,7 @@ export async function executeTuiCommand(
         if (!selected) return { state: withOutput(state, [`Selected plugin agent: ${state.conversation?.pluginAgentId ?? "none"}`, "/plugins use-agent <id> | off"]), shouldExit: false };
         const conversation = { ...(state.conversation ?? newConversation(cwd, state.sessionMode)) };
         conversation.pluginAgentId = selected === "off" ? undefined : (await loadPluginAgent(cwd, selected, options.extensionOptions)).id;
-        const next = { ...state, conversation }; await persistConversation(cwd, next);
+        const next = { ...state, conversation }; if (options.persistSession !== false) await persistConversation(cwd, next);
         return { state: withOutput(next, [`Selected plugin agent: ${conversation.pluginAgentId ?? "none"}`]), shouldExit: false };
       }
       if (cmd.kind === "plugins" && /^run-agent(?:\s|$)/u.test(cmd.args)) {
@@ -659,7 +659,7 @@ export async function executeTuiCommand(
           const server = await loadLspServer(cwd, id, options.extensionOptions);
           conversation.lspServerIds = [...new Set([...(conversation.lspServerIds ?? []), server.id])];
         }
-        const next = { ...state, conversation }; await persistConversation(cwd, next);
+        const next = { ...state, conversation }; if (options.persistSession !== false) await persistConversation(cwd, next);
         return { state: withOutput(next, [`Attached LSP servers: ${conversation.lspServerIds.join(", ") || "none"}. Processes start only for an approved query.`]), shouldExit: false };
       }
       if (cmd.kind === "mcp" && /^use(?:\s|$)/.test(cmd.args)) {
@@ -673,7 +673,7 @@ export async function executeTuiCommand(
           conversation.mcpServerIds = [...new Set([...(conversation.mcpServerIds ?? []), server.id])];
         }
         const next = { ...state, conversation: { ...conversation } };
-        await persistConversation(cwd, next);
+        if (options.persistSession !== false) await persistConversation(cwd, next);
         return { state: withOutput(next, [`  Attached MCP servers: ${conversation.mcpServerIds.join(", ") || "none"}. External calls require approval.`]), shouldExit: false };
       }
       const needsRuntime = cmd.kind === "mcp" && /^(?:doctor|tools|call|login|resources|resource-templates|read|prompts|prompt|complete|watch|subscribe|task-call|tasks|task|task-result|task-cancel|task-continue|task-subscribe)(?:\s|$)/.test(cmd.args)
@@ -715,7 +715,7 @@ export async function executeTuiCommand(
         conversation.skillIds = [...new Set([...(conversation.skillIds ?? []), skill.id])];
       }
       const next = { ...state, conversation: { ...conversation } };
-      await persistConversation(cwd, next);
+      if (options.persistSession !== false) await persistConversation(cwd, next);
       return { state: withOutput(next, [`  Active skills: ${conversation.skillIds.join(", ") || "none"}`]), shouldExit: false };
     }
 
@@ -730,7 +730,7 @@ export async function executeTuiCommand(
         conversation.imagePaths = paths;
       }
       const next = { ...state, conversation: { ...conversation } };
-      await persistConversation(cwd, next);
+      if (options.persistSession !== false) await persistConversation(cwd, next);
       return { state: withOutput(next, [`  Attached images: ${conversation.imagePaths.join(", ") || "none"}. Image bytes stay request-only.`]), shouldExit: false };
     }
 

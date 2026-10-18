@@ -3,8 +3,12 @@
 HIVE (Hyper Intelligence for Verified Engineering) is a verified agentic coding runtime with both a CLI/TUI and a Windows desktop companion. Both surfaces use the same TypeScript core, isolated Git worktrees, provider configuration, multi-agent orchestration, and guarded change approval. HIVE never pushes or opens a pull request automatically.
 
 ## Visual Identity
-- HIVE CLI uses a queen bee terminal motif.
+- The native terminal uses the selected hive-only fallback in its empty state.
 - Violet wordmark indicates verified agentic coding.
+
+The Desktop Projects interface and native TUI now share durable project/session
+history. See [shared GUI/TUI architecture, launch, migration and verification](docs/GUI_TUI_INTEGRATION.md)
+for the integration's current source and release boundaries.
 
 ## Repository Consolidation
 `C:\HIVE` is the single home for the HIVE project. The `the-hive-skill` (hive-mind-council) repo was consolidated here:
@@ -210,31 +214,40 @@ npm run hive -- status
 node bin/hive.mjs run "small task"
 ```
 
-## Windows Desktop: HiveBot Chat & Hive Code
+## Windows Desktop: shared projects and conversations
 
-The Windows 10/11 x64 desktop companion ships two top-level surfaces behind one shell, built with React and Electron.
+The React/Electron companion now opens a charcoal project sidebar, nested sessions,
+one conversation and one composer. Code, Plan and Chat use the existing live
+engines through the same shared session service as the native TUI.
 
-**HiveBot** (HiveChat) is the primary, Claude/ChatGPT-parity conversational surface:
+- Create, search, rename, archive and restore sessions without moving another
+  client's selection or draft.
+- Choose configured models, workflow and permissions; inspect the backend's
+  effective policy and approve individual scoped tool requests.
+- Expand role activity, open optional changes/checks, inspect actual command
+  results and mark a completed attempt reviewed. Guarded Git actions retain their
+  separate current-state verification and confirmation.
+- Stop a run and continue through a new linked attempt; previous output and
+  partial changes remain visible.
+- Keep the existing Paper theme, provider/settings dialogs, keyboard controls and
+  responsive navigation. **Legacy history & tools** reads earlier Chat/Code history;
+  new conversations and runs start in Projects.
 
-- **Streaming conversations**: batched chunk events render live markdown with a pulsing caret, a typing loader with the resolved route (`auto -> coding - provider/model`), and stick-to-bottom scrolling that yields when you scroll up.
-- **Personas & routing**: the `auto` classifier plus six BYOK personas (Planning, Coding, Heavy Reasoning, Game Builder, Project Co-worker, Study Buddy), each showing its resolved provider/model trust chip; per-conversation provider/model overrides.
-- **Receipts, honestly**: every assistant message carries a truthful provider/model/token/latency chip — no fabricated numbers — with copy and retry actions.
-- **Sessions**: conversations persist per repository under `.hivemind/chat-sessions/` with a filterable rail, derived titles, and archiving.
-- **Opt-in Scout grounding**: prepend a bounded repo context pack to any turn (`[/ground]`).
-- **Council mode**: `[/council]` routes a task through the six-role hivebot council with a progressive stage transcript, per-stage receipts, a summary card, and an "open artifacts folder" action.
-- **Agentic mode**: `[/agent]` lets HiveBot ground answers with read-only repository tools (read/list/search) and streams a live tool-activity feed — no writes ever happen here.
-- **Send to Hive Code**: any assistant answer can be handed to Hive Code as a verified, isolated, approve-before-commit run in one confirmed click.
+Existing history imports only after a reviewed preview and backup. Shared history
+lives in `~/.hive/interface-v1/catalog.json`; legacy records and coding worktrees
+remain under their repositories. Drafts and scroll positions are client-local and
+currently memory-only. See [the integration guide](docs/GUI_TUI_INTEGRATION.md) for
+storage, migration/rollback, terminal commands and actual verification limits.
 
-**Hive Code** is the verified harness cockpit (unchanged in function, now poppable into its own OS window):
-
-- **Live Turn Stepper**: 5-phase progress (`plan` → `scout` → `build` → `validate` → `review`) with elapsed timer and accessible event log stream.
-- **Living Agent Cells (Hive View)**: Visual subagent grid displaying assigned roles, active file scopes, completion status badges, and overall swarm settlement progress meter.
-- **Command Palette & Keyboard Shortcuts**: Instant command palette (`Ctrl+K`), mode switching (`Ctrl+Shift+1/2`), tab switching (`Ctrl+1/2/3`), quick composer submission (`Ctrl+Enter`), shortcut help (`?`), and collapsible navigation rails (`[/]` and `[\]`).
-- **Two-Pane Diff Inspector**: Sticky file navigation rail with `+added / -removed` line statistics, per-file accordion collapse, safe truncation handling, and line wrapping toggle.
-- **Rich Message Rendering**: Hand-rolled, zero-dependency, XSS-safe Markdown parser supporting fenced code blocks with 1-click clipboard copy, task checkboxes, headers, and forward-compatible token receipts.
-- **Pop-out window**: the topbar `[^]` button opens (or focuses) a dedicated Hive Code OS window; every window keeps receiving all events, and a single Hive Code window is enforced for the one-active-run invariant. `?view=chat|coder` seeds a window's initial surface.
-- **Background Presence & Notifications**: HTML5 system notification integration notifying on turn completion when the application window is inactive.
-- **Preferences & Accessibility**: Layout density options (Comfortable / Compact), color accents (Vivid Violet / High Contrast), full WCAG AA contrast compliance, keyboard focus rings, and automatic reduced-motion integration.
+Verified locally on Windows across 2026-10-18–19: core 1224/1224, final affected
+regressions 113/113 (overlapping), renderer 194/194, native Electron 3/3, actual
+ConPTY/Electron cross-client checks, native visual checks and a restricted live
+Gemini task with real diff/command evidence. Final manual NSIS/portable builds,
+PE-resource audit and actual packaged/portable smokes also passed.
+Automatic approval review blocked local verification cleanup,
+so those outputs are retained with their manifest. NSIS install/uninstall
+was not run because it would overwrite an existing updater cache; that file and the
+original dirty checkout were preserved. See the guide for evidence and platform limits.
 
 Development and verification:
 
@@ -252,7 +265,7 @@ npm run desktop:dist
 npm run desktop:smoke
 ```
 
-Artifacts are written to `release/` as a per-user NSIS setup executable and a no-install portable executable. Both editions store settings and encrypted credential blobs in Windows AppData; repository threads, sessions, reports, and worktrees stay under that repository's `.hivemind/` directory. Local unsigned builds are for internal evaluation, updates are installed manually, and signing is enabled only when standard electron-builder certificate secrets are configured.
+Artifacts are written to `dist-binaries/` as a per-user NSIS setup executable and a no-install portable executable. Both editions store settings and encrypted credential blobs in Windows AppData, and use the shared user-home catalog described above; legacy threads, coding sessions, reports and worktrees stay under the repository's `.hivemind/` directory. Local unsigned builds are for internal evaluation, updates are installed manually, and signing is enabled only when standard electron-builder certificate secrets are configured. Packaging instructions do not establish acceptance of a new revision; check its recorded verification status.
 
 See [Windows desktop release and operator guide](docs/WINDOWS_DESKTOP_RELEASE.md) for packaging, signing, checksums, smoke testing, storage, and release procedures.
 

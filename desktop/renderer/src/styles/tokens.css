@@ -26,11 +26,11 @@
   --r-composer: 22px;
   --r-pill: 999px;
 
-  --sidebar-w: 268px;
+  --sidebar-w: 272px;
   --sidebar-rail-w: 60px;
   --topbar-h: 52px;
   --inspector-w: clamp(372px, 30vw, 420px);
-  --reading-w: 768px;
+  --reading-w: 800px;
 
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --fast: 140ms;
@@ -47,20 +47,20 @@
 /* Night Hive */
 :root,
 :root[data-theme="dark"] {
-  --bg: #121117;
-  --bg-sidebar: #0c0b10;
-  --surface: #1a1820;
-  --surface-2: #211e29;
-  --surface-3: #2a2634;
+  --bg: #212121;
+  --bg-sidebar: #171717;
+  --surface: #292929;
+  --surface-2: #292929;
+  --surface-3: #303030;
   --hover: rgba(255, 255, 255, 0.05);
   --press: rgba(255, 255, 255, 0.08);
   --line: rgba(255, 255, 255, 0.07);
   --line-strong: rgba(255, 255, 255, 0.13);
 
-  --ink: #eceaf3;
-  --ink-2: #b9b5c6;
-  --ink-3: #aaa2b7;
-  --ink-4: #9b93a8;
+  --ink: #f3f3f3;
+  --ink-2: #b8b8bd;
+  --ink-3: #a7a7af;
+  --ink-4: #9b9ba3;
 
   --accent: #8b5cf6;
   --accent-strong: #7c3aed;
@@ -70,8 +70,8 @@
   --on-accent: #ffffff;
   --focus-ring: var(--accent-ink);
 
-  --user-bubble: #262130;
-  --code-bg: #0d0c11;
+  --user-bubble: #303030;
+  --code-bg: #171717;
 
   --ok: #34d399;
   --ok-wash: rgba(52, 211, 153, 0.12);

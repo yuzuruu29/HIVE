@@ -16,6 +16,9 @@ import { DesktopExternalToolService, SystemTrustedExecutableResolver } from "./e
 import { execFile as nodeExecFile } from "node:child_process";
 import { WorktreeManager } from "../../worktree.js";
 import { isPackagedSmokeMode, PACKAGED_SMOKE_PROVIDER_ID } from "./packaged-smoke-runtime.js";
+import { ProjectWorkerEngine, type ProjectWorkerChild } from "./project-worker.js";
+import { createProductionProjectSessionService } from "../../projects/runtime-adapter.js";
+import { DesktopShutdownGate } from "./shutdown.js";
 
 let shellWindows: ShellWindowRegistry | null = null;
 let quitting = false;
@@ -87,6 +90,33 @@ async function start(): Promise<void> {
   const credentialVault = new DesktopCredentialVault({ store: new JsonCredentialEnvelopeStore(userData), cipher });
   const gitServices = new Map<string, DefaultGuardedGitService>();
   const executables = new SystemTrustedExecutableResolver();
+  const resolveProjectCredential = async (providerId: string) => {
+    const provider = (await stateStore.load()).providers.find((entry) => entry.id === providerId);
+    // A shared CLI-selected provider may be stored in HIVE's existing registry.
+    if (!provider) return undefined;
+    if (!provider.approved) throw new Error("Desktop provider is not configured and approved.");
+    if (provider.authType === "none") return { provider };
+    const credential = await credentialVault.credentialResolver.resolve(providerId);
+    if (!credential) throw new Error("Desktop provider credential is not configured.");
+    return { provider, kind: credential.kind, secret: credential.secret };
+  };
+  const projectEngine = new ProjectWorkerEngine({
+    spawn: () => utilityProcess.fork(workerFile, [], { serviceName: "HIVE Shared Session Runtime", env: { ...process.env } }) as unknown as ProjectWorkerChild,
+    resolveCredential: resolveProjectCredential,
+    terminateTree: async (child) => {
+      if (process.platform !== "win32") { if (child.kill() === false) throw new Error("Worker termination was refused."); return; }
+      if (!Number.isSafeInteger(child.pid) || !child.pid || child.pid < 1) throw new Error("Cannot verify the owned runtime process for termination.");
+      const taskkill = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe");
+      await new Promise<void>((resolve, reject) => nodeExecFile(taskkill, ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, timeout: 5_000 }, (error) => error ? reject(error) : resolve()));
+    },
+  });
+  const testCatalog = !app.isPackaged && process.env.HIVE_DESKTOP_TESTING === "1" ? process.env.HIVE_PROJECT_CATALOG : undefined;
+  if (testCatalog && (!path.isAbsolute(testCatalog) || testCatalog.includes("\0"))) throw new Error("HIVE_PROJECT_CATALOG must be an absolute path.");
+  const projects = await createProductionProjectSessionService({
+    catalogPath: isPackagedSmokeMode() || (!app.isPackaged && process.env.HIVE_DESKTOP_TESTING === "1") ? testCatalog ?? path.join(userData, "interface-v1", "catalog.json") : undefined,
+    engine: projectEngine,
+    onSnapshot: (snapshot) => shellWindows?.broadcast(validateDesktopEvent({ type: "projects.snapshot", timestamp: new Date().toISOString(), snapshot })),
+  });
   const workerSupervisor = new WorkerProcessSupervisor({
     workerModule: workerFile,
     spawn: (module) => utilityProcess.fork(module, [], { serviceName: "HIVE Repository Runtime", env: { ...process.env } }) as unknown as WorkerChildLike,
@@ -102,7 +132,7 @@ async function start(): Promise<void> {
     onEvent: (event) => shellWindows?.broadcast(event),
   });
   const router = new DesktopCommandRouter({
-    stateStore, credentialVault, workerSupervisor,
+    stateStore, credentialVault, workerSupervisor, projects,
     guardedGitFactory: (root) => {
       const key = path.resolve(root).toLowerCase();
       let service = gitServices.get(key);
@@ -136,6 +166,23 @@ async function start(): Promise<void> {
   });
 
   const startupState = await stateStore.load();
+  const shutdown = new DesktopShutdownGate({
+    hasActiveRuns: () => workerSupervisor.hasActiveRuns() || projectEngine.hasActiveRuns() || projects.hasOwnedRuns(),
+    confirmExit: async () => {
+      const options = { type: "warning" as const, title: "HIVE is still working", message: "Active repository runs are still in progress.", detail: "Keep HIVE open, or cooperatively cancel the runs before exiting.", buttons: ["Keep HIVE Open", "Cancel Runs and Exit"], defaultId: 0, cancelId: 0, noLink: true };
+      const focused = BrowserWindow.getFocusedWindow();
+      return (await (focused ? dialog.showMessageBox(focused, options) : dialog.showMessageBox(options))).response === 1;
+    },
+    close: async () => { await workerSupervisor.cancelAll(); await projects.close(); await projectEngine.close(); },
+    quit: () => { quitting = true; app.quit(); },
+    onFailure: async (error) => {
+      const message = `Exit cancelled because active runs could not be durably cancelled: ${redactDesktopFailure(error)}`;
+      shellWindows?.broadcast({ type: "worker.failed", timestamp: new Date().toISOString(), message, recoverable: false });
+      if (!BrowserWindow.getAllWindows().length) shellWindows?.open("chat");
+      await dialog.showMessageBox({ type: "error", title: "HIVE kept open", message: "HIVE could not safely cancel every active run.", detail: message, buttons: ["Keep HIVE Open"], defaultId: 0, noLink: true });
+    },
+  });
+  app.on("before-quit", (event) => { if (quitting) return; event.preventDefault(); void shutdown.request(); });
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     if (!isTrustedRendererUrl(details.url, locationPolicy)) { callback({ responseHeaders: details.responseHeaders }); return; }
@@ -144,7 +191,7 @@ async function start(): Promise<void> {
 
   function createShellWindow(view: ShellView): BrowserWindow {
     const window = new BrowserWindow({
-      width: 1440, height: 900, minWidth: 1060, minHeight: 680, show: true, backgroundColor: "#0b0712",
+      width: 1440, height: 900, minWidth: 560, minHeight: 480, show: true, backgroundColor: "#171717",
       title: "HIVE",
       webPreferences: { ...DESKTOP_BROWSER_WEB_PREFERENCES, preload: preloadFile },
     });
@@ -170,24 +217,9 @@ async function start(): Promise<void> {
       dialog.showErrorBox("HIVE UI Failed to Load", `Failed to load ${validatedURL}\nError: ${errorDescription} (${errorCode})`);
     });
     window.on("close", (event) => {
-      if (quitting || !workerSupervisor.hasActiveRuns()) return;
+      if (quitting || BrowserWindow.getAllWindows().length > 1) return;
       event.preventDefault();
-      void dialog.showMessageBox(window, {
-        type: "warning", title: "HIVE is still working", message: "Active repository runs are still in progress.",
-        detail: "Keep HIVE open, or cooperatively cancel the runs before exiting.", buttons: ["Keep HIVE Open", "Cancel Runs and Exit"], defaultId: 0, cancelId: 0, noLink: true,
-      }).then(async ({ response }) => {
-        if (response !== 1) return;
-        quitting = true;
-        try {
-          await workerSupervisor.cancelAll();
-          app.exit(0);
-        } catch (error) {
-          quitting = false;
-          const message = `Exit cancelled because active runs could not be durably cancelled: ${redactDesktopFailure(error)}`;
-          window.webContents.send(DESKTOP_EVENT_CHANNEL, { type: "worker.failed", timestamp: new Date().toISOString(), message, recoverable: false });
-          await dialog.showMessageBox(window, { type: "error", title: "HIVE kept open", message: "HIVE could not safely cancel every active run.", detail: message, buttons: ["Keep HIVE Open"], defaultId: 0, noLink: true });
-        }
-      });
+      void shutdown.request();
     });
     const search = `?view=${view}`;
     if (developmentUrl) void window.loadURL(new URL(`${developmentUrl}${search}`).href);

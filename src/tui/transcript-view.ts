@@ -84,12 +84,13 @@ export function expandedSubagentLines(state: TuiState, width: number): string[] 
 
 export function planSessionFrame(state: TuiState): SessionFramePlan {
   const width = sessionFrameWidth(state.width);
-  return sessionFramePlan({
+  const plan = sessionFramePlan({
     height: sessionFrameHeight(state.height),
     pickerRows: pickerLineCount(state.picker),
     subagentRows: expandedSubagentLines(state, width).length,
     composerRows: composerBandRows(state, width),
   });
+  return state.sharedContext ? { ...plan, transcriptRows: Math.max(0, plan.transcriptRows - Math.min(3, Math.max(0, plan.transcriptRows - 1))) } : plan;
 }
 
 export function composerCursor(input: string, cursor: number | undefined): number {
@@ -481,6 +482,7 @@ function shown(value: unknown): string {
 
 /** Bordered card with the hive mascot, product line, runtime and workspace, then a tips line. */
 function welcomeRows(state: TuiState, width: number, g: Glyphs, frame?: number): Row[] {
+  if (state.sharedLoading) return wrapDisplayLine("Loading shared workspace...", width, true).map((text): Row => [{ text, tone: "muted" }]);
   const place = [state.workspaceName, state.gitBranch ? `(${state.gitBranch})` : undefined].filter(Boolean).join(" ");
   const text: Span[] = [
     { text: "HIVE", tone: "pale" },
@@ -531,7 +533,11 @@ export function renderTranscriptRows(state: TuiState, width = sessionFrameWidth(
   const cards = entries.filter((entry) => parseToolCard(entry)).length;
   const focus = focusedToolCardPosition(cards, state.toolCardFocus);
   const active = state.taskStatus === "running" || state.taskStatus === "verifying";
-  const rows: Row[] = welcomeRows(state, inner, g, active ? frame : undefined);
+  const rows: Row[] = state.sharedContext ? [] : welcomeRows(state, inner, g, active ? frame : undefined);
+  if (state.sharedContext && entries.length === 0) {
+    if (inner >= 28) rows.push(...["      .---.", "    .'_____`.", "   /_________\\", "  /___________\\", " /____/   \\____\\", "(_____|___|_____)"] .map((text): Row => [{ text, tone: "lavender" }]));
+    rows.push([{ text: "Ask HIVE to begin. /help shows commands.", tone: "muted" }]);
+  }
   let seen = 0;
   let previous: EntryKind | undefined;
   let inDiff = false;

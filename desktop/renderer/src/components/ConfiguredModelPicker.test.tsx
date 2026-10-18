@@ -95,9 +95,10 @@ describe("ConfiguredModelPicker", () => {
     await user.click(screen.getByRole("button", { name: "Select model" }));
     rerender(<ConfiguredModelPicker options={options} resetKey="second" />);
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
-    rerender(<ConfiguredModelPicker options={[]} selectedModel={options[0]} onOpenModelPicker={onOpenModelPicker} onOpenSettings={onOpenSettings} />);
+    rerender(<ConfiguredModelPicker options={[]} selectedModel={options[0]} showSavedRoute onOpenModelPicker={onOpenModelPicker} onOpenSettings={onOpenSettings} />);
     const trigger = screen.getByRole("button", { name: "Select model" });
-    expect(trigger).toHaveTextContent("Select model");
+    expect(trigger).toHaveTextContent(options[0].model);
+    expect(trigger).toHaveAttribute("title", `${options[0].providerId} / ${options[0].model} (saved session route)`);
     await user.click(trigger);
     expect(onOpenModelPicker).toHaveBeenCalledTimes(1);
     expect(onOpenSettings).not.toHaveBeenCalled();

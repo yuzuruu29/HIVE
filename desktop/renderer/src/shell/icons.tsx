@@ -12,10 +12,25 @@ function Icon({ size = 16, children, ...rest }: { size?: number; children: React
 type P = { size?: number };
 
 export const HiveMark = ({ size = 18 }: P) => (
-  <Icon size={size} strokeWidth="1.6">
-    <path d="M12 2.5 20.2 7.25v9.5L12 21.5 3.8 16.75v-9.5L12 2.5Z" />
-    <path d="M12 7.6 16.1 10v4.7L12 17.1l-4.1-2.4V10L12 7.6Z" fill="currentColor" fillOpacity="0.22" />
-  </Icon>
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+    <g fill="currentColor">
+      <path d="M34 12C35 4 50 2 54 14C48 12 41 11 34 12Z" />
+      <path d="M26 22C29 11 54 12 58 26C48 23 37 22 28 24Z" />
+      <path d="M30 27C42 24 60 28 61 39C56 37 51 37 46 38C45 29 37 28 33 32Z" />
+      <path d="M44 42C53 40 62 44 61 52C53 49 43 50 34 53C41 49 44 47 44 42Z" />
+      <path d="M20 57C25 52 48 51 58 55C63 61 26 63 20 58Z" />
+    </g>
+    <g fill="#F0BE55">
+      <path d="M4 10C18 9 26 20 31 32C19 23 8 25 4 10Z" />
+      <path d="M3 26C14 23 23 29 29 33C17 36 7 36 3 26Z" />
+      <path d="M6 54C3 49 4 44 8 43C12 43 15 47 13 50C9 50 7 52 6 54Z" />
+      <path d="M10 40C14 37 19 40 21 44C20 47 17 49 15 49C17 43 14 40 10 40Z" />
+      <path d="M17 35C22 32 27 34 29 38C28 42 24 44 23 44C25 39 22 35 17 35Z" />
+      <path d="M26 34C33 31 35 37 32 43C30 47 26 49 22 49C28 44 30 39 26 34Z" />
+      <ellipse cx="36" cy="35" rx="4.1" ry="5.4" transform="rotate(-20 36 35)" />
+    </g>
+    <path d="M36 29C37 25 40 24 42 25M39 31C42 28 45 28 46 30" fill="none" stroke="#F0BE55" strokeWidth="2.3" strokeLinecap="round" />
+  </svg>
 );
 export const PenIcon = ({ size }: P) => <Icon size={size}><path d="M12 20h9" /><path d="M16.4 3.6a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></Icon>;
 export const SearchIcon = ({ size }: P) => <Icon size={size}><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></Icon>;

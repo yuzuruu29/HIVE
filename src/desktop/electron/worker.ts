@@ -8,6 +8,7 @@ import type { QueenOrchestrator, QueenSessionOptions } from "../../coding/queen.
 import { withDesktopCredentialRuntime, type DesktopWorkerCredential } from "./worker-credential.js";
 import { randomUUID } from "node:crypto";
 import { packagedSmokeLauncher } from "./packaged-smoke-runtime.js";
+import { createProjectWorkerHost } from "./project-worker-host.js";
 
 const port = process.parentPort;
 if (!port) throw new Error("HIVE desktop worker requires an Electron utility-process parent port.");
@@ -18,6 +19,20 @@ let exitRequested = false;
 let commandsInFlight = 0;
 let activeCredential: DesktopWorkerCredential | undefined;
 const credentialRequests = new Map<string, { resolve: (credential: DesktopWorkerCredential) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+const smokeLauncher = packagedSmokeLauncher();
+const handleProjectMessage = createProjectWorkerHost((message) => port.postMessage(message), requestExit, smokeLauncher ? {
+  runCoding: async (options) => {
+    const launched = smokeLauncher({
+    repositoryRoot: options.cwd,
+    sessionId: options.resumeId ?? `diagnostic-${randomUUID()}`,
+    objective: `[user]\n${options.objective}`,
+    options: { mode: options.codeMode ?? "auto", approvalPolicy: options.approvalPolicy ?? "safe", providerId: options.providerOverride?.providerId, model: options.providerOverride?.model },
+    signal: options.signal,
+    onEvent: options.onEvent,
+    });
+    return "completion" in launched ? launched.completion : launched;
+  },
+} : {});
 
 function send(message: DesktopWorkerOutbound): void { port.postMessage(message); }
 function event(value: DesktopEvent): void {
@@ -58,6 +73,7 @@ const manager = new DefaultDesktopRunManager({
 });
 
 port.on("message", (messageEvent) => {
+  if (handleProjectMessage(messageEvent.data)) return;
   const message = messageEvent.data as DesktopWorkerInbound;
   if (message?.type === "credential-response") {
     const pending = credentialRequests.get(message.requestId);

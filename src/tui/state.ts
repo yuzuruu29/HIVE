@@ -33,6 +33,10 @@ export type TuiMode =
   | "error";
 
 export interface TuiState {
+  sharedLoading?: boolean;
+  /** Shared session workflow and client-local context; safety remains sessionMode. */
+  workflowMode?: import("../projects/types.js").SessionMode;
+  sharedContext?: { project: string; session: string; path: string; status: string; effectivePolicy: string; engine?: string; archived: boolean };
   mode: TuiMode;
   provider: string;
   model: string;

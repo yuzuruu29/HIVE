@@ -22,7 +22,7 @@ import { identifier, terminalStatuses } from "./utils";
 import "./styles.css";
 import "./styles/motion.css";
 
-export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
+export function App({ api: suppliedApi, readOnly = false }: { api?: HiveDesktopBridge; readOnly?: boolean }) {
   const api = suppliedApi ?? installedBridge();
   const [state, dispatch] = useReducer(reduceDesktopEvent, undefined, initialDesktopState);
   const { prefs, updatePrefs } = usePrefs();
@@ -104,6 +104,11 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
 
   const send = async (command: DesktopCommandInput, scope?: { epoch?: number; repositoryRoot?: string; inlineFailure?: boolean }): Promise<DesktopEvent> => {
     const requestId = command.requestId ?? identifier("request");
+    if (readOnly && ["thread.create", "thread.message.append", "thread.archive", "run.start", "run.resume", "chat.create", "chat.send", "chat.archive", "coder.handoff", "council.start"].includes(command.type)) {
+      const message = "Legacy history is read-only. Return to Projects to create or continue a shared session.";
+      setStickyError(message);
+      return { type: "request.failed", requestId, timestamp: new Date().toISOString(), message, recoverable: true };
+    }
     if (scope?.inlineFailure) inlineRequestIds.current.add(requestId);
     if (command.type === "chat.send" || command.type === "chat.create" || command.type === "chat.cancel") {
       chatRequestIds.current.add(requestId);
@@ -687,6 +692,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
 
   return (
     <div className="app-shell">
+      {readOnly && <p role="status" className="legacy-history-notice">Legacy history &amp; tools · Read-only history. Create and continue sessions in Projects.</p>}
       <a className="skip-link" href="#main-workspace">Skip to workspace</a>
       <Shell
         mode={state.mode}

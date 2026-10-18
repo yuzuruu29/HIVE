@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { attachSmokeProject, persistedSmokeDiagnostic, runSmokeDiagnostic } from "./shared-smoke-ui.mjs";
 
 const CREDENTIAL_PROVIDER = "packaged-credential-fixture";
 const SMOKE_PROVIDER_NAME = "Internal packaged diagnostic";
@@ -78,10 +79,7 @@ try {
   page.on("console", (message) => { if (message.type() === "error") rendererErrors.push(message.text()); });
   await page.waitForLoadState("domcontentloaded");
   if ((await page.title()) !== "HIVE Desktop") throw new Error(`Unexpected packaged title: ${await page.title()}`);
-  for (const selector of ["nav[aria-label='Global Navigation']", "main"]) await page.locator(selector).waitFor({ state: "visible", timeout: 15_000 });
-  await page.getByLabel("Repository path").fill(repository);
-  await page.getByRole("button", { name: /^Open(?: another)?$/ }).click();
-  await expect(page.getByLabel("Repository path")).toHaveValue(repository);
+  await attachSmokeProject(page, repository);
 
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("tab", { name: "Providers", exact: true }).click();
@@ -102,22 +100,10 @@ try {
   if (!roundTrip) throw new Error("Packaged safeStorage fixture credential did not decrypt correctly.");
   await expect.poll(() => modelRequests, { message: "Encrypted fixture credential reaches only the loopback model catalog." }).toBeGreaterThan(0);
 
-  // Chat and Code share one model choice; the Chat composer holds the picker.
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
-  await page.getByRole("button", { name: "Select model", exact: true }).click();
-  const diagnosticModel = page.getByRole("listbox", { name: "Configured models" }).locator("li").filter({ has: page.getByText(SMOKE_PROVIDER_NAME, { exact: true }) }).getByRole("option");
-  await diagnosticModel.click();
-  await page.getByRole("button", { name: "Code", exact: true }).click();
-  await page.getByLabel("Message HIVE").fill(SMOKE_MESSAGE);
-  await page.getByRole("button", { name: "Send task", exact: true }).click();
-  const inspector = page.getByRole("complementary", { name: "Harness Inspector" });
-  await inspector.getByRole("tab", { name: /^Run/ }).click();
-  await expect(inspector.locator(".hive-evidence-row").filter({ hasText: "Active Run Status" })).toContainText("completed", { timeout: 30_000 });
-  await inspector.getByRole("tab", { name: /^Evidence/ }).click();
-  await expect(page.getByLabel("Verification evidence")).toContainText("Diagnostic objective and provider matched exactly.", { timeout: 15_000 });
+  await runSmokeDiagnostic(page, { providerName: SMOKE_PROVIDER_NAME, message: SMOKE_MESSAGE, report: SMOKE_REPORT });
 
   const persisted = await persistedDiagnostic(repository);
-  if (persisted.threadStatus !== "completed") throw new Error(`Persisted thread status was ${persisted.threadStatus}.`);
+  if (persisted.sharedRunStatus !== "completed") throw new Error(`Persisted shared run status was ${persisted.sharedRunStatus}.`);
   if (persisted.sessionStatus !== "completed" || persisted.report !== SMOKE_REPORT) throw new Error("Persisted coding session did not contain the deterministic completed report.");
   if (rendererErrors.length) throw new Error(`Packaged renderer errors:\n${rendererErrors.join("\n")}`);
   await page.screenshot({ path: screenshot, fullPage: true });
@@ -169,14 +155,7 @@ async function closeBounded(electronApp, timeoutMs) {
 }
 
 async function persistedDiagnostic(repositoryRoot) {
-  const threadRoot = path.join(repositoryRoot, ".hivemind", "threads");
-  const threadDirectories = await readdir(threadRoot, { withFileTypes: true });
-  const threads = await Promise.all(threadDirectories.filter((entry) => entry.isDirectory()).map((entry) => readFile(path.join(threadRoot, entry.name, "thread.json"), "utf8").then(JSON.parse)));
-  const thread = threads.find((entry) => entry.title === SMOKE_MESSAGE);
-  const run = thread?.runs.at(-1);
-  if (!run) throw new Error("Packaged smoke thread/run was not persisted.");
-  const session = JSON.parse(await readFile(path.join(repositoryRoot, ".hivemind", "sessions", run.codingSessionId, "session.json"), "utf8"));
-  return { threadStatus: run.status, sessionStatus: session.status, report: session.finalReport?.result };
+  return persistedSmokeDiagnostic(repositoryRoot, userData, SMOKE_MESSAGE);
 }
 
 async function containsText(directory, needle) {

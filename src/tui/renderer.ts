@@ -253,6 +253,11 @@ function statusHint(state: TuiState, g: Glyphs): string {
 /** Mode and context hint on the left; runtime, workspace and usage on the right. */
 export function renderStatusBar(state: TuiState, width: number): string {
   const g = glyphsFor(state);
+  if (state.sharedContext && !state.pendingPermission && !state.mcpInput) {
+    const usage = formatUsage(recordedUsage(state));
+    const parts = [state.model, state.workflowMode ?? "code", state.sharedContext.effectivePolicy, usage, state.scrollOffset > 0 ? "PgDn latest" : "Ctrl+O activity"] .filter(Boolean);
+    return paintRow(fitSpans([{ text: parts.join(` ${g.dot} `), tone: "muted" }], width), paletteFor(state));
+  }
   if (state.pendingPermission && !state.mcpInput && width < 64) {
     const hint = `${g.bullet === "*" ? "up/down" : "↑↓ select"} ${g.dot} enter ${g.dot} esc`;
     return paintRow(fitSpans([{ text: hint, tone: "warn" }], width), paletteFor(state));
@@ -382,6 +387,10 @@ function shimmer(text: string, frame: number | undefined): Row {
 
 /** "ʚ●ɞ Working… (12s · 3 agents · esc to interrupt)". The bee flies only when motion is on. */
 function workingRow(state: TuiState, g: Glyphs, now: number): Row {
+  if (state.sharedContext) {
+    const elapsed = state.turnStartedAt === undefined ? "" : ` ${formatTurnElapsed(now - state.turnStartedAt)}`;
+    return [{ text: `${state.sharedContext.status}${elapsed} ${g.dot} Ctrl+C or /stop`, tone: "muted" }];
+  }
   const frame = motionFrame(state, now);
   const details: string[] = [];
   if (state.turnStartedAt !== undefined) details.push(formatTurnElapsed(now - state.turnStartedAt));
@@ -488,6 +497,11 @@ export function renderTuiScreen(state: TuiState, now = Date.now()): string {
   const pickerLines = renderPickerRows(modalState, plan.pickerRows);
 
   const lines: string[] = [];
+  if (state.sharedContext) {
+    const reserved = Math.min(3, Math.max(0, height - plan.statusRows - plan.subagentRows - plan.pickerRows - plan.composerRows - plan.transcriptRows));
+    const header = [`HIVE · ${state.sharedContext.project} · ${state.sharedContext.status}${state.sharedContext.archived ? " · archived" : ""}`, `${state.sharedContext.path}${state.gitBranch ? ` · ${state.gitBranch}` : ""}`, `Session: ${state.sharedContext.session} · /sessions /projects`];
+    lines.push(...header.slice(0, reserved).map((text, index) => paintRow([{ text: fitVisible(text, width), tone: index === 0 ? "accent" : "muted" }], paletteFor(state))));
+  }
   const modalRows = state.mcpInput ? renderMcpInputRows(state, width) : undefined;
   const mainRows = modalRows
     ? modalRows.slice(state.mcpInput?.scrollOffset ?? 0, (state.mcpInput?.scrollOffset ?? 0) + plan.transcriptRows).map((line) => paintRow([{ text: fitVisible(line, width), tone: "text" }], paletteFor(state)))

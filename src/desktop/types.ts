@@ -6,6 +6,8 @@ import type {
   RuntimeEvent,
 } from "../coding/types.js";
 import type { ProviderKind } from "../providers/types.js";
+import type { ProjectAction, ProjectActionResult, ProjectSnapshot } from "../projects/types.js";
+import type { HistoryImportPreview, HistoryImportResult } from "../projects/types.js";
 import type {
   DesktopChatConversation,
   DesktopChatMessage,
@@ -357,6 +359,10 @@ export interface DesktopWorkspaceReadInput {
 type DesktopCommandBase = { requestId: string };
 
 export type DesktopCommand =
+  | (DesktopCommandBase & { type: "projects.snapshot" })
+  | (DesktopCommandBase & { type: "projects.action"; action: ProjectAction })
+  | (DesktopCommandBase & { type: "projects.import.preview"; projectId: string; workspaceId?: string })
+  | (DesktopCommandBase & { type: "projects.import.confirm"; projectId: string; workspaceId?: string; digest: string })
   | (DesktopCommandBase & { type: "repository.list" })
   | (DesktopCommandBase & { type: "repository.open"; repositoryRoot: string })
   | (DesktopCommandBase & { type: "thread.list" })
@@ -435,6 +441,9 @@ export type DesktopCommand =
 type DesktopEventBase = { timestamp: string; requestId?: string; repositoryRoot?: string };
 
 export type DesktopEvent =
+  | (DesktopEventBase & { type: "projects.snapshot"; snapshot: ProjectSnapshot; result?: ProjectActionResult })
+  | (DesktopEventBase & { type: "projects.import.previewed"; preview: HistoryImportPreview })
+  | (DesktopEventBase & { type: "projects.imported"; result: HistoryImportResult })
   | (DesktopEventBase & { type: "desktop.ready"; repositoryRoot: string })
   | (DesktopEventBase & { type: "repository.listed"; repositories: DesktopRecentRepository[] })
   | (DesktopEventBase & { type: "thread.changed"; thread: ThreadRecordV1 })

@@ -47,6 +47,7 @@ import {
 } from "./state.js";
 import { parseTuiCommand, executeTuiCommand, type ExecuteTuiCommandOptions } from "./commands.js";
 import type { TuiRuntimeHandle, TuiSessionRunner } from "./runtime-adapter.js";
+import { TuiProjectClient, type TuiProjectService } from "./project-client.js";
 import { FRAME_MS, parseGitBranch, permissionPulsing, renderMcpInputRows, renderTuiScreen } from "./renderer.js";
 import {
   enterAlternateScreen,
@@ -139,6 +140,12 @@ export class TuiApp {
   private readonly mcpInputQueue: PendingMcpInput[] = [];
   private mcpDecision?: (result: McpUserInputResult) => void;
   private activeMcpInput?: PendingMcpInput;
+  private readonly sharedEnabled: boolean;
+  private readonly sharedService?: TuiProjectService;
+  private projectClient?: TuiProjectClient;
+  private sharedReady?: Promise<void>;
+  private boundSignalCleanup?: () => void;
+  private sharedSubmission = false;
 
   constructor(cwd: string, options: {
     runSession?: TuiSessionRunner;
@@ -148,14 +155,17 @@ export class TuiApp {
     initialCommands?: string[];
     initialMode?: HiveMode;
     reconcileConversation?: (cwd: string, state: TuiState) => Promise<TuiState>;
+    projectService?: TuiProjectService;
   } = {}) {
     this.cwd = cwd;
+    this.sharedService = options.projectService;
+    this.sharedEnabled = Boolean(options.projectService) || (!options.runSession && options.persistSession !== false);
     const workspaceName = path.basename(path.resolve(cwd)) || path.resolve(cwd);
-    this.state = { ...initialState(), workspaceName, ...(options.initialMode ? { sessionMode: options.initialMode } : {}) };
+    this.state = { ...initialState(), workspaceName, sharedLoading: this.sharedEnabled, ...(options.initialMode ? { sessionMode: options.initialMode } : {}) };
     this.launchMode = options.initialMode;
     if (options.initialMode) this.sessionReady = true;
     this.runSession = options.runSession;
-    this.persistSession = options.persistSession ?? options.runSession === undefined;
+    this.persistSession = !this.sharedEnabled && (options.persistSession ?? options.runSession === undefined);
     this.extensionOptions = options.extensionOptions;
     this.readGitBranch = options.readGitBranch ?? readWorkspaceBranch;
     this.initialCommands = [...(options.initialCommands ?? [])];
@@ -173,6 +183,7 @@ export class TuiApp {
       const cleanup = () => {
         if (!this.stopped) this.stop();
       };
+      this.boundSignalCleanup = cleanup;
       process.on("SIGTERM", cleanup);
       process.on("SIGINT", cleanup);
       // Note: SIGINT via raw mode Ctrl+C is caught in onData, not here.
@@ -201,7 +212,8 @@ export class TuiApp {
       // Initial render
       this.render();
       if (this.initialCommands.length) this.commandPending = true;
-      void this.hydrateSession().finally(() => {
+      this.sharedReady = this.sharedEnabled ? this.hydrateSharedSession() : this.hydrateSession();
+      void this.sharedReady.finally(() => {
         this.enqueueInitialCommands();
       });
 
@@ -244,6 +256,12 @@ export class TuiApp {
     clearTimeout(this.escapeTimer);
     clearInterval(this.workingTick);
     this.workingTick = undefined;
+    if (this.boundSignalCleanup) {
+      process.removeListener("SIGTERM", this.boundSignalCleanup);
+      process.removeListener("SIGINT", this.boundSignalCleanup);
+      this.boundSignalCleanup = undefined;
+    }
+    void this.projectClient?.close().catch(() => process.stderr.write("HIVE could not close the shared history service cleanly.\n"));
     this.mcpDecision?.({ action: "cancel" });
     for (const pending of this.mcpInputQueue.splice(0)) pending.resolve({ action: "cancel" });
     this.toolDecision?.(false);
@@ -456,6 +474,7 @@ export class TuiApp {
 
     if (ch === CTRL_O) {
       if (this.state.mcpInput) return;
+      if (this.projectClient) { this.projectClient.toggleActivity(); return; }
       this.toggleFocusedCard();
       return;
     }
@@ -609,7 +628,7 @@ export class TuiApp {
   }
 
   private turnBusy(): boolean {
-    return this.commandPending
+    return Boolean(this.projectClient?.busy()) || this.commandPending
       || this.turnLive
       || this.state.running
       || this.activeRuntime !== null
@@ -820,6 +839,23 @@ export class TuiApp {
 
   private submitInput(): void {
     if (this.state.mcpInput) { this.submitMcpInput(); return; }
+    const control = this.state.input.trim();
+    if (/^\/(quit|exit|q)\s*$/i.test(control)) { this.stop(); return; }
+    if (/^\/stop\s*$/i.test(control)) {
+      if (this.mcpDecision) {
+        this.mcpDecision({ action: "cancel" });
+        if (this.projectClient) void this.projectClient.cancel().catch((error: unknown) => this.sharedError(error));
+        return;
+      }
+      if (this.sharedEnabled) void this.submitShared(control);
+      else {
+        this.turnCancelled = true;
+        this.pendingContinuation = undefined;
+        this.activeRuntime?.cancel("User requested /stop.");
+        this.setState(withInput(withMessageQueue(this.state, []), ""));
+      }
+      return;
+    }
     if (this.state.pendingPermission) {
       // An empty Enter confirms the highlighted selector option.
       const raw = this.state.input.trim() || (this.state.permissionChoice === 1 ? "n" : "y");
@@ -838,6 +874,11 @@ export class TuiApp {
     if (!raw) return;
     this.exitArmed = false;
 
+    if (this.sharedEnabled && this.sharedReady) {
+      void this.submitShared(raw);
+      return;
+    }
+
     if (this.turnBusy()) {
       const messageQueue = [...(this.state.messageQueue ?? []), raw];
       let next = withHistory(withInput(this.state, ""), raw);
@@ -850,6 +891,7 @@ export class TuiApp {
   }
 
   private launchSubmitted(raw: string, fromQueue: boolean): void {
+    if (this.sharedEnabled && this.sharedReady) { void this.submitShared(raw); return; }
     const submitted = parseTuiCommand(raw);
     if (!fromQueue && (submitted.kind === "task" || submitted.kind === "run" || submitted.kind === "review" || submitted.kind === "plan" && submitted.args)) this.queueSuspended = false;
     let next = fromQueue ? this.state : withPicker(withInput(this.state, ""), undefined);
@@ -980,7 +1022,9 @@ export class TuiApp {
   }
 
   private advanceAfterSettlement(): void {
-    if (this.startupSetupActive && (this.state.taskStatus === "error" || this.turnCancelled)) this.abortStartupSetup();
+    const startupFailed = this.startupSetupActive && (this.state.taskStatus === "error" || this.turnCancelled);
+    this.projectClient?.resumeProjection();
+    if (startupFailed) this.abortStartupSetup();
     if (!this.persistSession) {
       this.advanceAfterPersistence();
       return;
@@ -1020,7 +1064,7 @@ export class TuiApp {
 
   private drainMessageQueue(): void {
     this.showNextMcpInput();
-    if (this.stopped || this.commandPending || this.turnLive || this.activeRuntime || this.state.pendingPermission || this.state.mcpInput || this.queueSuspended) return;
+    if (this.stopped || this.commandPending || this.turnLive || this.activeRuntime || this.sharedSubmission || this.projectClient?.busy() || this.state.pendingPermission || this.state.mcpInput || this.queueSuspended) return;
     const queue = this.state.messageQueue ?? [];
     const nextRaw = queue[0];
     if (!nextRaw) {
@@ -1043,6 +1087,11 @@ export class TuiApp {
   private answerPermission(raw: string): void {
     const allow = raw === "y" || raw === "yes" || raw === "1";
     const deny = raw === "n" || raw === "no" || raw === "2";
+    if (this.projectClient && this.state.sharedContext && !this.toolDecision) {
+      if (!allow && !deny) return;
+      void this.projectClient.approve(allow).catch((error: unknown) => this.sharedError(error));
+      return;
+    }
     let next = withInput(this.state, "");
     if (!allow && !deny) {
       this.setState(withOutput(next, ["  Answer 1 or 2 (y or n)."]));
@@ -1114,6 +1163,20 @@ export class TuiApp {
   }
 
   private applyInterrupt(key: "ctrl-c" | "escape"): void {
+    if (this.sharedEnabled && !this.projectClient && !this.activeRuntime) { if (key === "ctrl-c") this.stop(); return; }
+    if (this.projectClient && this.mcpDecision) {
+      this.mcpDecision({ action: "cancel" });
+      if (key === "ctrl-c") void this.projectClient.cancel().catch((error: unknown) => this.sharedError(error));
+      return;
+    }
+    if (this.projectClient && !this.activeRuntime && !this.commandPending && !this.mcpDecision && !this.toolDecision) {
+      if (this.state.pendingPermission && key === "escape") {
+        void this.projectClient.approve(false).catch((error: unknown) => this.sharedError(error));
+      } else if (this.projectClient.busy()) {
+        void this.projectClient.cancel().catch((error: unknown) => this.sharedError(error));
+      } else if (key === "ctrl-c") this.stop();
+      return;
+    }
     if (this.mcpDecision) { this.mcpDecision({ action: "cancel" }); return; }
     if (this.turnCancelled && this.turnBusy()) {
       this.pendingContinuation = undefined;
@@ -1177,6 +1240,10 @@ export class TuiApp {
   }
 
   private cycleMode(): void {
+    if (this.projectClient) {
+      void this.projectClient.cycleMode().catch((error: unknown) => this.sharedError(error));
+      return;
+    }
     this.launchMode = undefined;
     const nextMode = cycleSessionMode(this.pendingMode ?? this.state.sessionMode);
     this.sessionReady = true;
@@ -1330,7 +1397,11 @@ export class TuiApp {
     if (!modal || !this.mcpDecision) return;
     const raw = this.state.input.trim();
     if (["/decline", "decline", "n", "no"].includes(raw.toLowerCase())) { this.mcpDecision({ action: "decline" }); return; }
-    if (["/cancel", "/stop"].includes(raw.toLowerCase())) { this.mcpDecision({ action: "cancel" }); return; }
+    if (["/cancel", "/stop"].includes(raw.toLowerCase())) {
+      this.mcpDecision({ action: "cancel" });
+      if (raw.toLowerCase() === "/stop" && this.projectClient) void this.projectClient.cancel().catch((error: unknown) => this.sharedError(error));
+      return;
+    }
     try {
       if (modal.request.mode === "url" && raw.toLowerCase() !== "accept") throw new Error("Explicit action required");
       const result = validateMcpUserInput(modal.request, modal.request.mode === "url" ? { action: "accept" } : { action: "accept", content: JSON.parse(raw) });
@@ -1373,6 +1444,80 @@ export class TuiApp {
     } catch {
       // Provider status stays "none" until one is configured.
     }
+  }
+
+  private async hydrateSharedSession(): Promise<void> {
+    try {
+      const service = this.sharedService ?? await (await import("../projects/runtime-adapter.js")).createProductionProjectSessionService({ engineOptions: {
+        requestMcpInput: (request, signal) => this.requestMcpInput(request, signal),
+        extensionOptions: this.extensionOptions,
+      } });
+      if (this.stopped) { await service.close(); return; }
+      this.projectClient = new TuiProjectClient(service, this.cwd, () => this.state, (state) => {
+        const workspace = state.sharedContext?.path;
+        if (workspace && workspace !== this.cwd) {
+          this.cwd = workspace;
+          this.cachedPaths = null;
+          this.filesPromise = null;
+          this.fileToken += 1;
+        }
+        const wasRunning = this.state.running;
+        this.setState(state);
+        if (wasRunning && !state.running) queueMicrotask(() => this.drainMessageQueue());
+      }, this.extensionOptions);
+      await this.projectClient.start(this.launchMode);
+      this.launchMode = undefined;
+      this.commandPending = false;
+    } catch (error: unknown) {
+      this.sharedError(error);
+    } finally {
+      if (!this.stopped) this.setState({ ...this.state, sharedLoading: false });
+    }
+  }
+
+  private sharedError(error: unknown): void {
+    const text = redactStreamingText(error instanceof Error ? error.message : String(error));
+    if (this.projectClient) this.projectClient.notice(`Error: ${text}`);
+    else this.setState(appendTranscriptLine(this.state, `[Error] Shared history unavailable: ${text}. Your draft is preserved.`));
+  }
+
+  private async submitShared(raw: string): Promise<void> {
+    if (/^\/(quit|exit|q)\s*$/i.test(raw)) { this.stop(); return; }
+    const urgent = /^\/stop\s*$/i.test(raw);
+    if (this.sharedSubmission && !urgent) {
+      this.sharedError(new Error("The previous action is still being accepted. Your draft is preserved."));
+      return;
+    }
+    if (!urgent) this.sharedSubmission = true;
+    try {
+      await this.sharedReady;
+      if (!this.projectClient) throw new Error("The shared service is unavailable. Restart HIVE after checking the history location.");
+      const handled = await this.projectClient.submit(raw);
+      if (handled) {
+        if (this.state.input.trim() === raw && raw.startsWith("/")) this.setState(withPicker(withInput(this.state, ""), undefined));
+      } else {
+        if (this.projectClient.busy()) throw new Error("Stop the active run and wait for it to settle before running a separate local command.");
+        if (["plan", "review"].includes(this.state.workflowMode ?? "") && /^(?:!|\/shell\b|\/mcp\s+(?:call|task-call|task-cancel|task-continue)\b)/i.test(raw)) throw new Error("Direct shell and external mutations are disabled in Plan and Review workflows.");
+        // Provider setup and existing trusted extension forms retain their mature input path.
+        this.launchLegacySharedCommand(raw);
+      }
+    } catch (error: unknown) {
+      this.sharedError(error);
+      if (this.startupSetupActive) {
+        this.state = setTaskStatus(this.state, "error");
+        this.abortStartupSetup();
+      }
+    }
+    finally {
+      if (!urgent) this.sharedSubmission = false;
+      if (!this.stopped) this.drainMessageQueue();
+    }
+  }
+
+  private launchLegacySharedCommand(raw: string): void {
+    this.projectClient?.suspendProjection();
+    this.state = withHistory(withPicker(withInput(this.state, ""), undefined), raw);
+    this.startCommand(raw);
   }
 
   private refreshGitBranch(): void {

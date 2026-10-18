@@ -3,6 +3,17 @@ import { describe, expect, it, vi } from "vitest";
 import { renderMarkdown } from "./markdown";
 
 describe("renderMarkdown parser", () => {
+  it("keeps rendering partial streamed headings and unsupported hash text", () => {
+    const { container, rerender } = render(<div>{renderMarkdown("#")}</div>);
+    expect(container).toHaveTextContent("#");
+    for (const chunk of ["#t", "#tag", "#### heading", "Before\n#tag\nAfter"]) {
+      rerender(<div>{renderMarkdown(chunk)}</div>);
+      expect(container.textContent).toContain(chunk.replace(/\n/g, " ").trim());
+    }
+    rerender(<div>{renderMarkdown("# Ready\n#### unsupported\nStill readable")}</div>);
+    expect(screen.getByRole("heading", { level: 1, name: "Ready" })).toBeVisible();
+    expect(container).toHaveTextContent("#### unsupported Still readable");
+  });
   it("renders fenced code blocks with language and copy button", async () => {
     const markdown = "```typescript\nconst x = 42;\nconsole.log(x);\n```";
     const writeText = vi.fn().mockResolvedValue(undefined);
