@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useId, useRef, useState } from "react";
 import type { DesktopViewState } from "../../state";
 import type { CodingFinalReport } from "../../../../../src/coding/types";
 import { ChangesView } from "../ChangesView";
@@ -22,6 +22,7 @@ export interface InspectorTabsProps {
   report?: CodingFinalReport | null;
   sessionId?: string;
   defaultTab?: InspectorTab;
+  selectedTab?: InspectorTab;
   onSelectFile?: (filePath: string) => Promise<void>;
   onToggleDir?: (dirPath: string) => Promise<void>;
   onPreviewGit?: (action: "commit" | "discard" | "push" | "pull-request") => void;
@@ -33,11 +34,17 @@ export function InspectorTabs({
   report,
   sessionId,
   defaultTab = "changes",
+  selectedTab,
   onSelectFile,
   onToggleDir,
   onPreviewGit,
+  onSelectTab,
 }: InspectorTabsProps) {
-  const [tab, setTab] = useState<InspectorTab>(defaultTab);
+  const [localTab, setLocalTab] = useState<InspectorTab>(defaultTab);
+  const tab = selectedTab ?? localTab;
+  const tabId = useId();
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const selectTab = (next: InspectorTab) => { setLocalTab(next); onSelectTab?.(next); };
   const [expandedReview, setExpandedReview] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -53,13 +60,25 @@ export function InspectorTabs({
   return (
     <aside className={`hive-inspector ${expandedReview ? "is-expanded" : ""}`} aria-label="Harness Inspector">
       {/* Inspector Tab Bar */}
-      <div className="hive-inspector-header" role="tablist">
+      <div className="hive-inspector-header" role="tablist" aria-label="Task inspector" ref={tabListRef} onKeyDown={(event) => {
+        if (!(event.target instanceof HTMLElement) || event.target.getAttribute("role") !== "tab") return;
+        const tabs: InspectorTab[] = ["changes", "files", "terminal", "evidence", "run"];
+        const index = tabs.indexOf(tab);
+        const next = event.key === "ArrowRight" ? tabs[(index + 1) % tabs.length]
+          : event.key === "ArrowLeft" ? tabs[(index + tabs.length - 1) % tabs.length]
+          : event.key === "Home" ? tabs[0] : event.key === "End" ? tabs[tabs.length - 1] : undefined;
+        if (!next) return;
+        event.preventDefault();
+        selectTab(next);
+        tabListRef.current?.querySelector<HTMLButtonElement>(`[data-inspector-tab="${next}"]`)?.focus();
+      }}>
         <button
           type="button"
           role="tab"
           aria-selected={tab === "changes"}
+          id={`${tabId}-changes`} data-inspector-tab="changes" aria-controls={`${tabId}-panel`} tabIndex={tab === "changes" ? 0 : -1}
           className={`hive-inspector-tab ${tab === "changes" ? "is-active" : ""}`}
-          onClick={() => setTab("changes")}
+          onClick={() => selectTab("changes")}
         >
           Changes {changedFilesCount > 0 && <span className="hive-badge">{changedFilesCount}</span>}
         </button>
@@ -67,8 +86,9 @@ export function InspectorTabs({
           type="button"
           role="tab"
           aria-selected={tab === "files"}
+          id={`${tabId}-files`} data-inspector-tab="files" aria-controls={`${tabId}-panel`} tabIndex={tab === "files" ? 0 : -1}
           className={`hive-inspector-tab ${tab === "files" ? "is-active" : ""}`}
-          onClick={() => setTab("files")}
+          onClick={() => selectTab("files")}
         >
           Files
         </button>
@@ -76,8 +96,9 @@ export function InspectorTabs({
           type="button"
           role="tab"
           aria-selected={tab === "terminal"}
+          id={`${tabId}-terminal`} data-inspector-tab="terminal" aria-controls={`${tabId}-panel`} tabIndex={tab === "terminal" ? 0 : -1}
           className={`hive-inspector-tab ${tab === "terminal" ? "is-active" : ""}`}
-          onClick={() => setTab("terminal")}
+          onClick={() => selectTab("terminal")}
         >
           Terminal
         </button>
@@ -85,8 +106,9 @@ export function InspectorTabs({
           type="button"
           role="tab"
           aria-selected={tab === "evidence"}
+          id={`${tabId}-evidence`} data-inspector-tab="evidence" aria-controls={`${tabId}-panel`} tabIndex={tab === "evidence" ? 0 : -1}
           className={`hive-inspector-tab ${tab === "evidence" ? "is-active" : ""}`}
-          onClick={() => setTab("evidence")}
+          onClick={() => selectTab("evidence")}
         >
           Evidence
         </button>
@@ -94,8 +116,9 @@ export function InspectorTabs({
           type="button"
           role="tab"
           aria-selected={tab === "run"}
+          id={`${tabId}-run`} data-inspector-tab="run" aria-controls={`${tabId}-panel`} tabIndex={tab === "run" ? 0 : -1}
           className={`hive-inspector-tab ${tab === "run" ? "is-active" : ""}`}
-          onClick={() => setTab("run")}
+          onClick={() => selectTab("run")}
         >
           Run
         </button>
@@ -110,7 +133,7 @@ export function InspectorTabs({
         </button>
       </div>
 
-      <div className="hive-inspector-content">
+      <div className="hive-inspector-content" role="tabpanel" id={`${tabId}-panel`} aria-labelledby={`${tabId}-${tab}`} tabIndex={0}>
         {/* Tab 1: Changes */}
         {tab === "changes" && (
           <div className="hive-inspector-stack">

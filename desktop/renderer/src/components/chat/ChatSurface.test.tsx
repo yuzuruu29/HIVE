@@ -1,4 +1,5 @@
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatSurface, type ChatModelOption } from "./ChatSurface";
 import { initialDesktopState, type DesktopViewState } from "../../state";
@@ -369,5 +370,26 @@ describe("ChatSurface", () => {
     expect(screen.queryByRole("option", { name: /hive auto|not-ready/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "deepseek-v4-flash" }));
     expect(onSelectModel).toHaveBeenCalledExactlyOnceWith({ providerId: "deepseek", providerName: "DeepSeek", model: "deepseek-v4-flash" });
+  });
+
+  it("changes the chat route with the shared keyboard picker without submitting or losing the draft", async () => {
+    const user = userEvent.setup();
+    const send = sender();
+    const onSelectModel = vi.fn();
+    const options = [...modelOptions, { ...modelOptions[0], model: "alternate-model" }];
+    const state = activeState();
+    const { rerender } = render(<ChatSurface state={state} send={send} modelOptions={options} selectedModel={selectedModel} onSelectModel={onSelectModel} />);
+    const textarea = screen.getByRole("textbox", { name: "Message HIVE" });
+    await user.type(textarea, "Keep this route-specific draft");
+    const trigger = screen.getByRole("button", { name: "Select model" });
+    await user.click(trigger);
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(onSelectModel).toHaveBeenCalledExactlyOnceWith(options[1]);
+    expect(trigger).toHaveFocus();
+    expect(textarea).toHaveValue("Keep this route-specific draft");
+    expect(send).not.toHaveBeenCalled();
+    rerender(<ChatSurface state={state} send={send} modelOptions={options} selectedModel={options[1]} onSelectModel={onSelectModel} />);
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "chat.send", input: { conversationId, content: "Keep this route-specific draft", providerId: provider.id, model: "alternate-model" } }));
   });
 });

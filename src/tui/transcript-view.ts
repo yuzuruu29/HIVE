@@ -162,6 +162,16 @@ export function selectorBodyRows(state: Pick<TuiState, "input">): number {
   return 2 + ((state.input ?? "").length > 0 ? 1 : 0);
 }
 
+export function permissionDisplayPrompt(state: Pick<TuiState, "permissionPrompt">): string {
+  return sanitizeTerminalText(state.permissionPrompt ?? "Allow this action?").replace(/\s*\[y\/n\]\s*$/i, "").replace(/\n/g, " ");
+}
+
+/** Long requests belong in the body, where the full target can wrap. */
+export function permissionContextRows(state: Pick<TuiState, "permissionPrompt">, width: number): string[] {
+  const prompt = permissionDisplayPrompt(state);
+  return terminalCellWidth(prompt) <= width - 6 ? [] : wrapDisplayLine(prompt, Math.max(1, width - COMPOSER_BOX_INSET), true);
+}
+
 /** The working line shows while a turn runs; the queue line while drafts wait. */
 export function activityRowCount(state: Pick<TuiState, "taskStatus" | "messageQueue" | "mcpInput">): number {
   const working = state.taskStatus === "running" || state.taskStatus === "verifying" ? 1 : 0;
@@ -177,7 +187,10 @@ export function composerBandRows(
   if (height < 4) return 1;
   if (height < 8) return 2;
   const activity = activityRowCount(state);
-  if (state.pendingPermission && !state.mcpInput) return activity + 2 + selectorBodyRows(state);
+  if (state.pendingPermission && !state.mcpInput) {
+    const context = permissionContextRows(state, width);
+    return activity + 2 + selectorBodyRows(state) + (context.length > 0 ? context.length + 1 : 0);
+  }
   const inner = Math.max(1, width - COMPOSER_BOX_INSET);
   const layout = layoutComposer(state.input ?? "", state.cursor, inner, boxPrompt(state));
   return activity + 2 + Math.max(1, layout.rows.length);
@@ -432,7 +445,7 @@ const SKY_PATH = [10, 8, 6, 4, 2, 0, 2, 4, 6, 8];
  * where a gold bee hovers. Every row is 13 cells. At rest the bee sits top
  * right; while a turn runs it flies back and forth over the hive, flapping.
  */
-function beeHive(g: Glyphs, frame?: number): Row[] {
+export function renderHiveMascot(g: Glyphs, frame?: number): Row[] {
   const ascii = g.bullet === "*";
   const at = frame === undefined ? SKY_PATH[0] : SKY_PATH[frame % SKY_PATH.length];
   const wings = frame === undefined || frame % 2 === 0 ? g.bee.open : g.bee.folded;
@@ -469,28 +482,30 @@ function shown(value: unknown): string {
 /** Bordered card with the hive mascot, product line, runtime and workspace, then a tips line. */
 function welcomeRows(state: TuiState, width: number, g: Glyphs, frame?: number): Row[] {
   const place = [state.workspaceName, state.gitBranch ? `(${state.gitBranch})` : undefined].filter(Boolean).join(" ");
-  const text: Row[] = [
-    [{ text: "HIVE", tone: "pale" }],
-    [{ text: "Hyper Intelligence for Verified Engineering", tone: "muted" }],
-    [{ text: `${shown(state.provider)} ${g.dot} ${shown(state.model)} ${g.dot} ${state.sessionMode || "guarded"}`, tone: "text" }],
-    [{ text: place || "no workspace", tone: "muted" }],
-    [],
+  const text: Span[] = [
+    { text: "HIVE", tone: "pale" },
+    { text: "Hyper Intelligence for Verified Engineering", tone: "muted" },
+    { text: `${shown(state.provider)} ${g.dot} ${shown(state.model)} ${g.dot} ${state.sessionMode || "guarded"}`, tone: "text" },
+    { text: place || "no workspace", tone: "muted" },
   ];
-  const tips: Row = [{ text: `  /help for commands ${g.dot} @ for files ${g.dot} shift+tab for modes`, tone: "dim" }];
-  if (width < 24) return [[{ text: "HIVE", tone: "pale" }], []];
+  const tips = `/help for commands ${g.dot} @ for files ${g.dot} shift+tab for modes`;
+  const tipRows = wrapDisplayLine(tips, Math.max(1, width - 2), true).map((line): Row => [{ text: `${width > 2 ? "  " : ""}${line}`, tone: "dim" }]);
+  if (width < 24) return [...text.flatMap((span) => wrapDisplayLine(sanitizeTerminalText(span.text).replace(/\n/g, " "), width, true).map((line): Row => [{ ...span, text: line }])), ...tipRows];
   const boxWidth = Math.min(width, WELCOME_CAP);
   const inner = boxWidth - 4;
   const withMascot = inner >= MASCOT_CELLS + 2 + 20;
-  const mascot = withMascot ? beeHive(g, frame) : [];
-  // The fifth text row only exists to sit beside the hive's base.
-  const lines = withMascot ? text : text.slice(0, 4);
-  const body = lines.map((row, index): Row => padRow(withMascot ? [...mascot[index], { text: "  ", tone: "text" }, ...row] : row, inner));
+  const mascot = withMascot ? renderHiveMascot(g, frame) : [];
+  const textWidth = inner - (withMascot ? MASCOT_CELLS + 2 : 0);
+  const lines = text.flatMap((span) => wrapDisplayLine(sanitizeTerminalText(span.text).replace(/\n/g, " "), textWidth, true).map((line): Row => [{ ...span, text: line }]));
+  const body = Array.from({ length: Math.max(lines.length, mascot.length) }, (_, index): Row => padRow(withMascot
+    ? [...(mascot[index] ?? [{ text: " ".repeat(MASCOT_CELLS), tone: "text" }]), { text: "  ", tone: "text" }, ...(lines[index] ?? [])]
+    : lines[index] ?? [], inner));
   const { tl, tr, bl, br, h, v } = g.box;
   return [
     [{ text: tl + h.repeat(boxWidth - 2) + tr, tone: "violet" }],
     ...body.map((row): Row => [{ text: `${v} `, tone: "violet" }, ...row, { text: ` ${v}`, tone: "violet" }]),
     [{ text: bl + h.repeat(boxWidth - 2) + br, tone: "violet" }],
-    fitSpans(tips, width),
+    ...tipRows,
   ];
 }
 

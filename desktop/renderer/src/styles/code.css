@@ -29,6 +29,7 @@
 
 .hive-code-column {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
   width: 100%;
   max-width: var(--reading-w);
@@ -71,6 +72,7 @@
    during a run it becomes a live list with phase dots and timings. */
 .hive-activity-block {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   padding: 10px;
   border: 1px solid var(--line);
@@ -186,4 +188,24 @@
   height: 1px;
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
+}
+
+.hive-code-layout { min-width: 0; }
+.hive-code-head { flex-wrap: wrap; }
+.hive-activity-time { font-variant-numeric: tabular-nums; }
+@container workspace (max-width: 1020px) {
+  .hive-code-layout:has(> .hive-inspector) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(260px, 1fr) minmax(220px, 0.8fr);
+    gap: 12px;
+  }
+  .hive-code-layout:has(> .hive-inspector.is-expanded) {
+    grid-template-rows: minmax(240px, 0.7fr) minmax(260px, 1fr);
+  }
+  .hive-code-column { gap: 20px; padding: 12px 20px 24px; }
+  .hive-code-hero { padding-top: 20px; }
+}
+@media (max-height: 600px) {
+  .hive-main { overflow: auto; }
+  .hive-code-layout:has(> .hive-inspector) { min-height: 620px; flex: 0 0 auto; }
 }

@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, within, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -74,6 +74,70 @@ async function openRepository(api = bridge()) {
 }
 
 describe("HIVE desktop cockpit", () => {
+  it.each(["coder", "split"] as const)("selects a configured model directly in %s Code and forwards that route", async (mode) => {
+    const api = bridge({ request: async (command) => command.type === "provider.list"
+      ? { type: "provider.listed", timestamp: now, providers: [
+        { id: "first", name: "First local", kind: "local", authType: "none", approved: true, configured: true, defaultModel: "first-model" },
+        { id: "second", name: "Second local", kind: "local", authType: "none", approved: true, configured: true, defaultModel: "second-model" },
+      ] }
+      : eventFor(command) });
+    const { user } = await openRepository(api);
+    if (mode === "split") await user.click(screen.getByRole("button", { name: /side by side/i }));
+    const code = screen.getByLabelText("Hive Code Surface");
+    await user.click(await within(code).findByRole("button", { name: "Model: First local / first-model" }));
+    await user.click(within(screen.getByRole("listbox", { name: "Configured models" })).getByRole("option", { name: "second-model" }));
+    expect(within(code).getByRole("button", { name: "Model: Second local / second-model" })).toHaveFocus();
+    if (mode === "split") expect(screen.getByRole("button", { name: "Select model" })).toHaveTextContent("second-model");
+    await user.type(within(code).getByLabelText("Message HIVE"), "Use the selected model");
+    await user.click(within(code).getByRole("button", { name: "Send task" }));
+    await waitFor(() => expect(api.request.mock.calls.map(([command]) => command)).toContainEqual(expect.objectContaining({
+      type: "run.start", input: expect.objectContaining({ options: expect.objectContaining({ providerId: "second", model: "second-model" }) }),
+    })));
+  });
+
+  it("uses shortcuts and palette commands to select the visible Code inspector", async () => {
+    const { api, user } = await openRepository();
+    fireEvent.keyDown(window, { key: "3", ctrlKey: true });
+    expect(screen.getByRole("tab", { name: "Evidence" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: "Evidence" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Evidence" })).toHaveFocus();
+    fireEvent.keyDown(window, { key: "2", ctrlKey: true });
+    expect(screen.getByRole("tab", { name: /Changes/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: /Changes/ })).toHaveTextContent("old");
+    fireEvent.keyDown(window, { key: "1", ctrlKey: true });
+    expect(screen.getByLabelText("Message HIVE")).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: /^chat$/i }));
+    await user.keyboard("{Control>}k{/Control}");
+    await user.click(screen.getByRole("option", { name: /open code evidence/i }));
+    expect(screen.getByRole("tabpanel", { name: "Evidence" })).toBeInTheDocument();
+    expect(api.request.mock.calls.map(([command]) => command)).toContainEqual(expect.objectContaining({ type: "run.report", input: expect.objectContaining({ codingSessionId: "session-1" }) }));
+  });
+
+  it("saves the resized split proportion and restores it when returning to side by side", async () => {
+    const { user } = await openRepository();
+    await user.click(screen.getByRole("button", { name: /side by side/i }));
+    const divider = screen.getByRole("separator", { name: "Resize Chat and Code Panes" });
+    fireEvent.keyDown(divider, { key: "ArrowRight", shiftKey: true });
+    expect(JSON.parse(localStorage.getItem("hive.desktop.ui.v1") ?? "{}").splitRatio).toBe(0.5);
+    await user.click(screen.getByRole("button", { name: /^code$/i }));
+    await user.click(screen.getByRole("button", { name: /side by side/i }));
+    expect(screen.getByRole("separator", { name: "Resize Chat and Code Panes" })).toHaveAttribute("aria-valuenow", "50");
+  });
+
+  it("shows one completion toast when runtime and worker finalization repeat a terminal state", async () => {
+    const { api } = await openRepository();
+    act(() => {
+      api.emit({ type: "run.changed", timestamp: now, run: { ...activeThread.runs[0], status: "completed" } });
+      api.emit({ type: "run.changed", timestamp: "2026-07-14T00:00:01.000Z", run: { ...activeThread.runs[0], status: "completed", updatedAt: "2026-07-14T00:00:01.000Z" } });
+    });
+    expect(screen.getAllByText("Run completed: Desktop companion")).toHaveLength(1);
+    act(() => {
+      api.emit({ type: "run.changed", timestamp: now, run: { ...activeThread.runs[0], status: "running" } });
+      api.emit({ type: "run.changed", timestamp: now, run: { ...activeThread.runs[0], status: "failed" } });
+    });
+    expect(screen.getByText("Run failed: Desktop companion")).toBeInTheDocument();
+  });
+
   it.each(["coder", "split"] as const)("uses the displayed provider and model for a %s task", async (mode) => {
     const api = bridge({ request: async (command) => command.type === "provider.list"
       ? { type: "provider.listed", timestamp: now, providers: [{ id: "selected-local", name: "Selected local", kind: "local", authType: "none", approved: true, configured: true, defaultModel: "selected-model" }] }

@@ -77,7 +77,7 @@ export function Sidebar({
       </header>
 
       <nav className="hive-sidebar-nav" aria-label="Global Navigation">
-        <button type="button" className="hive-new-chat" onClick={primary.run} title={primary.hint}>
+        <button type="button" className="hive-new-chat" aria-label={primary.label} onClick={primary.run} title={primary.hint}>
           <PenIcon />
           <span className="hive-label">{primary.label}</span>
           {!codeMode && <kbd className="hive-label">Ctrl N</kbd>}
@@ -90,7 +90,7 @@ export function Sidebar({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={codeMode ? "Search tasks" : "Search chats"}
-            aria-label="Search chats"
+            aria-label={codeMode ? "Search tasks" : "Search chats"}
           />
         </label>
 
@@ -102,7 +102,7 @@ export function Sidebar({
               className={`hive-nav-item${mode === item.key ? " is-active" : ""}`}
               onClick={() => onSelectMode(item.key)}
               aria-pressed={mode === item.key}
-              title={item.label}
+              aria-label={item.label} title={item.label}
             >
               {item.icon}
               <span className="hive-label">{item.label}</span>
@@ -113,7 +113,7 @@ export function Sidebar({
             className={`hive-nav-item${mode === "usage" ? " is-active" : ""}`}
             onClick={onOpenUsage}
             aria-pressed={mode === "usage"}
-            title="Usage"
+            aria-label="Usage" title="Usage"
           >
             <PulseIcon />
             <span className="hive-label">Usage</span>
@@ -124,7 +124,7 @@ export function Sidebar({
           <h2 className="hive-section-label">{codeMode ? "Code tasks" : "Recents"}</h2>
           {visible.length === 0 ? (
             <p className="hive-recents-empty">
-              {needle ? "No matching chats" : codeMode ? "No active work" : "No chats yet"}
+              {needle ? codeMode ? "No matching tasks" : "No matching chats" : codeMode ? "No active work" : "No chats yet"}
             </p>
           ) : (
             <ul className="hive-session-list">
@@ -183,7 +183,7 @@ export function Sidebar({
             </div>
           </form>
         )}
-        <button type="button" className="hive-nav-item" onClick={onOpenSettings} title="Settings">
+        <button type="button" className="hive-nav-item" onClick={onOpenSettings} aria-label="Settings" title="Settings">
           <GearIcon />
           <span className="hive-label">Settings</span>
         </button>

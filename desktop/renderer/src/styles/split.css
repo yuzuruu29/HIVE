@@ -31,3 +31,17 @@
   margin: 12px 0;
   background: var(--line-strong);
 }
+
+.hive-split-layout { min-width: 0; overflow: auto; }
+.hive-split-divider {
+  position: relative; flex: 0 0 8px; width: 8px; margin: 12px 0;
+  background: transparent; cursor: col-resize; touch-action: none;
+}
+.hive-split-divider::after { content: ""; position: absolute; inset: 0 3px; background: var(--line-strong); border-radius: 2px; }
+.hive-split-divider:hover::after, .hive-split-divider:focus-visible::after { background: var(--accent-ink); }
+.hive-split-divider:focus-visible { outline-offset: -2px; }
+.hive-split-layout[data-stacked="true"] { flex-direction: column; gap: 0; }
+.hive-split-layout[data-stacked="true"] > .hive-split-pane { flex: 0 0 auto; width: 100%; min-height: 420px; }
+.hive-split-layout[data-stacked="true"] > .hive-split-pane:last-child { border-top: 1px solid var(--line-strong); }
+.hive-split-layout[data-stacked="true"] > .hive-split-divider { display: none; }
+.hive-split-layout[data-stacked="true"] .hive-chat-surface.is-home { padding: 24px 20px; }

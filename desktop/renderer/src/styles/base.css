@@ -71,7 +71,7 @@ kbd {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent-ring);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -362,3 +362,10 @@ button.hive-badge:not(:disabled):hover {
 .toast-success::before { background: var(--ok); }
 .toast-warning::before { background: var(--warn); }
 .toast-error::before { background: var(--bad); }
+
+input, textarea { caret-color: var(--accent-ink); }
+button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+.dialog-actions { flex-wrap: wrap; }
+.toast-stack { max-width: min(420px, calc(100vw - 32px)); }
+.toast { min-width: 0; max-width: 100%; }
+.toast span, .error-toast span { min-width: 0; overflow-wrap: anywhere; }

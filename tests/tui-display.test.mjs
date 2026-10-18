@@ -123,3 +123,103 @@ test("Unicode frames stay within terminal cells and retain a transcript majority
     }
   }
 });
+
+test("a short picker keeps the highlighted command visible as selection moves", async () => {
+  const { renderTuiScreen, renderPickerRows } = await import("../dist/tui/renderer.js");
+  const { initialState } = await import("../dist/tui/state.js");
+  const { planSessionFrame } = await import("../dist/tui/transcript-view.js");
+  const { terminalCellWidth } = await import("../dist/tui/display-text.js");
+  const items = Array.from({ length: 8 }, (_, index) => ({ label: `/item-${index}`, detail: "Command", insert: `/item-${index}`, submit: true }));
+  for (const height of [4, 5, 8, 12]) {
+    for (let selected = 0; selected < items.length; selected += 1) {
+      const state = { ...initialState(), width: 40, height, colorEnabled: false, asciiGlyphs: true, picker: { kind: "command", query: "", items, selected } };
+      const plan = planSessionFrame(state);
+      assert.ok(plan.pickerRows > 0);
+      const rows = renderTuiScreen(state).split("\n");
+      assert.equal(rows.length, height);
+      assert.match(rows.join("\n"), new RegExp(`> /item-${selected}`));
+      assert.ok(rows.every((line) => terminalCellWidth(line) <= 40));
+      assert.equal(renderPickerRows(state, plan.pickerRows).length, plan.pickerRows);
+    }
+  }
+});
+
+test("compact permission controls retain the request, selected option and keyboard hints", async () => {
+  const { renderComposerBand, renderTuiScreen } = await import("../dist/tui/renderer.js");
+  const { initialState, withPendingPermission } = await import("../dist/tui/state.js");
+  const { decidePermission } = await import("../dist/tui/interaction.js");
+  const { terminalCellWidth } = await import("../dist/tui/display-text.js");
+  const decision = decidePermission("guarded", { kind: "command", target: "npm", inWorkspace: true, confirmed: false });
+  for (const asciiGlyphs of [false, true]) {
+    for (const choice of [0, 1]) {
+      const state = { ...withPendingPermission(initialState(), decision), width: 40, height: 6, colorEnabled: false, asciiGlyphs, permissionChoice: choice };
+      const frame = renderTuiScreen(state);
+      assert.match(frame, /Allow command npm\?/);
+      assert.match(frame, choice === 0 ? /\[1.Yes\] \/ 2.No/ : /1.Yes \/ \[2.No\]/);
+      assert.match(frame.split("\n").at(-1), /enter.*esc/);
+      for (const available of [1, 2]) {
+        const rows = renderComposerBand(state, 40, available);
+        assert.equal(rows.length, available);
+        assert.match(rows.join("\n"), /Allow command/);
+        assert.match(rows.join("\n"), choice === 0 ? /\[1.Yes\]/ : /\[2.No\]/);
+        assert.ok(rows.every((line) => terminalCellWidth(line) <= 40));
+      }
+    }
+  }
+});
+
+test("long approval targets wrap in the selector body rather than disappearing in its border", async () => {
+  const { renderComposerBand } = await import("../dist/tui/renderer.js");
+  const { initialState, withPendingPermission } = await import("../dist/tui/state.js");
+  const { decidePermission } = await import("../dist/tui/interaction.js");
+  const { composerBandRows } = await import("../dist/tui/transcript-view.js");
+  const { terminalCellWidth } = await import("../dist/tui/display-text.js");
+  const target = "packages/工程👩🏽‍💻/long-module-name-that-wraps/long-target-with-tail.ts";
+  const state = { ...withPendingPermission(initialState(), decidePermission("guarded", { kind: "edit", target, inWorkspace: true, confirmed: false })), colorEnabled: false, asciiGlyphs: false, height: 30 };
+  for (const width of [24, 40, 60]) {
+    const rows = renderComposerBand(state, width, composerBandRows(state, width));
+    assert.match(rows[0], /Approval/);
+    assert.ok(rows.every((line) => terminalCellWidth(line) <= width));
+    const body = rows.slice(1, -1).map((line) => line.slice(2, -2)).join("").replace(/\s/g, "");
+    assert.ok(body.includes(target.replace(/\s/g, "")));
+    assert.match(rows.join("\n"), /1\. Yes/);
+    assert.match(rows.join("\n"), /2\. No/);
+  }
+});
+
+test("approval instructions stay ahead of runtime metadata in an 80-column footer", async () => {
+  const { renderStatusBar } = await import("../dist/tui/renderer.js");
+  const { initialState, withPendingPermission } = await import("../dist/tui/state.js");
+  const { decidePermission } = await import("../dist/tui/interaction.js");
+  const { terminalCellWidth } = await import("../dist/tui/display-text.js");
+  const base = { ...withPendingPermission(initialState(), decidePermission("guarded", { kind: "command", target: "npm", inWorkspace: true, confirmed: false })), provider: "configured-provider", model: "long-model-name", workspaceName: "current-workspace", colorEnabled: false };
+  for (const asciiGlyphs of [false, true]) {
+    const footer = renderStatusBar({ ...base, asciiGlyphs }, 80);
+    assert.match(footer, /guarded mode/);
+    assert.match(footer, /enter confirms/);
+    assert.match(footer, /esc declines/);
+    assert.ok(terminalCellWidth(footer) <= 80);
+    const narrow = renderStatusBar({ ...base, asciiGlyphs }, 24);
+    assert.match(narrow, /enter.*esc/);
+    assert.ok(terminalCellWidth(narrow) <= 24);
+  }
+});
+
+test("narrow welcome cards wrap their full tagline, runtime, workspace and command hints", async () => {
+  const { renderTranscriptRows, renderHiveMascot, plainRow } = await import("../dist/tui/transcript-view.js");
+  const { ASCII_GLYPHS } = await import("../dist/tui/glyphs.js");
+  const mascot = new Set(renderHiveMascot(ASCII_GLYPHS).map(plainRow));
+  const { initialState } = await import("../dist/tui/state.js");
+  const { terminalCellWidth } = await import("../dist/tui/display-text.js");
+  for (const width of [24, 32, 40, 60]) {
+    const rows = renderTranscriptRows({ ...initialState(), width, asciiGlyphs: true, provider: "provider-name", model: "model-with-tail", workspaceName: "workspace-with-tail", gitBranch: "feature/clarity", transcript: [], outputLines: [] }, width).map(plainRow);
+    assert.ok(rows.every((line) => terminalCellWidth(line) <= width));
+    const content = rows.map((line) => {
+      const body = line.startsWith("| ") ? line.slice(2, -2) : line;
+      return mascot.has(body.slice(0, 13)) && body.slice(13, 15) === "  " ? body.slice(15) : body;
+    }).join("").replace(/\s/g, "");
+    for (const expected of ["HyperIntelligenceforVerifiedEngineering", "provider-name", "model-with-tail", "workspace-with-tail", "feature/clarity", "/helpforcommands", "@forfiles", "shift+tabformodes"]) {
+      assert.ok(content.includes(expected), `${width}-cell welcome lost ${expected}`);
+    }
+  }
+});

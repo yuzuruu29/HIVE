@@ -7,7 +7,6 @@
   min-height: 0;
   border-right: 1px solid var(--line);
   background: var(--bg-sidebar);
-  transition: width var(--base) var(--ease);
 }
 
 .hive-sidebar[data-collapsed] {
@@ -344,4 +343,14 @@
   color: var(--bg);
   font-size: var(--text-xs);
   font-weight: 600;
+}
+
+.hive-sidebar { overflow: hidden; }
+.hive-sidebar-nav { overflow-y: auto; overscroll-behavior: contain; }
+.hive-new-chat, .hive-search, .hive-nav-group { flex-shrink: 0; }
+.hive-recents { min-height: 72px; }
+.hive-search input::placeholder { color: var(--ink-3); }
+@media (max-height: 600px) {
+  .hive-sidebar-foot { gap: 4px; padding-top: 6px; padding-bottom: 6px; }
+  .hive-workspace { gap: 6px; padding: 8px; }
 }

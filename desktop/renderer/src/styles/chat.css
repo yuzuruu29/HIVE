@@ -406,3 +406,22 @@
   font-size: 13px;
   line-height: 1.6;
 }
+
+.hive-suggestion, .chat-setup-btn, .hive-handoff-btn { height: auto; min-height: 34px; padding-block: 7px; }
+.chat-setup-banner, .hive-handoff { flex-wrap: wrap; }
+@container workspace (max-width: 600px) {
+  .hive-chat-surface.is-home { padding: 24px 16px; }
+  .chat-home { gap: 16px; }
+  .chat-hero-title { font-size: 28px; }
+  .chat-hero-sub { font-size: var(--text-md); }
+  .hive-chat-column { padding: 12px 16px 24px; }
+  .hive-chat-dock { padding: 0 14px 12px; }
+  .hive-suggestions { gap: 6px; }
+  .hive-suggestion { padding-inline: 10px; }
+  .user-message-bubble { max-width: 90%; }
+  .assistant-message { gap: 10px; }
+}
+@media (max-height: 600px) {
+  .hive-chat-surface.is-home { justify-content: flex-start; padding-top: 20px; }
+  .chat-hero-mark { width: 44px; height: 44px; margin-bottom: 0; }
+}

@@ -9,6 +9,7 @@ import { SettingsDialog } from "./components/SettingsDialog";
 import { UsageSurface } from "./components/usage/UsageSurface";
 import { SplitWorkspace } from "./components/SplitWorkspace";
 import { CodexSurface } from "./components/codex/CodexSurface";
+import type { InspectorTab } from "./components/inspector/InspectorTabs";
 import { ShortcutHelp } from "./components/ShortcutHelp";
 import { Toast, ToastItem } from "./components/Toast";
 import { ChatSurface } from "./components/chat/ChatSurface";
@@ -44,6 +45,8 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [stickyError, setStickyError] = useState<string | null>(null);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("changes");
+  const [workspaceFocusRequest, setWorkspaceFocusRequest] = useState(0);
 
   async function fetchModels(providerId: string): Promise<void> {
     setModelsLoading((prev) => ({ ...prev, [providerId]: true }));
@@ -68,8 +71,16 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   const chatRequestIds = useRef(new Set<string>());
   const modelsRequested = useRef(new Set<string>());
   const startNewChatRef = useRef<() => void>(() => {});
+  const runNotificationsRef = useRef(new Map<string, string>());
+  const toastTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
 
   const splitRatio = prefs.splitRatio ?? 0.4;
+
+  useEffect(() => {
+    if (!workspaceFocusRequest) return;
+    const selector = state.tab === "conversation" ? ".hive-code-center textarea" : ".hive-inspector-tab.is-active";
+    document.querySelector<HTMLElement>(selector)?.focus();
+  }, [workspaceFocusRequest]);
 
   // Sync density, accent and theme attributes to the root element; "system" follows the OS.
   useEffect(() => {
@@ -141,7 +152,12 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
       }
 
       // Presence & Toast on run completion
-      if (event.type === "run.changed" && terminalStatuses.has(event.run.status)) {
+      if (event.type === "run.changed") {
+        const runKey = `${(event.repositoryRoot ?? repositoryRef.current ?? "").toLowerCase()}\u0000${event.run.codingSessionId}`;
+        if (!terminalStatuses.has(event.run.status)) { runNotificationsRef.current.delete(runKey); return; }
+        // Runtime completion and worker finalization can publish the same terminal state.
+        if (runNotificationsRef.current.get(runKey) === event.run.status) return;
+        runNotificationsRef.current.set(runKey, event.run.status);
         const ownerThread = stateRef.current.threads.find((t) => t.runs.some((r) => r.codingSessionId === event.run.codingSessionId));
         const threadTitle = ownerThread?.title ?? "HIVE Run";
         const tone = event.run.status === "completed" ? "success" : "error";
@@ -151,14 +167,20 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
         setToasts((prev) => [...prev, { id: toastId, tone, text: messageText }]);
         notifyRunCompleted("HIVE Cockpit", { threadTitle, status: event.run.status });
 
-        setTimeout(() => {
+        const timer = setTimeout(() => {
           setToasts((prev) => prev.filter((t) => t.id !== toastId));
+          toastTimersRef.current.delete(timer);
         }, 6000);
+        toastTimersRef.current.add(timer);
       }
     });
     void send({ type: "repository.list" });
     void send({ type: "provider.list" });
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      for (const timer of toastTimersRef.current) clearTimeout(timer);
+      toastTimersRef.current.clear();
+    };
   }, [api]);
 
   useEffect(() => {
@@ -391,6 +413,10 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
 
   async function chooseTab(tab: CenterTab): Promise<void> {
     dispatch({ type: "ui.tab", tab });
+    dispatch({ type: "ui.mode", mode: "coder" });
+    updatePrefs({ mode: "coder" });
+    if (tab !== "conversation") setInspectorTab(tab === "report" ? "evidence" : "changes");
+    setWorkspaceFocusRequest((request) => request + 1);
     if (!state.repositoryRoot || !activeThread || !sessionId) return;
     if (tab === "changes") await send({ type: "changes.diff", input: { repositoryRoot: state.repositoryRoot, codingSessionId: sessionId } });
     if (tab === "report") await send({ type: "run.report", input: { repositoryRoot: state.repositoryRoot, threadId: activeThread.id, codingSessionId: sessionId } });
@@ -503,19 +529,19 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
 
     list.push({
       id: "tab-conv",
-      label: "Switch to Conversation tab",
+      label: "Focus Code conversation",
       hint: "Ctrl+1",
       run: () => void chooseTab("conversation"),
     });
     list.push({
       id: "tab-changes",
-      label: "Switch to Changes diff tab",
+      label: "Open Code Changes",
       hint: "Ctrl+2",
       run: () => void chooseTab("changes"),
     });
     list.push({
       id: "tab-report",
-      label: "Switch to Verified Report tab",
+      label: "Open Code Evidence",
       hint: "Ctrl+3",
       run: () => void chooseTab("report"),
     });
@@ -589,7 +615,7 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
     });
 
     return list;
-  }, [state.repositories, activeRun, currentRun, state.rails, state.repositoryRoot]);
+  }, [state.repositories, activeRun, currentRun, state.rails, state.repositoryRoot, activeThread?.id, sessionId, modelChoice]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -710,6 +736,9 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
               if (t) void loadThread(t);
             }}
             onHandoffToCoder={() => dispatch({ type: "ui.mode", mode: "coder" })}
+            splitRatio={splitRatio}
+            onSplitRatioChange={handleSplitRatioChange}
+            onRunAction={runAction}
           />
         ) : state.mode === "usage" ? (
           <UsageSurface
@@ -721,7 +750,11 @@ export function App({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
             state={state}
             send={send}
             activeModelName={activeModelName}
+            modelOptions={modelOptions}
             selectedModel={modelChoice}
+            onSelectModel={(choice) => setModelChoice({ providerId: choice.providerId, model: choice.model })}
+            inspectorTab={inspectorTab}
+            onSelectInspectorTab={setInspectorTab}
             onOpenModelPicker={() => openSettings("catalog")}
             onOpenSettings={() => openSettings("models")}
             onOpenRepositoryPicker={() => void pickRepository()}
