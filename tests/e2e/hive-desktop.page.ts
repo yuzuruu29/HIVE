@@ -48,6 +48,7 @@ export class HiveDesktopPage {
     await expect(this.page.getByRole("heading", { level: 1 })).toHaveText(title);
   }
   async rename(title: string): Promise<void> {
+    await this.page.getByRole("button", { name: "Chat actions", exact: true }).click();
     await this.page.getByRole("button", { name: "Rename chat" }).click();
     const dialog = this.page.getByRole("dialog", { name: "Rename chat" });
     await dialog.getByLabel("Name", { exact: true }).fill(title);

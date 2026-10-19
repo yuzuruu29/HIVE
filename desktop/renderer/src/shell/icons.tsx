@@ -62,5 +62,8 @@ export const CubeIcon = ({ size }: P) => <Icon size={size}><path d="M12 3 20 7.5
 export const BoltIcon = ({ size }: P) => <Icon size={size}><path d="M13 2 4 14h7l-1 8 9-12h-7Z" /></Icon>;
 export const ArrowRightIcon = ({ size }: P) => <Icon size={size}><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /></Icon>;
 export const CloseIcon = ({ size }: P) => <Icon size={size}><path d="M6 6l12 12M18 6 6 18" /></Icon>;
+export const ArchiveIcon = ({ size }: P) => <Icon size={size}><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" /><path d="M10 12h4" /></Icon>;
+export const ShieldIcon = ({ size }: P) => <Icon size={size}><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6Z" /></Icon>;
+export const MoreIcon = ({ size }: P) => <Icon size={size} strokeWidth="3"><path d="M5 12h.01M12 12h.01M19 12h.01" /></Icon>;
 export const ExpandIcon = ({ size }: P) => <Icon size={size}><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></Icon>;
 export const CollapseIcon = ({ size }: P) => <Icon size={size}><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" /></Icon>;

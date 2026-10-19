@@ -73,6 +73,21 @@ export function truncateTerminalText(text: string, width: number): string {
   return result;
 }
 
+/** Keeps both ends of a long path or id: the drive or root and the folder name. */
+export function truncateMiddle(text: string, width: number, ellipsis = "…"): string {
+  const limit = Math.max(0, Math.floor(width));
+  const plain = expandTabs(sanitizeTerminalText(text).replace(/\n/g, " "));
+  if (terminalCellWidth(plain) <= limit) return plain;
+  const room = limit - terminalCellWidth(ellipsis);
+  if (room < 2) return truncateTerminalText(plain, limit);
+  const parts = [...graphemes(plain)];
+  let head = "", tail = "", cells = 0;
+  // Favor the tail: the folder name is the part people scan for.
+  for (let index = parts.length - 1; index >= 0 && cells + graphemeCells(parts[index]!) <= Math.ceil(room / 2); index--) { tail = parts[index] + tail; cells += graphemeCells(parts[index]!); }
+  for (const part of parts) { if (cells + graphemeCells(part) > room) break; head += part; cells += graphemeCells(part); }
+  return head + ellipsis + tail;
+}
+
 /** Only call on renderer-owned styled output, after its untrusted fields were sanitized. */
 export function fitStyledTerminalText(text: string, width: number): string {
   if (!(width > 0)) return "";

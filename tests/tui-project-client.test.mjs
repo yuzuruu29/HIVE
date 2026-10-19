@@ -254,3 +254,23 @@ test("a review prompt cannot silently mark a completed run reviewed", async () =
     assert.equal(f.actions.at(-1).type, "run.review");
   } finally { await f.client.close(); }
 });
+
+test("shared run evidence uses singular counts and marks check outcomes with a glyph and a word", async () => {
+  for (const asciiGlyphs of [false, true]) {
+    const f = fixture(); f.state = { ...f.state, asciiGlyphs }; await f.client.start();
+    try {
+      const session = f.snapshot.sessions[0];
+      session.runs.push({ id: "done", sessionId: session.id, workspaceId: "worktree", workspace: "w", status: "completed", settings: session.settings, effectivePolicy: "safe", startedAt: "now", endedAt: "now", summary: "Done", engine: "live", approvals: [], patches: [],
+        events: [{ id: "e1", role: "Builder", kind: "tool", text: "edited", at: "now" }],
+        checks: [{ id: "c1", name: "unit", command: "npm test", workspace: "w", status: "passed", exitCode: 0 }, { id: "c2", name: "lint", command: "npm run lint", workspace: "w", status: "not_run", exitCode: null }] });
+      session.messages.push({ id: "a", role: "assistant", text: "Done", createdAt: "now", runId: "done" });
+      f.snapshot.revision++;
+      await f.client.refresh();
+      await f.client.submit("/diff");
+      const text = f.state.transcript.join("\n");
+      assert.match(text, /1 role · 1 event\b/);
+      assert.match(text, asciiGlyphs ? /ok passed: npm test/ : /✓ passed: npm test/);
+      assert.match(text, asciiGlyphs ? /- not run: npm run lint/ : /· not run: npm run lint/);
+    } finally { await f.client.close(); }
+  }
+});

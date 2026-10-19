@@ -1,19 +1,23 @@
 import { FormEvent, useEffect, useId, useRef, useState } from "react";
 import type { DesktopModelInfo, DesktopProviderMetadata } from "../../../../src/desktop/types";
 import { Dialog } from "../Dialog";
-import { CubeIcon, HiveMark, KeyIcon, SlidersIcon } from "../shell/icons";
+import { ArchiveIcon, CubeIcon, HiveMark, KeyIcon, SlidersIcon } from "../shell/icons";
 import { usePrefs } from "../prefs";
 
 export interface SettingsDialogProps {
   onClose: () => void;
-  initialTab?: "general" | "models" | "catalog";
+  initialTab?: SettingsTab;
   providers?: DesktopProviderMetadata[];
   modelsByProvider?: Record<string, DesktopModelInfo[]>;
   modelsLoading?: Record<string, boolean>;
   onFetchModels?: (providerId: string) => void;
   onConfigureProvider?: (providerId: string) => void;
   onAddCompatibleProvider?: (input: { id: string; name: string; baseUrl: string; defaultModel: string }) => Promise<void>;
+  /** Shows the History tab; each action closes Settings before it opens its own view. */
+  history?: { importDisabled?: boolean; onImport(): void; onOpenLegacy(): void };
 }
+
+export type SettingsTab = "general" | "models" | "catalog" | "history";
 
 function formatContext(tokens?: number): string {
   if (!tokens) return "";
@@ -31,9 +35,10 @@ export function SettingsDialog({
   onFetchModels,
   onConfigureProvider,
   onAddCompatibleProvider,
+  history,
 }: SettingsDialogProps) {
   const { prefs, updatePrefs } = usePrefs();
-  const [tab, setTab] = useState<"general" | "models" | "catalog">(initialTab);
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
   const tabId = useId();
   const tabsRef = useRef<HTMLDivElement>(null);
   const [horizontalTabs, setHorizontalTabs] = useState(false);
@@ -105,7 +110,7 @@ export function SettingsDialog({
     updatePrefs({ enabledModels: next });
   }
 
-  const pageTitle = tab === "general" ? "General" : tab === "models" ? "Providers" : "Models";
+  const pageTitle = tab === "general" ? "General" : tab === "models" ? "Providers" : tab === "catalog" ? "Models" : "History";
   const sendWithEnter = prefs.composerSendWithEnter !== false;
 
   const configuredProviders = providers.filter((p) => p.configured);
@@ -141,7 +146,7 @@ export function SettingsDialog({
 
           <div className="settings-sidebar-scroll">
             <div className="settings-sidebar-group" role="tablist" aria-label="Settings sections" aria-orientation={horizontalTabs ? "horizontal" : "vertical"} ref={tabsRef} onKeyDown={(event) => {
-              const tabs = ["general", "models", "catalog"] as const;
+              const tabs: SettingsTab[] = history ? ["general", "models", "catalog", "history"] : ["general", "models", "catalog"];
               const index = tabs.indexOf(tab);
               const next = event.key === (horizontalTabs ? "ArrowRight" : "ArrowDown") ? tabs[(index + 1) % tabs.length]
                 : event.key === (horizontalTabs ? "ArrowLeft" : "ArrowUp") ? tabs[(index + tabs.length - 1) % tabs.length]
@@ -185,6 +190,17 @@ export function SettingsDialog({
                 <span className="settings-nav-icon" aria-hidden="true"><CubeIcon /></span>
                 <span>Models</span>
               </button>
+              {history && <button
+                type="button"
+                role="tab"
+                className={`settings-nav-item ${tab === "history" ? "is-active" : ""}`}
+                aria-selected={tab === "history"}
+                id={`${tabId}-history`} data-settings-tab="history" aria-controls={`${tabId}-panel`} tabIndex={tab === "history" ? 0 : -1}
+                onClick={() => setTab("history")}
+              >
+                <span className="settings-nav-icon" aria-hidden="true"><ArchiveIcon /></span>
+                <span>History</span>
+              </button>}
             </div>
 
           </div>
@@ -491,6 +507,28 @@ export function SettingsDialog({
                   </p>
                 </div>
               )}
+            </div>
+          )}
+          {tab === "history" && history && (
+            <div className="settings-pane-body">
+              <article className="settings-card">
+                <div className="settings-card-copy">
+                  <h3>Import from earlier HIVE versions</h3>
+                  <p>Preview this project's CLI sessions, code threads and chats, then back them up and import them. Nothing changes until you confirm.</p>
+                </div>
+                <div className="settings-card-control">
+                  <button type="button" className="secondary" disabled={history.importDisabled} onClick={() => { onClose(); history.onImport(); }}>Import legacy history</button>
+                </div>
+              </article>
+              <article className="settings-card">
+                <div className="settings-card-copy">
+                  <h3>Legacy history &amp; tools</h3>
+                  <p>Open the previous read-only workspace for older threads and tools.</p>
+                </div>
+                <div className="settings-card-control">
+                  <button type="button" className="secondary" onClick={() => { onClose(); history.onOpenLegacy(); }}>Open legacy workspace</button>
+                </div>
+              </article>
             </div>
           )}
         </section>

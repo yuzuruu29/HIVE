@@ -8,6 +8,16 @@
 }
 .project-app button { border: 0; background: transparent; }
 .project-app button:hover:not(:disabled) { background: var(--hover); }
+/* base.css paints dialog buttons as filled ink with --bg text. The reset above strips the fill
+   but keeps that text color, so restore readable text and the primary fill here. */
+.project-app .modal .project-icon, .project-app .modal .project-actions button { color: var(--ink); }
+.project-app .modal .project-icon { padding: 0; min-height: 0; }
+.project-app .dialog-actions button, .project-app .project-review > button { background: var(--ink); color: var(--bg); border: 1px solid transparent; }
+.project-app .dialog-actions button:first-child:not(:last-child) { background: transparent; color: var(--ink); border-color: var(--line-strong); }
+.project-app .dialog-actions button:hover:not(:disabled), .project-app .project-review > button:hover:not(:disabled) { background: var(--ink); filter: brightness(1.12); }
+.project-app .dialog-actions button:first-child:not(:last-child):hover:not(:disabled) { background: var(--hover); filter: none; }
+.project-app .dialog-actions button:disabled, .project-app .project-review > button:disabled { opacity: .4; }
+.project-app .modal button.secondary { border: 1px solid var(--line-strong); }
 .project-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 32px; height: 32px; border-radius: 7px; }
 .project-sidebar { width: 272px; flex: 0 0 272px; min-height: 0; display: flex; flex-direction: column; background: var(--bg-sidebar); padding: 20px 12px 12px; font-size: 14px; overflow-y: auto; }
 .project-brand { display: flex; align-items: center; gap: 11px; padding: 0 12px 22px; color: var(--accent-ink); }
@@ -29,11 +39,18 @@
 .project-group li > button { display: flex; align-items: center; gap: 8px; text-align: left; min-width: 0; width: 100%; min-height: 37px; padding: 8px 11px; border-radius: 8px; font-size: 13px; color: var(--ink-2); }
 .project-group li > button > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-group li > button.is-selected { background: var(--surface-3); color: var(--ink); }
-.project-running-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex: 0 0 auto; margin-left: auto; }
+/* Violet: a run is working. Amber: a finished run changed files and nobody has reviewed it. */
+.project-session-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; margin-left: auto; }
+.project-session-dot[data-state="running"] { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); animation: project-pulse 1.8s var(--ease) infinite; }
+.project-session-dot[data-state="review"] { background: var(--warn); }
+@keyframes project-pulse { 50% { box-shadow: 0 0 0 1px var(--accent-wash); } }
 .project-nav-empty { color: var(--ink-3); padding: 10px 12px; font-size: 12px; line-height: 1.6; }
 .project-footer { border-top: 1px solid var(--line); padding-top: 10px; }
 .project-footer > button { min-height: 35px; padding-top: 7px; padding-bottom: 7px; font-size: 13px; }
 .project-footer > p { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; padding: 12px 12px 0; font-size: 11px; color: var(--ink-3); }
+.project-connection { display: inline-flex; align-items: center; gap: 6px; }
+.project-connection::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-4); }
+.project-connection[data-online="true"]::before { background: var(--ok); }
 .project-main { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
 .project-header { display: flex; align-items: center; gap: 12px; min-height: 66px; padding: 12px 28px; flex: 0 0 auto; }
 .project-context { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
@@ -41,8 +58,16 @@
 .project-context > span { color: var(--ink-4); }
 .project-context h1 { font-size: 14px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .project-header-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-.project-changes-button { display: flex; gap: 7px; align-items: center; padding: 8px 10px; border: 1px solid var(--line-strong) !important; border-radius: 8px; font-size: 12px; }
-.project-quiet-button { padding: 8px; color: var(--ink-2); font-size: 12px; border-radius: 8px; }
+.project-changes-button { display: flex; gap: 7px; align-items: center; padding: 7px 8px 7px 10px; border: 1px solid var(--line-strong) !important; border-radius: 8px; font-size: 12px; }
+.project-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--accent-wash); color: var(--accent-ink); font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.project-chat-actions { position: relative; }
+.project-chat-actions > .project-icon { color: var(--ink-2); }
+.project-chat-actions > [aria-expanded="true"] { background: var(--hover) !important; color: var(--ink); }
+.project-chat-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; display: flex; flex-direction: column; min-width: 184px; padding: 5px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); box-shadow: var(--shadow-pop); transform-origin: top right; animation: project-pop var(--fast) var(--ease); }
+.project-app .project-chat-menu > button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 7px; font-size: 13px; text-align: left; color: var(--ink); }
+.project-chat-menu > button svg { color: var(--ink-3); }
+.project-chat-menu > button:disabled { opacity: .45; }
+@keyframes project-pop { from { opacity: 0; transform: translateY(-3px) scale(.98); } }
 .project-transcript { flex: 1; overflow: auto; min-height: 0; padding: 26px 40px 40px; scrollbar-gutter: stable; }
 .project-reading { max-width: 800px; margin: 0 auto; overflow-wrap: anywhere; }
 .project-empty { display: flex; flex-direction: column; align-items: center; text-align: center; justify-content: center; gap: 20px; min-height: min(48vh, 390px); padding: 32px 0; }
@@ -61,17 +86,29 @@
 .project-message a { color: var(--accent-ink); }
 .project-run { margin: -10px 0 28px; font-size: 12px; color: var(--ink-2); }
 .project-run > p { font-size: 13px; margin: 8px 0; line-height: 1.75; }
-.project-run-status { display: flex; flex-wrap: wrap; gap: 12px; color: var(--ink-3); text-transform: capitalize; }
-.project-run-status [data-status="completed"] { color: var(--ok); }
-.project-run-status [data-status="failed"], .project-run-status [data-status="interrupted"] { color: var(--bad); }
-.project-run-status [data-status="awaiting_approval"], .project-run-status [data-status="stopping"] { color: var(--warn); }
+.project-run-status { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; color: var(--ink-3); }
+.project-run-status > span:first-child { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: var(--r-pill); background: var(--surface-3); color: var(--ink-2); font-weight: 600; text-transform: capitalize; }
+.project-run-status > span:first-child:has(svg) { padding-left: 7px; }
+.project-run-status [data-status="completed"] { color: var(--ok); background: var(--ok-wash); }
+.project-run-status [data-status="failed"], .project-run-status [data-status="interrupted"], .project-run-status [data-status="cancelled"] { color: var(--bad); background: var(--bad-wash); }
+.project-run-status [data-status="awaiting_approval"], .project-run-status [data-status="stopping"] { color: var(--warn); background: var(--warn-wash); }
+.project-run-status [data-status="running"], .project-run-status [data-status="queued"] { color: var(--accent-ink); background: var(--accent-wash); }
 .project-activity { margin: 9px 0; }
 .project-activity summary, .project-role summary { cursor: pointer; padding: 6px 0; }
 .project-role { padding: 0 0 0 15px; }
 .project-role ol { margin: 5px 0 9px; padding-left: 20px; }
 .project-role li { margin: 8px 0; line-height: 1.7; white-space: pre-wrap; }
 .project-role li > span { color: var(--ink-3); }
-.project-evidence-link { display: inline-flex; gap: 8px; align-items: center; padding: 5px 0 !important; text-align: left; font-size: 12px; color: var(--ink-2); }
+.project-run .project-evidence-link { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; margin-top: 10px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-align: left; font-size: 12px; color: var(--ink-2); transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease); }
+.project-run .project-evidence-link:hover { border-color: var(--line-strong); }
+.project-evidence-link > svg { color: var(--ink-3); }
+.project-evidence-link > span + span::before { content: "·"; margin-right: 10px; color: var(--ink-4); }
+.project-evidence-link .is-add { color: var(--ok); }
+.project-evidence-link .is-remove { color: var(--bad); }
+.project-evidence-link > .project-evidence-action { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; color: var(--accent-ink); font-weight: 600; }
+.project-evidence-link > .project-evidence-action::before { content: none; }
+.project-evidence-action svg { transition: transform var(--fast) var(--ease); }
+.project-evidence-link:hover .project-evidence-action svg:last-child { transform: translateX(2px); }
 .project-approval { margin: 16px 0; padding: 16px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); }
 .project-approval h3 { font-size: 14px; margin-bottom: 10px; }
 .project-approval p { margin-bottom: 12px; font-size: 13px; }
@@ -96,12 +133,15 @@
 .project-composer .hive-model-picker { min-width: 0; max-width: 100%; }
 .project-composer .hive-model-btn { max-width: 100%; padding: 4px 6px; font-size: 12px; }
 .project-composer .hive-model-name { min-width: 0; text-overflow: ellipsis; overflow: hidden; }
-.project-permissions { margin-left: auto; color: var(--ink-2); }
+.project-permissions { display: inline-flex; align-items: center; gap: 1px; margin-left: auto; padding-left: 6px; color: var(--ink-2); border-radius: 6px; }
+.project-permissions > svg { flex: 0 0 auto; color: var(--ink-3); }
 .project-send { display: inline-flex; justify-content: center; align-items: center; width: 35px; height: 35px; border-radius: 50%; flex: 0 0 auto; margin-left: auto; background: var(--ink) !important; color: var(--bg); }
 .project-permissions + .project-send { margin-left: 0; }
 .project-send:disabled { opacity: .35; }
 .project-composer-note { text-align: center; font-size: 11px; color: var(--ink-3); margin-top: 10px; line-height: 1.5; }
-.project-provider-hint { color: var(--accent-ink); font-size: 12px; text-align: left; padding: 8px 8px 0 !important; }
+.project-provider-hint { color: var(--ink-3); font-size: 12px; text-align: left; padding: 8px 8px 0 !important; }
+.project-provider-hint:hover { color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
+.project-composer .hive-model-name { font-family: var(--font-ui); font-size: 12px; }
 .project-attach { color: var(--ink-2); }
 .project-attachments { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0 7px 7px; margin: 0; }
 .project-attachments li { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; gap: 7px; font-size: 11px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 5px 7px; }
@@ -124,15 +164,27 @@
 .project-changes-dialog h3 { font-size: 14px; margin: 22px 0 12px; }
 .project-changes-dialog > p { font-size: 12px; color: var(--ink-2); }
 .project-evidence-meta { overflow-wrap: anywhere; line-height: 1.7; }
+.project-workspace-line { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
+.project-workspace-line code { min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 2px 7px; border-radius: 5px; background: var(--code-bg); font-size: 11px; }
+.project-app .project-workspace-line .project-icon { width: 26px; height: 26px; color: var(--ink-3); }
 .project-patch, .project-check { border: 1px solid var(--line-strong); border-radius: 8px; margin: 10px 0; font-size: 12px; overflow: hidden; }
 .project-patch summary, .project-check summary { cursor: pointer; padding: 12px; overflow-wrap: anywhere; background: var(--surface-2); }
+.project-check summary { display: flex; align-items: center; gap: 10px; }
+.project-check-status { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; min-width: 74px; color: var(--ink-3); font-weight: 600; text-transform: capitalize; }
+.project-check-status[data-status="passed"] { color: var(--ok); }
+.project-check-status[data-status="failed"], .project-check-status[data-status="cancelled"] { color: var(--bad); }
 .project-patch summary > span:last-child { color: var(--ink-3); display: block; margin-top: 4px; }
 .project-patch p, .project-check p { margin: 8px 12px; overflow-wrap: anywhere; color: var(--ink-2); }
 .project-patch pre, .project-check pre { font-size: 11px; line-height: 1.8; overflow: auto; max-height: 340px; background: var(--code-bg); margin: 10px 0 0; padding: 12px; }
 .project-patch .is-add { color: var(--ok); background: var(--add-wash); }
 .project-patch .is-remove { color: var(--bad); background: var(--del-wash); }
-.project-review { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 16px; font-size: 12px; color: var(--ink-2); }
-.project-review > p { margin-bottom: 12px; }
+/* Sticky so the one decision in this dialog stays in reach while diffs scroll. */
+.project-review { position: sticky; bottom: -22px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 10px -22px -22px; padding: 14px 22px 18px; border-top: 1px solid var(--line); background: var(--surface); font-size: 12px; color: var(--ink-2); }
+.project-review > p { margin: 0; line-height: 1.6; max-width: 46ch; }
+.project-review > button, .project-review > .project-reviewed { flex: 0 0 auto; }
+.project-git-disclosure { border-top: 1px solid var(--line); margin-top: 12px; }
+.project-git-disclosure > summary { cursor: pointer; padding: 14px 0 4px; font-size: 13px; font-weight: 600; }
+.project-git-disclosure .project-git-actions { border-top: 0; margin-top: 0; }
 .project-review button { border: 1px solid var(--line-strong); border-radius: 8px; padding: 9px 14px; }
 .project-reviewed { display: flex; align-items: center; gap: 8px; color: var(--ok); }
 .project-git-actions { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 6px; font-size: 12px; }
@@ -194,8 +246,8 @@
   .project-header { padding: 10px 12px; min-height: 58px; }
   .project-context > button { max-width: 95px; font-size: 12px; }
   .project-context h1 { font-size: 13px; }
-  .project-changes-button > span { display: none; }
-  .project-changes-button { padding: 8px; }
+  .project-changes-button > span:not(.project-count) { display: none; }
+  .project-changes-button { padding: 7px; }
   .project-transcript { padding: 24px 20px 30px; }
   .project-composer-dock { padding: 0 12px 12px; }
   .project-message { font-size: 15px; }
@@ -210,15 +262,26 @@
 }
 @media (max-width: 440px) {
   .project-context > button { max-width: 60px; }
-  .project-header-actions > .project-icon { display: none; }
-  .project-quiet-button { font-size: 11px; padding-inline: 4px; }
   .project-composer-controls { column-gap: 0; }
   .project-composer-controls select { padding-inline: 2px; }
   .project-model-control { max-width: 42%; }
   .project-composer .hive-model-btn { font-size: 11px; padding-inline: 3px; }
-  .project-permissions { order: 4; width: 100%; padding-left: 4px; }
-  .project-permissions select { max-width: none; }
   .project-approval dl { grid-template-columns: 1fr; }
+}
+/* Phone widths: the chat title is the only breadcrumb, the composer is one line, permissions shrink to the shield. */
+@media (max-width: 600px) {
+  .project-context > button, .project-context > span { display: none; }
+  .project-composer { padding: 8px 8px 8px 10px; }
+  .project-composer textarea { min-height: 40px; padding-bottom: 4px; resize: none; }
+  .project-provider-hint { display: none; }
+  .project-permissions { position: relative; width: 32px; height: 32px; justify-content: center; order: 0; padding: 0; margin-left: 0; }
+  .project-permissions > svg { color: var(--ink-2); }
+  .project-permissions select { position: absolute; inset: 0; width: 100%; max-width: none; opacity: 0; cursor: pointer; }
+  .project-permissions:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+  .project-review { flex-direction: column; align-items: stretch; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-session-dot, .project-chat-menu { animation: none !important; }
 }
 @media (max-height: 520px) {
   .project-sidebar { padding-top: 10px; }

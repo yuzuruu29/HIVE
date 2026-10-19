@@ -23,6 +23,7 @@ describe("shared run guarded Git", () => {
   it("previews the authoritative reviewed-file scope and confirms only the explicit one-use proposal", async () => {
     const request = requests(); const review = vi.fn(); const user = userEvent.setup();
     render(<ChangesDialog run={run} repositoryRoot={"C:\\Alpha"} sessionTitle="Fix session navigation" request={request} busy={false} onClose={vi.fn()} onReview={review} />);
+    await user.click(screen.getByText("Git actions"));
     await user.click(screen.getByRole("button", { name: "Preview commit" }));
     const confirmation = await screen.findByRole("dialog", { name: "Confirm commit" });
     expect(within(confirmation).getByText("src/owned.ts")).toBeVisible();
@@ -38,6 +39,7 @@ describe("shared run guarded Git", () => {
   it("keeps a rejected confirmation and existing draft intact, requiring a fresh preview", async () => {
     const request = requests(true); const user = userEvent.setup(); const close = vi.fn();
     render(<><textarea aria-label="Draft" defaultValue="An unsent message" /><ChangesDialog run={run} repositoryRoot={"C:\\Alpha"} sessionTitle="Fix session navigation" request={request} busy={false} onClose={close} onReview={vi.fn()} /></>);
+    await user.click(screen.getByText("Git actions"));
     await user.click(screen.getByRole("button", { name: "Preview commit" }));
     const confirmation = await screen.findByRole("dialog", { name: "Confirm commit" });
     await user.click(within(confirmation).getByRole("button", { name: "Confirm commit" }));

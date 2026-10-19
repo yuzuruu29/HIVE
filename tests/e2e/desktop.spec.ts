@@ -74,6 +74,7 @@ test.describe.serial("HIVE shared project desktop", () => {
     expect(run?.reviewedAt).toBeTruthy();
     const codingSessionId = run!.engineSessionId!;
     await page.evaluate(() => { window.hiveDesktop.subscribe((event) => { if (event.type === "git.previewed") window.hiveE2EGitPreview = event.preview; }); });
+    await changes.getByText("Git actions", { exact: true }).click();
     await changes.getByText("Git action settings", { exact: true }).click();
     await changes.getByLabel("Commit message", { exact: true }).fill("E2E verified exact fixture");
     await changes.getByRole("button", { name: "Preview commit", exact: true }).click();
@@ -116,6 +117,7 @@ test.describe.serial("HIVE shared project desktop", () => {
     await hive.expectPhase("awaiting_approval");
     const approval = page.getByRole("region", { name: "Tool approval" });
     await expect(approval).toContainText("This action only");
+    await page.getByRole("button", { name: "Chat actions", exact: true }).click();
     await expect(page.getByRole("button", { name: "Archive", exact: true })).toBeDisabled();
     await approval.getByRole("button", { name: "Decline", exact: true }).click();
     await hive.expectPhase("failed");
@@ -171,6 +173,7 @@ test.describe.serial("HIVE shared project desktop", () => {
     await secondPage.getByLabel("Message HIVE").fill("Secondary unsent draft");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Primary local selection");
     await expect(page.getByLabel("Message HIVE")).toHaveValue("Primary unsent draft");
+    await secondPage.getByRole("button", { name: "Chat actions", exact: true }).click();
     await secondPage.getByRole("button", { name: "Archive", exact: true }).click();
     await expect(secondPage.getByText("This chat is archived.")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Primary local selection");
