@@ -22,23 +22,51 @@ function StatusIcon({ status }: { status: string }) {
   return null;
 }
 
+/** The hive-mind-council role order; council runs show their rail in this order. */
+const COUNCIL_ORDER = ["Queen", "Scout", "Architect", "Forger", "Sentinel", "Scribe"];
+type RoleState = "queued" | "active" | "done" | "failed" | "stopped";
+const ROLE_STATE_LABEL: Record<RoleState, string> = { queued: "queued", active: "working", done: "done", failed: "failed", stopped: "stopped" };
+
+/**
+ * One step per agent role, from its latest event. A finished run settles roles
+ * still marked working. ponytail: events carry no subagent id, so parallel
+ * subagents of one role share a step; add the id to SharedActivity if that misleads.
+ */
+function roleSteps(run: SharedRun): Array<{ role: string; state: RoleState; text: string }> {
+  const latest = new Map<string, SharedRun["events"][number]>();
+  for (const event of run.events) if (event.role !== "HIVE") latest.set(event.role, event);
+  const live = activeRunStates.has(run.status);
+  const roles = [...latest.keys()];
+  if (run.settings.mode === "council") roles.sort((a, b) => COUNCIL_ORDER.indexOf(a) - COUNCIL_ORDER.indexOf(b));
+  return roles.map((role) => {
+    const { kind, text } = latest.get(role)!;
+    let state: RoleState = kind === "failed" || kind === "blocked" ? "failed" : kind === "completed" ? "done" : kind === "queued" ? "queued" : "active";
+    if (!live && (state === "active" || state === "queued")) state = run.status === "completed" ? "done" : "stopped";
+    return { role, state, text };
+  });
+}
+
 export function RunSummary({ run, onChanges, onApprove, busy, showSummary = true }: { run: SharedRun; onChanges(): void; onApprove(approvalId: string, approved: boolean): void; busy: boolean; showSummary?: boolean }) {
   const pending = run.approvals.filter((approval) => approval.status === "pending");
-  const roles = [...new Set(run.events.map((event) => event.role))];
-  const agentRoles = roles.filter((role) => role !== "HIVE");
+  const steps = roleSteps(run);
+  const now = activeRunStates.has(run.status) ? run.events.at(-1) : undefined;
   return <section className="project-run" aria-label={`Run ${run.status}`}>
     <div className="project-run-status" role="status">
       <span data-status={run.status}><StatusIcon status={run.status} />{run.status.replace(/_/g, " ")}</span>
+      {run.settings.mode === "council" && <span className="project-run-kind">HIVE council</span>}
       {run.engine === "imported" && <span>Imported history</span>}
       {run.engine === "unavailable" && <span>Engine unavailable</span>}
     </div>
-    {showSummary && run.summary && <p>{run.summary}</p>}
+    {steps.length > 0 && <ol className="project-roles" aria-label="Agent roles">
+      {steps.map((step) => <li key={step.role} data-state={step.state} title={`${step.role} · ${ROLE_STATE_LABEL[step.state]} · ${step.text}`}>
+        <span className="project-role-dot" aria-hidden="true" />{step.role}<span className="sr-only">, {ROLE_STATE_LABEL[step.state]}</span>
+      </li>)}
+    </ol>}
+    {now && <p className="project-run-now" aria-live="polite"><strong>{now.role}</strong><span>{now.text}</span></p>}
+    {showSummary && run.summary && !now && <p>{run.summary}</p>}
     {run.events.length > 0 && <details className="project-activity">
-      <summary>Activity · {agentRoles.length ? agentRoles.join(", ") : "HIVE"} · {plural(run.events.length, "event")}</summary>
-      {roles.map((role) => <details key={role} className="project-role">
-        <summary>{role}</summary>
-        <ol>{run.events.filter((event) => event.role === role).map((event) => <li key={event.id}><span>{event.kind.replace(/_/g, " ")}</span> {event.text}</li>)}</ol>
-      </details>)}
+      <summary>Activity · {plural(run.events.length, "event")}</summary>
+      <ol>{run.events.map((event) => <li key={event.id}><span className="project-activity-role">{event.role}</span><span className="project-activity-kind">{event.kind.replace(/_/g, " ")}</span><span>{event.text}</span></li>)}</ol>
     </details>}
     {pending.map((approval) => <section key={approval.id} className="project-approval" aria-label="Tool approval">
       <h3>Approval required · {approval.tool}</h3>

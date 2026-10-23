@@ -221,20 +221,25 @@ export function parseAgentTurn(output: string): AgentTurn {
   };
 }
 
+/**
+ * Each subagent plays one hive-mind-council role (skills/hive-mind-council).
+ * The second sentence condenses that role's contract from the skill's agent
+ * files; it stays inline so the prompt bound holds without the skill on disk.
+ */
 function rolePolicy(role: SubagentRole): string {
   switch (role) {
     case "planner":
-      return "Plan only. Do not request file-write or command tools.";
+      return "Plan only. Do not request file-write or command tools. As the council Architect: extend existing patterns, keep the smallest coherent scope, name risks, and give every criterion a check that proves it.";
     case "scout":
-      return "Inspect only. Use targeted reads and searches; never edit files.";
+      return "Inspect only. Use targeted reads and searches; never edit files. As the council Scout: report relevant files, impact, existing tests and contradictions, and mark anything you did not read as unverified.";
     case "validator":
-      return "Validate acceptance criteria. You may inspect files and run approved checks, but never edit.";
+      return "Validate acceptance criteria. You may inspect files and run approved checks, but never edit. As the council Sentinel: report each check's exact command and outcome, never imply a pass for anything not run, and distinguish code failures from environment limitations.";
     case "reviewer":
-      return "Review the diff for correctness, maintainability, security, and architectural consistency. Never edit.";
+      return "Review the diff for correctness, maintainability, security, and architectural consistency. Never edit. As the council Sentinel's adversarial review: compare the request, the plan and the actual diff, and flag unsupported claims and out-of-scope edits.";
     case "fixer":
-      return "Repair only the supplied failed checks or review findings, within the declared file scope.";
+      return "Repair only the supplied failed checks or review findings, within the declared file scope. As the council Forger in a repair cycle: classify each failure first, and never retry an environment failure as a code fix.";
     case "builder":
-      return "Implement only the bounded assignment, within the declared file scope.";
+      return "Implement only the bounded assignment, within the declared file scope. As the council Forger: make the smallest coherent change, run the narrowest relevant check, preserve existing user work, and disclose failed commands and unresolved issues in your summary.";
   }
 }
 

@@ -157,6 +157,26 @@ test.describe.serial("HIVE shared project desktop", () => {
     await expect(stat(worktree)).rejects.toThrow();
   });
 
+  test("runs the hive-mind-council as a read-only Council workflow with every role on the rail", async () => {
+    const hive = new HiveDesktopPage(page);
+    await hive.openRepository(repository);
+    await page.getByRole("combobox", { name: "Workflow" }).selectOption("council");
+    await expect(page.getByLabel("Message HIVE")).toHaveAttribute("placeholder", "Describe the goal for the HIVE council");
+    await hive.send("Plan a council note for the fixture file.");
+    await hive.expectPhase("completed");
+    const run = page.getByRole("region", { name: "Run completed" }).last();
+    await expect(run.getByRole("list", { name: "Agent roles" }).getByRole("listitem")).toHaveText(["Queen, done", "Scout, done", "Architect, done", "Forger, done", "Sentinel, done", "Scribe, done"]);
+    await expect(run).toContainText("Council complete · standard preset · Sentinel PASS WITH LIMITATIONS");
+    const answer = page.getByRole("article", { name: "assistant message" }).last();
+    await expect(answer).toContainText("HIVE Review — Complete");
+    await expect(answer).toContainText("Proposed change (Forger, not applied)");
+    expect(await readFile(path.join(repository, "hive-desktop-fixture.txt"), "utf8")).toBe("baseline\n");
+    const recorded = (await hive.selectedSession())?.runs.at(-1);
+    expect(recorded?.settings.mode).toBe("council");
+    expect(recorded?.effectivePolicy).toBe("safe");
+    expect(recorded?.patches).toEqual([]);
+  });
+
   test("updates two native windows without moving local focus or drafts and survives archive/restore", async () => {
     const first = new HiveDesktopPage(page);
     await first.openRepository(repository);

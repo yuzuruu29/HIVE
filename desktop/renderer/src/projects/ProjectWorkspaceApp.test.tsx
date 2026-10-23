@@ -111,7 +111,9 @@ describe("shared project conversation", () => {
     await screen.findByText(/Completed response/);
     expect(document.querySelector("script")).toBeNull();
     expect(screen.queryByRole("dialog", { name: "Changes and checks" })).not.toBeInTheDocument();
-    expect(screen.getByText("Activity · Validator · 1 event").closest("details")).not.toHaveAttribute("open");
+    // Roles moved to the rail; the log disclosure only counts events and stays collapsed.
+    expect(within(screen.getByRole("list", { name: "Agent roles" })).getByRole("listitem")).toHaveTextContent("Validator, done");
+    expect(screen.getByText("Activity · 1 event").closest("details")).not.toHaveAttribute("open");
     expect(screen.getByRole("button", { name: /1 file changed \+1 −1.*1 of 1 check passed.*Review changes/ })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "View changes" }));
     const changes = screen.getByRole("dialog", { name: "Changes and checks" });
@@ -145,6 +147,20 @@ describe("shared project conversation", () => {
     await waitFor(() => expect(workflow).toHaveValue("plan"));
     await act(async () => api.emit(snapshot()));
     expect(workflow).toHaveValue("plan");
+  });
+
+  it("offers the Council workflow and shows council roles in skill order with live state", async () => {
+    const event = (sequence: number, role: string, kind: string, text: string) => ({ id: `council-${sequence}`, sequence, role, kind, text, createdAt: now });
+    const councilSettings = { ...baseSession.settings, mode: "council" as const };
+    const councilRun: SharedRun = { ...baseRun, status: "running", endedAt: null, settings: councilSettings, summary: "Running", patches: [], checks: [], approvals: [], events: [event(1, "Queen", "completed", "Run contract"), event(2, "Architect", "completed", "Plan ready"), event(3, "Scout", "completed", "Context map"), event(4, "Forger", "running", "Repair attempt 2")] };
+    const initial = snapshot(); initial.sessions[0] = { ...baseSession, settings: councilSettings, runs: [councilRun] };
+    const api = bridge(initial); render(<ProjectWorkspaceApp api={api} />);
+    const rail = await screen.findByRole("list", { name: "Agent roles" });
+    expect(within(rail).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Queen, done", "Scout, done", "Architect, done", "Forger, working"]);
+    expect(screen.getByText("HIVE council")).toBeInTheDocument();
+    expect(document.querySelector(".project-run-now")).toHaveTextContent("ForgerRepair attempt 2");
+    expect(screen.getByRole("combobox", { name: "Workflow" })).toHaveValue("council");
+    expect(screen.getByRole("textbox", { name: "Message HIVE" })).toHaveAttribute("placeholder", "Describe the goal for the HIVE council");
   });
 
   it("keeps drawer focus inside and returns it to the navigation trigger", async () => {

@@ -91,6 +91,28 @@ test("linked coding attempts are passed to Queen's existing continuity verificat
   const adapter = createProductionSessionEngine({ runCoding: async (options) => { received = options; return record; } }); await (await adapter.start(input, { async persist() {}, async requestApproval() { return false; } })).completion;
   assert.equal(received.continuationId, record.id); assert.equal(received.resumeId, undefined);
 });
+test("council mode runs the hive skill roles, publishes their activity and returns the HIVE Review", async (t) => {
+  const { input, directory } = await fixture(t); input.run.settings.mode = "council"; const published = [];
+  const outputs = { Queen: "Run contract: inspect source.\nPRESET: quick", Forger: "--- a/source.txt\n+++ b/source.txt", Sentinel: "**Verdict:** PASS WITH LIMITATIONS\n- not executed" };
+  const adapter = createProductionSessionEngine({ createChat: () => ({ async complete(request) { const agent = String(request.prompt).match(/\[HIVE\] role: (\w+)/)[1]; return { output: outputs[agent], receipt: { role: request.role, providerId: "fixture-provider", model: "fixture-model", totalTokens: 10 } }; } }) });
+  const outcome = await (await adapter.start(input, { async persist(value) { published.push(value); }, async requestApproval() { throw new Error("Council must not request write permissions"); } })).completion;
+  assert.equal(outcome.status, "completed");
+  assert.match(outcome.summary, /Council complete · quick preset · Sentinel PASS WITH LIMITATIONS/);
+  assert.match(outcome.text, /^## HIVE Review — Complete/);
+  assert.match(outcome.text, /Proposed change \(Forger, not applied\)[\s\S]*\+\+\+ b\/source\.txt/);
+  const roles = [...new Set(published.filter((event) => event.type === "activity").map((event) => event.role))];
+  assert.deepEqual(roles, ["Queen", "Forger", "Sentinel"]);
+  assert.ok(published.some((event) => event.type === "activity" && event.role === "Queen" && event.kind === "completed" && event.text.startsWith("Run contract: inspect source.")));
+  assert.equal(await fs.readFile(path.join(directory, "source.txt"), "utf8"), "first\n", "council never writes the workspace");
+  assert.equal(outcome.patches, undefined);
+});
+
+test("council mode refuses extension capabilities instead of silently dropping them", async (t) => {
+  const { input } = await fixture(t); input.run.settings.mode = "council"; input.run.executionContext = { skillIds: ["some-skill"] };
+  const adapter = createProductionSessionEngine({ createChat: () => { throw new Error("must not reach the engine"); } });
+  await assert.rejects((await adapter.start(input, { async persist() {}, async requestApproval() { return false; } })).completion, /Council mode runs only the built-in HIVE council/);
+});
+
 test("chat accumulates real chunks, persists them before completion, and forwards conversation context", async (t) => {
   const { input } = await fixture(t); input.run.settings.mode = "chat"; input.session.messages.unshift({ id: "prior", role: "assistant", text: "Prior actual response", createdAt: now }); const published = []; let prompt;
   const adapter = createProductionSessionEngine({ createChat: () => ({ async complete(request) { prompt = request.prompt; request.onChunk("Hello"); request.onChunk(" world"); return { output: "Hello world", receipt: { role: "coding", providerId: "fixture-provider", model: "fixture-model" } }; } }) });

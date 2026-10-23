@@ -427,3 +427,105 @@ test('onStage observes repair attempts and honors an explicit runId and abort', 
     await fs.rm(tmp2, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Skill protocol fidelity
+// ---------------------------------------------------------------------------
+
+test('Sentinel always receives the newest Forger proposal, even after verbose stages', async () => {
+  const tmp = await makeTempDir();
+  const { engine, calls } = makeStub({
+    Queen: 'Run contract: criteria A and B.\nPRESET: standard',
+    Scout: 's'.repeat(6_000),
+    Architect: 'a'.repeat(6_000),
+    Forger: 'FORGER-PATCH-MARKER diff',
+    Sentinel: 'VERDICT: PASS',
+    Scribe: '## HIVE Review — Complete\n**Final status:** Complete',
+  });
+  try {
+    const result = await runHivebot('add a flag', { cwd: tmp, preset: 'standard', createEngine: () => engine });
+    assert.equal(result.status, 'COMPLETE');
+    const sentinelPrompt = String(calls.find((c) => String(c.prompt).includes('[HIVE] role: Sentinel')).prompt);
+    assert.match(sentinelPrompt, /FORGER-PATCH-MARKER/);
+    assert.match(sentinelPrompt, /Run contract: criteria A and B/, 'the Queen run contract stays pinned');
+    assert.ok(sentinelPrompt.length < 12_000, `handoffs stay bounded, got ${sentinelPrompt.length}`);
+    assert.match(result.review, /^## HIVE Review — Complete/, 'the Scribe review is the final response');
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('stage system prompts carry the full persona, runtime contract and protocol digest', async () => {
+  const tmp = await makeTempDir();
+  const { engine, calls } = makeStub({ Queen: 'PRESET: quick', Forger: 'patch', Sentinel: 'VERDICT: PASS' });
+  try {
+    await runHivebot('fix', { cwd: tmp, preset: 'quick', createEngine: () => engine });
+    const system = (agent) => String(calls.find((c) => String(c.prompt).includes(`[HIVE] role: ${agent}`)).systemPrompt);
+    // Sentinel.md is longer than the 4k stage cap; its closing section must survive.
+    assert.match(system('Sentinel'), /## Acceptance Criteria[\s\S]*Distinguishes code failures from environment limitations/);
+    assert.match(system('Sentinel'), /VERDICT: PASS_WITH_LIMITATIONS/);
+    assert.match(system('Queen'), /PRESET: quick\|standard\|deep\|audit/);
+    for (const agent of ['Queen', 'Forger', 'Sentinel']) {
+      assert.match(system(agent), /HIVE runtime contract[\s\S]*# Protocol Digest/);
+    }
+    const queenPrompt = String(calls.find((c) => String(c.prompt).includes('[HIVE] role: Queen')).prompt);
+    assert.match(queenPrompt, /Preset fixed by the user: quick/);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('Scout and Architect receive the same repository context', async () => {
+  const tmp = await makeTempDir();
+  await fs.writeFile(path.join(tmp, 'package.json'), JSON.stringify({ name: 'grounding-fixture' }));
+  const { engine, calls } = makeStub({ Queen: 'PRESET: audit', Sentinel: 'VERDICT: PASS' });
+  try {
+    await runHivebot('audit the package', { cwd: tmp, preset: 'audit', createEngine: () => engine });
+    for (const agent of ['Scout', 'Architect']) {
+      const prompt = String(calls.find((c) => String(c.prompt).includes(`[HIVE] role: ${agent}`)).prompt);
+      assert.match(prompt, /## Repository context/, `${agent} gets repository evidence`);
+    }
+    assert.ok(!calls.some((c) => String(c.prompt).includes('[HIVE] role: Forger')), 'audit never runs the Forger');
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('PASS WITH LIMITATIONS completes with the verdict recorded; echoed templates are ignored', async () => {
+  const tmp = await makeTempDir();
+  const { engine } = makeStub({
+    Queen: 'PRESET: quick',
+    Forger: 'patch',
+    Sentinel: 'validation:\n  verdict: pass | pass_with_limitations | fail | blocked\n**Verdict:** PASS WITH LIMITATIONS\n- tests not executed',
+  });
+  try {
+    const result = await runHivebot('fix', { cwd: tmp, preset: 'quick', createEngine: () => engine });
+    assert.equal(result.status, 'COMPLETE');
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.verdict, 'PASS_WITH_LIMITATIONS');
+    assert.match(result.reason, /WITH LIMITATIONS/);
+    assert.match(result.review, /^## HIVE Review — Complete/);
+    assert.match(result.review, /no commands were executed/);
+    const runJson = JSON.parse(await fs.readFile(result.runPath, 'utf-8'));
+    assert.equal(runJson.verdict, 'PASS_WITH_LIMITATIONS');
+    assert.match(await fs.readFile(result.reportPath, 'utf-8'), /HIVE Review — Complete/);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('stopped runs end in the skill failed review shape with a next action', async () => {
+  const tmp = await makeTempDir();
+  const { engine } = makeStub({ Queen: 'PRESET: quick', Forger: 'patch', Sentinel: 'VERDICT: FAIL\n- broken' });
+  try {
+    const result = await runHivebot('fix', { cwd: tmp, preset: 'quick', createEngine: () => engine });
+    assert.equal(result.status, 'FAILED');
+    assert.equal(result.verdict, 'FAIL');
+    assert.match(result.review, /^## HIVE Review — Failed/);
+    assert.match(result.review, /\*\*Completed:\*\* Queen, Forger, Sentinel, Forger \(attempt 2\), Sentinel \(attempt 2\)/);
+    assert.match(result.review, /\*\*Next action:\*\* /);
+    assert.match(result.output, /HIVE Review — Failed/);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});

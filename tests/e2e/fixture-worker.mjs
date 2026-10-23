@@ -6,6 +6,16 @@ import { WorktreeManager, branchNameForTask } from "../../dist/worktree.js";
 import { validateDesktopCommand } from "../../dist/desktop/electron/contracts.js";
 import { createProjectWorkerHost } from "../../dist/desktop/electron/project-worker-host.js";
 import { randomUUID } from "node:crypto";
+import { createChatEngine } from "../../dist/chat/engine.js";
+
+const COUNCIL_SCRIPT = {
+  Queen: "Run contract: append a council note to hive-desktop-fixture.txt.\nPRESET: standard",
+  Scout: "hive-desktop-fixture.txt is the only relevant file; no tests cover it.",
+  Architect: "Append one line to hive-desktop-fixture.txt, then check it with fixture:validate.",
+  Forger: "```diff\n--- a/hive-desktop-fixture.txt\n+++ b/hive-desktop-fixture.txt\n@@ -1 +1,2 @@\n baseline\n+council note\n```",
+  Sentinel: "The proposal matches the plan and stays in scope. Nothing was executed.\nVERDICT: PASS_WITH_LIMITATIONS",
+  Scribe: "## HIVE Review — Complete\n\n**Goal:** Append a council note\n**Result:** One-line proposal ready to apply\n**Verification:** The council executed no commands.\n**Limitations:** fixture:validate has not run.\n**Final status:** Complete",
+};
 
 const port = process.parentPort;
 if (!port) throw new Error("The deterministic desktop fixture requires an Electron utility-process parent port.");
@@ -33,6 +43,21 @@ const handleProject = createProjectWorkerHost((message) => port.postMessage(mess
       if (!approved) throw new Error("Deterministic fixture approval declined");
     }
     return deterministicLaunch(input).completion;
+  },
+  // Council stages answer from a script; every other chat prompt keeps the real engine.
+  createChat: (root, sessionId) => {
+    const real = createChatEngine(root, sessionId);
+    return {
+      async complete(request) {
+        const agent = /\[HIVE\] role: (\w+)/.exec(String(request.prompt))?.[1];
+        if (!agent || !COUNCIL_SCRIPT[agent]) return real.complete(request);
+        // "[slow]" spaces the stages out so a visual check can catch the rail mid-run.
+        if (String(request.prompt).includes("[slow]")) await new Promise((resolve) => setTimeout(resolve, 1_500));
+        if (request.signal?.aborted) throw new Error("Deterministic council cancelled.");
+        return { output: COUNCIL_SCRIPT[agent], receipt: { role: request.role, providerId: "fixture", model: "deterministic-council", source: "fixture", degraded: false, totalTokens: 12 } };
+      },
+      resolveRoute: (role, override) => real.resolveRoute(role, override),
+    };
   },
 });
 

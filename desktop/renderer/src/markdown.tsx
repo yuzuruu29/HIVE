@@ -231,9 +231,11 @@ export function renderMarkdown(source: string): ReactNode {
     if (paragraphLines.length) {
       elements.push(
         <p key={`p-${elementKey++}`}>
+          {/* Model output (and the HIVE Review template) relies on single newlines as line breaks.
+              The space keeps copied text and text content readable; it collapses after <br>. */}
           {paragraphLines.map((pLine, i) => (
             <span key={i}>
-              {i > 0 && " "}
+              {i > 0 && <><br />{" "}</>}
               {renderInline(pLine)}
             </span>
           ))}

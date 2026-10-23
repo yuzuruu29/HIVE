@@ -118,7 +118,7 @@ export class TuiProjectClient {
     this.project();
   }
   async cycleMode(): Promise<void> {
-    const modes: SessionMode[] = ["code", "plan", "chat"];
+    const modes: SessionMode[] = ["code", "plan", "chat", "council"];
     const current = this.current()?.settings.mode ?? "code";
     await this.settings({ mode: modes[(modes.indexOf(current) + 1) % modes.length] });
   }
@@ -239,10 +239,10 @@ export class TuiProjectClient {
         else throw new Error("Use /permissions guarded, standard, or autonomous.");
         return true;
       case "mode":
-        if (!args) this.notice(`Workflow: ${this.requireSession().settings.mode}. /mode code|plan|chat. Safety is separate: /permissions.`);
-        else if (args === "code" || args === "plan" || args === "chat" || args === "review") await this.settings({ mode: args });
+        if (!args) this.notice(`Workflow: ${this.requireSession().settings.mode}. /mode code|plan|chat|council. Safety is separate: /permissions.`);
+        else if (args === "code" || args === "plan" || args === "chat" || args === "review" || args === "council") await this.settings({ mode: args });
         else if (args === "guarded" || args === "standard" || args === "autonomous") { await this.settings({ permissions: args }); this.notice("Legacy /mode safety alias accepted. Use /permissions for safety; Shift+Tab changes workflow."); }
-        else throw new Error("Use /mode code, plan, or chat; /permissions changes tool policy.");
+        else throw new Error("Use /mode code, plan, chat, or council; /permissions changes tool policy.");
         return true;
       case "model": case "m": {
         if (!args) {
