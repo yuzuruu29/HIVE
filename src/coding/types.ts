@@ -143,6 +143,7 @@ export type ValidationStatus =
 
 export interface ValidationResult {
   id: string;
+  commandId?: string;
   taskId?: string;
   command: string;
   status: ValidationStatus;
