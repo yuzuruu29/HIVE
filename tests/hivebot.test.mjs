@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 import { runHivebot } from '../dist/chat/hivebot.js';
+import { HISTORY_CHAR_BUDGET } from '../dist/chat/history.js';
 import {
   COUNCIL_PRESETS,
   loadAgentPrompt,
@@ -95,7 +96,9 @@ function makeStub(outputsByAgent, opts = {}) {
 }
 
 async function makeTempDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), 'hive-hivebot-'));
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'hive-hivebot-'));
+  if (process.env.HIVE_TASK_MANIFEST) await fs.appendFile(process.env.HIVE_TASK_MANIFEST, directory + '\n');
+  return directory;
 }
 
 // ---------------------------------------------------------------------------
@@ -525,6 +528,32 @@ test('stopped runs end in the skill failed review shape with a next action', asy
     assert.match(result.review, /\*\*Completed:\*\* Queen, Forger, Sentinel, Forger \(attempt 2\), Sentinel \(attempt 2\)/);
     assert.match(result.review, /\*\*Next action:\*\* /);
     assert.match(result.output, /HIVE Review — Failed/);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('shared conversation is bounded in every stage prompt and stays separate from the report task', async () => {
+  const tmp = await makeTempDir();
+  const { engine, calls } = makeStub({ Queen: 'PRESET: quick', Forger: 'patch', Sentinel: 'VERDICT: PASS' });
+  try {
+    const task = 'Review the current change';
+    const result = await runHivebot(task, {
+      cwd: tmp, preset: 'quick', createEngine: () => engine,
+      conversationContext: `OLDEST_CONTEXT_MARKER${'x'.repeat(HISTORY_CHAR_BUDGET)}\nUser: RECENT_CONTEXT_MARKER`,
+    });
+    assert.equal(result.status, 'COMPLETE');
+    assert.equal(calls.length, 3);
+    for (const call of calls) {
+      assert.match(call.prompt, /RECENT_CONTEXT_MARKER/);
+      assert.doesNotMatch(call.prompt, /OLDEST_CONTEXT_MARKER/);
+      assert.ok(call.prompt.includes(`Task: ${task}`));
+      assert.ok(call.prompt.length < HISTORY_CHAR_BUDGET + 12_000);
+    }
+    const saved = JSON.parse(await fs.readFile(result.runPath, 'utf8'));
+    assert.equal(saved.task, task);
+    assert.ok(result.review.includes(`**Goal:** ${task}`));
+    assert.doesNotMatch(result.review, /RECENT_CONTEXT_MARKER/);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }

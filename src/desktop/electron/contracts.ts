@@ -290,9 +290,11 @@ function validateCouncilStage(value: unknown): void {
 }
 
 function validateCouncilSummary(value: unknown): void {
-  const summary = exact(value, ["status", "reason", "preset", "runId", "stages", "totalTokens", "artifactDir", "runPath", "reportPath"], "council summary");
+  const summary = optionalExact(value, ["status", "reason", "review", "preset", "runId", "stages", "totalTokens", "artifactDir", "runPath", "reportPath"], ["verdict"], "council summary");
   if (!COUNCIL_STATUSES.has(String(summary.status))) throw new Error("Council summary status is invalid.");
   boundaryString(summary.reason, "council summary reason", 2_000);
+  boundaryText(summary.review, "council summary review", 100_000);
+  if (summary.verdict !== undefined && (typeof summary.verdict !== "string" || !["PASS", "PASS_WITH_LIMITATIONS", "FAIL", "BLOCKED"].includes(summary.verdict))) throw new Error("Council summary verdict is invalid.");
   if (!COUNCIL_PRESETS.has(String(summary.preset))) throw new Error("Council summary preset is invalid.");
   id(summary.runId, "council summary run id");
   if (!Array.isArray(summary.stages) || summary.stages.length > 128) throw new Error("Council summary stages are invalid.");

@@ -51,6 +51,11 @@ const handleProject = createProjectWorkerHost((message) => port.postMessage(mess
       async complete(request) {
         const agent = /\[HIVE\] role: (\w+)/.exec(String(request.prompt))?.[1];
         if (!agent || !COUNCIL_SCRIPT[agent]) return real.complete(request);
+        // Hold after a completed Queen so cancellation checks do not depend on polling speed.
+        if (agent !== "Queen" && String(request.prompt).includes("[hold-after-queen]")) {
+          if (request.signal?.aborted) throw new Error("Deterministic council cancelled.");
+          await new Promise((_resolve, reject) => request.signal?.addEventListener("abort", () => reject(new Error("Deterministic council cancelled.")), { once: true }));
+        }
         // "[slow]" spaces the stages out so a visual check can catch the rail mid-run.
         if (String(request.prompt).includes("[slow]")) await new Promise((resolve) => setTimeout(resolve, 1_500));
         if (request.signal?.aborted) throw new Error("Deterministic council cancelled.");

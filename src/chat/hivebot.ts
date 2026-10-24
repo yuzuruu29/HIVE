@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import type { ChatReceipt } from "./types.js";
 import { createChatEngine, type ChatEngine, type ChatEngineRole } from "./engine.js";
 import type { ChatOptions } from "./chat-cli.js";
+import { HISTORY_CHAR_BUDGET } from "./history.js";
 import { buildScoutGrounding } from "./grounding.js";
 import { locateSkillRoot } from "./skill-locate.js";
 import {
@@ -44,6 +45,8 @@ export interface HivebotOptions extends ChatOptions {
   runId?: string;
   /** Optional stage observer; `undefined` keeps CLI behavior byte-identical. */
   onStage?: (event: HivebotStageEvent) => void;
+  /** Recent shared conversation, kept separate from the current task and report goal. */
+  conversationContext?: string;
 }
 
 /**
@@ -176,6 +179,7 @@ function buildPrompt(
   agent: string,
   preset: HivebotPreset,
   extraContext?: string,
+  conversationContext?: string,
 ): string {
   const parts: string[] = [
     `[HIVE] role: ${agent}`,
@@ -183,6 +187,7 @@ function buildPrompt(
     "",
     `Task: ${task}`,
   ];
+  if (conversationContext) parts.push("\n## Previous conversation (context only; the current task is above)\n" + conversationContext);
   if (extraContext) parts.push("\n" + extraContext);
   const summary = summarizeStages(stages, preset.maxOutputCharsPerStage);
   if (summary) parts.push("\n## Prior handoffs\n" + summary);
@@ -412,6 +417,7 @@ export async function runHivebot(
   const forced = Boolean(options.preset);
   const runId = options.runId ?? makeRunId();
   const onStage = options.onStage;
+  const conversationContext = options.conversationContext?.slice(-HISTORY_CHAR_BUDGET);
   // An observer owns rendering (desktop, TUI); writing to a shared TTY would corrupt its screen.
   const echo = process.stdout.isTTY && !onStage;
 
@@ -508,7 +514,7 @@ export async function runHivebot(
 
   try {
     const runStage = async (agent: string, attempt = 1, extraContext?: string): Promise<StageResult> =>
-      completeStage(agent, buildPrompt(task, stages, agent, preset, extraContext), await buildSystemPrompt(skillRoot, agent), attempt);
+      completeStage(agent, buildPrompt(task, stages, agent, preset, extraContext, conversationContext), await buildSystemPrompt(skillRoot, agent), attempt);
 
     // ---- a. Queen writes the run contract and (unless forced) selects the preset ----
     const queen = await runStage(

@@ -50,6 +50,27 @@ function controlledEngine() {
   return { engine: { start(_input, actualHooks) { hooks = actualHooks; started += 1; return { completion: new Promise((done) => { resolve = done; }), cancel() { cancelled += 1; resolve({ status: "cancelled", summary: "Cancelled with actual acknowledgment" }); } }; } }, get started() { return started; }, get cancelled() { return cancelled; }, get hooks() { return hooks; }, finish(value) { resolve(value); } };
 }
 
+test("Council rejects images and extension contexts before accepting a message or starting an engine", async (t) => {
+  const controlled = controlledEngine();
+  const { service, sessionId, workspace } = await fixture(t, controlled.engine);
+  await service.action(request("session.settings", { sessionId, settings: { mode: "council" } }));
+  const before = await service.store.load();
+  for (const executionContext of [
+    { imagePaths: [path.join(workspace, "diagram.png")] },
+    { skillIds: ["some-skill"] }, { enabledMcpServers: ["some-server"] }, { enabledLspServers: ["some-lsp"] },
+    { invokedSkills: [{ id: "some-skill", arguments: "inspect" }] }, { pluginAgentId: "some-agent" }, { outputStyleId: "some-style" },
+  ]) {
+    await assert.rejects(service.action(request("session.send", { sessionId, text: "Keep this unsent draft", executionContext })), /Council mode runs only/);
+    assert.deepEqual(await service.store.load(), before, "rejected sends must not create messages, runs, request receipts or owners");
+    assert.equal(controlled.started, 0);
+    assert.equal(service.hasOwnedRuns(), false);
+  }
+  await service.action(request("session.send", { sessionId, text: "Valid text-only Council request", executionContext: { imagePaths: [], skillIds: [] } }));
+  await until(() => service.snapshot(), () => controlled.started === 1);
+  controlled.finish({ status: "completed", summary: "Text-only Council complete", text: "Valid response" });
+  await until(() => service.snapshot(), (snapshot) => snapshot.sessions[0].runs[0]?.status === "completed");
+});
+
 function failTerminalWrites(t, service, runId, failures = Infinity) {
   const mutate = service.store.mutate.bind(service.store);
   let attempts = 0;

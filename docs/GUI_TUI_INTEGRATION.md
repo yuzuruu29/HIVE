@@ -42,7 +42,7 @@ or make a Desktop-only credential available to the CLI.
 |---|---|---|
 | Shared contract | `src/projects/types.ts` | Projects, workspaces, sessions, messages, runs, approvals and evidence |
 | Durable service | `src/projects/service.ts`, `store.ts`, `run-control.ts` | Validated actions, request deduplication, atomic storage, ownership, cancellation and recovery |
-| Existing-engine adapter | `src/projects/runtime-adapter.ts` | Chat provider streaming and Queen Code/Plan/Review execution; extension and permission integration |
+| Existing-engine adapter | `src/projects/runtime-adapter.ts` | Chat streaming, read-only Council deliberation and Queen Code/Plan/Review execution; extension and permission integration |
 | Electron transport | `src/desktop/electron/router.ts`, `project-worker.ts`, `project-worker-host.ts` | Validated IPC; one utility process per Desktop run; scoped credential delivery and persistence acknowledgments |
 | GUI | `desktop/renderer/src/projects/` | Project navigation, one conversation/composer, activity, approvals and changes/checks |
 | Native TUI | `src/tui/app.ts`, `project-client.ts`, `transcript-view.ts` | Terminal input/lifecycle and a projection of the same shared service |
@@ -124,14 +124,25 @@ coding worktree. Existing standalone coding/worktree commands remain separate.
 
 ## Providers, permissions and evidence
 
-The workflow (**Code**, **Plan**, **Chat**, or explicit read-only **Review**) is
+The workflow (**Code**, **Plan**, **Chat**, **Council**, or explicit read-only **Review**) is
 separate from **Guarded**, **Standard** and **Autonomous** permission preferences.
 The backend returns the effective `safe` or `changes` policy. Guarded Code starts
 with `safe` and asks before applying its planned worktree changes; Plan and Review
 remain read-only. Standard/Autonomous Code use `changes`; Autonomous can approve
 eligible internal actions automatically, while external and always-ask actions
 still require the backend's concrete approval. Existing tool restrictions remain
-authoritative.
+authoritative. Council always uses `safe`: it produces proposals and a HIVE Review
+through the bundled council roles without applying patches or running tools.
+It carries bounded recent conversation context while keeping the current request
+as the report Goal. Images and extension capabilities are rejected before a
+Council message is accepted. The composer keeps existing image drafts intact and
+blocks submission until images are removed or the workflow is changed.
+
+Cancelled Council runs retain their partial review, a bounded last-completed
+handoff and the full report location in shared history. Cancellation declines
+pending approvals but still waits for event persistence acknowledgements; failed
+writes remain failures. Legacy Council completion events validate the bounded
+review and optional Sentinel verdict before crossing the desktop bridge.
 
 An approval names the tool, arguments, reason, verified execution workspace,
 external-access flag and expiry. It applies to that action only. A decision in one

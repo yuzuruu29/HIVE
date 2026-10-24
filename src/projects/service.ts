@@ -7,7 +7,7 @@ import { WorktreeManager } from "../worktree.js";
 import { ProjectHistoryService, type HistoryImportPreview, type HistoryImportResult } from "./history.js";
 import { redactKnownSecrets } from "../security/secrets.js";
 import type { AcceptedRun, EngineHandle, EngineHooks, EngineOutcome, EngineUserEvent, ProjectAction, ProjectActionResponse, ProjectActionResult, ProjectSnapshot, SessionEngineAdapter, SessionSettings, SharedProject, SharedRun, SharedSession, WorkspaceRef } from "./types.js";
-import { actionFingerprint, parseProjectAction, ProjectStore, publicProjectSnapshot, validateEngineOutcome, validateEngineUserEvent, type StoredProjectState } from "./store.js";
+import { actionFingerprint, assertCouncilExecutionContext, parseProjectAction, ProjectStore, publicProjectSnapshot, validateEngineOutcome, validateEngineUserEvent, type StoredProjectState } from "./store.js";
 import { ACTIVE_RUN_STATUSES, identifyProject, ownerDefinitelyExited } from "./run-control.js";
 
 export { parseProjectAction } from "./store.js";
@@ -97,6 +97,7 @@ export class ProjectSessionService {
           case "session.settings": if (active(session)) throw new Error("Session settings are locked during an active run."); session.settings = { ...session.settings, ...action.settings }; if (session.settings.providerId === "") delete session.settings.providerId; if (session.settings.model === "") delete session.settings.model; break;
           case "session.send": {
             if (session.archived) throw new Error("Restore this session before sending."); if (!this.#options.engine) throw new Error("The live engine adapter is unavailable; your draft was not accepted."); if (active(session)) throw new Error("This session already has an active run.");
+            if (session.settings.mode === "council") assertCouncilExecutionContext(action.executionContext);
             const workspace = project.workspaces.find((entry) => entry.id === session.workspaceId); if (!workspace) throw new Error("Session workspace not found.");
             const identity = await verifyWorkspace(project, workspace); workspace.branch = identity.workspace.branch;
             if (this.#closed || this.#closing) throw new Error("Project service is closing; your message was not accepted.");

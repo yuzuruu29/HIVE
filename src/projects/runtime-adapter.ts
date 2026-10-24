@@ -17,6 +17,7 @@ import { WorktreeManager } from "../worktree.js";
 import { redactKnownSecrets } from "../security/secrets.js";
 import { runQueenTuiSession, type TuiSessionRunner, type TuiSessionRunnerOptions } from "../tui/runtime-adapter.js";
 import { ProjectSessionService, type ProjectSessionServiceOptions } from "./service.js";
+import { assertCouncilExecutionContext } from "./store.js";
 import type { AcceptedRun, EngineHooks, EngineOutcome, EngineUserEvent, RunCheck, RunPatch, SessionEngineAdapter } from "./types.js";
 
 const execute = promisify(execFile);
@@ -29,9 +30,12 @@ export interface ProductionSessionEngineOptions {
   extensionOptions?: TuiSessionRunnerOptions["extensionOptions"];
 }
 function clean(text: string): string { return redactKnownSecrets(text).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, ""); }
-function conversationPrompt(input: AcceptedRun): string {
+function conversationHistory(input: AcceptedRun): string {
   const history = input.session.messages.filter((message) => message.runId !== input.run.id && message.role !== "system").map((message) => ({ role: message.role === "user" ? "user" as const : "assistant" as const, content: message.text, at: message.createdAt }));
-  const context = compactHistory(history, HISTORY_CHAR_BUDGET).kept.map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`).join("\n\n");
+  return compactHistory(history, HISTORY_CHAR_BUDGET).kept.map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`).join("\n\n");
+}
+function conversationPrompt(input: AcceptedRun): string {
+  const context = conversationHistory(input);
   return context ? `${context}\n\nUser: ${input.text}` : input.text;
 }
 function userEvent(event: RuntimeEvent, roles: Map<string, string>, commandRoles: Map<string, string>): EngineUserEvent | undefined {
@@ -150,24 +154,27 @@ export function createProductionSessionEngine(options: ProductionSessionEngineOp
           return { status: controller.signal.aborted ? "cancelled" : "completed", summary: controller.signal.aborted ? "Cancelled after provider acknowledgment" : "Live response complete", text: response.output };
         }
         if (input.run.settings.mode === "council") {
-          const context = input.run.executionContext;
-          if (context && [context.skillIds, context.enabledMcpServers, context.enabledLspServers, context.invokedSkills, context.imagePaths].some((values) => values?.length) || context?.pluginAgentId || context?.outputStyleId) throw new Error("Council mode runs only the built-in HIVE council; switch to Code, Plan, or Review for extensions and images.");
+          assertCouncilExecutionContext(input.run.executionContext);
           const router = new ProviderRouter({ projectRoot: input.run.workspace, sessionId: input.session.id, projectRegistry: options.providerRegistries?.project, globalRegistry: options.providerRegistries?.global });
           const engine = options.createChat?.(input.run.workspace, input.session.id) ?? createChatEngine(input.run.workspace, input.session.id, { router });
           publish({ type: "activity", role: "Queen", kind: "status", text: "Convening the HIVE council" }); await drain();
           const result = await runHivebot(input.text, {
             cwd: input.run.workspace, providerId: input.run.settings.providerId, model: input.run.settings.model, signal: controller.signal, createEngine: () => engine,
+            conversationContext: conversationHistory(input),
             onStage: (stage) => publish(stage.type === "stage-started"
               ? { type: "activity", role: stage.agent, kind: "running", text: `${AGENT_LABEL[stage.agent] ?? "Working"}${stage.attempt > 1 ? ` · repair attempt ${stage.attempt}` : ""}` }
               : { type: "activity", role: stage.agent, kind: "completed", text: `${stageHeadline(stage.output ?? "")}${stage.receipt ? ` · ${stage.receipt.providerId}/${stage.receipt.model}` : ""}` }),
           });
           await drain();
-          if (controller.signal.aborted) return { status: "cancelled", summary: "Council cancelled; completed handoffs are kept in the run report" };
+          const cancelled = controller.signal.aborted;
           const forger = [...result.stages].reverse().find((stage) => stage.agent === "Forger");
-          const text = clean(forger && result.status === "COMPLETE" ? `${result.review}\n\n### Proposed change (Forger, not applied)\n\n${forger.output.trim()}` : result.review);
+          const review = cancelled ? result.review.replace(/^## HIVE Review — [^\r\n]+/, "## HIVE Review — Cancelled").replace(/^\*\*Final status:\*\* [^\r\n]+$/m, "**Final status:** Cancelled") : result.review;
+          const lastHandoff = result.stages.at(-1);
+          const partial = cancelled ? `${lastHandoff ? `\n\n### Last completed handoff (excerpt) — ${lastHandoff.agent}\n\n${lastHandoff.output.slice(0, 8_000)}` : ""}\n\nFull council report: ${result.reportPath}` : "";
+          const text = clean(!cancelled && forger && result.status === "COMPLETE" ? `${review}\n\n### Proposed change (Forger, not applied)\n\n${forger.output.trim()}` : review + partial);
           publish({ type: "text", text }); await drain();
           const verdict = result.verdict ? ` · Sentinel ${result.verdict.replace(/_/g, " ")}` : "";
-          return { status: result.status === "COMPLETE" ? "completed" : "failed", summary: `Council ${result.status.replace(/_/g, " ").toLowerCase()} · ${result.preset} preset${verdict}`, text };
+          return { status: cancelled ? "cancelled" : result.status === "COMPLETE" ? "completed" : "failed", summary: cancelled ? "Council cancelled; partial review and completed handoffs saved" : `Council ${result.status.replace(/_/g, " ").toLowerCase()} · ${result.preset} preset${verdict}`, text };
         }
         const root = await findRepositoryRoot(input.run.workspace, controller.signal); const store = new CodingSessionStore(root);
         const roles = new Map<string, string>(); const commandRoles = new Map<string, string>();

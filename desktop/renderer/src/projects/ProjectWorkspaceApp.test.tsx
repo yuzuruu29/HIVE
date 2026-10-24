@@ -163,6 +163,23 @@ describe("shared project conversation", () => {
     expect(screen.getByRole("textbox", { name: "Message HIVE" })).toHaveAttribute("placeholder", "Describe the goal for the HIVE council");
   });
 
+  it("disables Council image attachments while allowing a text-only Council draft", async () => {
+    const initial = snapshot(); initial.sessions[0] = { ...baseSession, settings: { ...baseSession.settings, mode: "council" } };
+    const api = bridge(initial); const user = userEvent.setup(); render(<ProjectWorkspaceApp api={api} />);
+    const composer = await screen.findByRole("textbox", { name: "Message HIVE" });
+    const attach = screen.getByRole("button", { name: "Attach images" });
+    expect(attach).toBeDisabled();
+    expect(attach).toHaveAttribute("title", "Council accepts text only");
+    await user.click(attach);
+    expect(screen.queryByRole("dialog", { name: "Attach images" })).not.toBeInTheDocument();
+    await user.type(composer, "Review the design");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(api.request.mock.calls.map(([command]) => command)).toContainEqual(expect.objectContaining({ type: "projects.action", action: expect.objectContaining({ type: "session.send", text: "Review the design" }) })));
+    const sent = api.request.mock.calls.map(([command]) => command).find((command) => command.type === "projects.action" && command.action.type === "session.send");
+    if (sent?.type !== "projects.action" || sent.action.type !== "session.send") throw new Error("Missing Council send");
+    expect(sent.action.executionContext).toBeUndefined();
+  });
+
   it("keeps drawer focus inside and returns it to the navigation trigger", async () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
     const api = bridge(); const user = userEvent.setup(); render(<ProjectWorkspaceApp api={api} />);
@@ -207,6 +224,44 @@ describe("shared project conversation", () => {
     await waitFor(() => expect(api.request.mock.calls.map(([command]) => command)).toContainEqual(expect.objectContaining({ type: "projects.action", action: expect.objectContaining({ type: "session.send", sessionId: "one", executionContext: { imagePaths: ["C:\\Images\\screenshot.png"] } }) })));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Remove image screenshot.png" })).not.toBeInTheDocument());
   });
+
+  for (const recovery of ["removing images", "switching workflow"]) {
+    it(`preserves an attached draft and blocks all Council submit paths until ${recovery}`, async () => {
+      const api = bridge(); const user = userEvent.setup(); render(<ProjectWorkspaceApp api={api} />);
+      const composer = await screen.findByRole("textbox", { name: "Message HIVE" });
+      await user.click(screen.getByRole("button", { name: "Attach images" }));
+      const dialog = screen.getByRole("dialog", { name: "Attach images" });
+      await user.type(within(dialog).getByLabelText("Local image paths"), "C:\\Images\\screenshot.png");
+      await user.click(within(dialog).getByRole("button", { name: "Save attachments" }));
+      await user.type(composer, "Review the diagram");
+      const workflow = screen.getByRole("combobox", { name: "Workflow" });
+      await user.selectOptions(workflow, "council");
+      await waitFor(() => expect(workflow).toHaveValue("council"));
+      const explanation = screen.getByText("Council accepts text only. Remove the attached images or switch workflow to send this draft.");
+      expect(explanation).toHaveAttribute("role", "status");
+      expect(composer).toHaveAttribute("aria-describedby", explanation.id);
+      expect(screen.getByRole("button", { name: "Attach images" })).toBeDisabled();
+      const send = screen.getByRole("button", { name: "Send message" });
+      expect(send).toBeDisabled();
+      await user.click(send);
+      await user.click(composer); await user.keyboard("{Enter}");
+      fireEvent.submit(screen.getByRole("form", { name: "Conversation composer" }));
+      const sent = () => api.request.mock.calls.map(([command]) => command).filter((command) => command.type === "projects.action" && command.action.type === "session.send");
+      expect(sent()).toHaveLength(0);
+      expect(composer).toHaveValue("Review the diagram");
+      expect(screen.getByRole("button", { name: "Remove image screenshot.png" })).toBeVisible();
+      if (recovery === "removing images") await user.click(screen.getByRole("button", { name: "Remove image screenshot.png" }));
+      else await user.selectOptions(workflow, "code");
+      await waitFor(() => expect(screen.queryByText(explanation.textContent ?? "")).not.toBeInTheDocument());
+      expect(send).toBeEnabled();
+      expect(composer).toHaveValue("Review the diagram");
+      await user.click(send);
+      await waitFor(() => expect(sent()).toHaveLength(1));
+      const action = sent()[0];
+      if (action.type !== "projects.action" || action.action.type !== "session.send") throw new Error("Missing recovered send");
+      expect(action.action.executionContext).toEqual(recovery === "removing images" ? undefined : { imagePaths: ["C:\\Images\\screenshot.png"] });
+    });
+  }
 
   it("previews legacy history before explicit backup/import and keeps the current selection and draft", async () => {
     const imported = snapshot(); imported.revision = 10; imported.projects[0].lastSessionId = "legacy-one"; imported.sessions.push({ ...baseSession, id: "legacy-one", title: "Imported CLI history" });

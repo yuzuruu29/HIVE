@@ -114,6 +114,7 @@ test("chat commands are registered in the canonical manifest and existing comman
 const councilSummary = {
   status: "COMPLETE",
   reason: "All criteria satisfied; Sentinel PASS.",
+  review: "## HIVE Review - Complete\n\nCouncil review only; no commands were executed.",
   preset: "quick",
   runId: "hivebot-1789200000000-ab12",
   stages: [{ agent: "Queen", role: "queen", output: "analysis", receipt: { role: "queen", providerId: "p1", model: "m1", promptTokens: 3, completionTokens: 4, totalTokens: 7, latencyMs: 5 }, phase: "Orchestrate & classify", attempt: 1 }],
