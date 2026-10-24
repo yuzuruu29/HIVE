@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { createChatEngine, type ChatEngine } from "../chat/engine.js";
 import { CHAT_ROLE_META, classifyTask, normalizeChatRole } from "../chat/roles.js";
 import { compactHistory, HISTORY_CHAR_BUDGET } from "../chat/history.js";
+import { AGENT_LABEL, runHivebot } from "../chat/hivebot.js";
 import { ProviderRouter } from "../coding/provider-router.js";
 import { CodingSessionStore } from "../coding/session-store.js";
 import { parseRepositoryCommand } from "../coding/tools.js";
@@ -16,6 +17,7 @@ import { WorktreeManager } from "../worktree.js";
 import { redactKnownSecrets } from "../security/secrets.js";
 import { runQueenTuiSession, type TuiSessionRunner, type TuiSessionRunnerOptions } from "../tui/runtime-adapter.js";
 import { ProjectSessionService, type ProjectSessionServiceOptions } from "./service.js";
+import { assertCouncilExecutionContext } from "./store.js";
 import type { AcceptedRun, EngineHooks, EngineOutcome, EngineUserEvent, RunCheck, RunPatch, SessionEngineAdapter } from "./types.js";
 
 const execute = promisify(execFile);
@@ -28,9 +30,12 @@ export interface ProductionSessionEngineOptions {
   extensionOptions?: TuiSessionRunnerOptions["extensionOptions"];
 }
 function clean(text: string): string { return redactKnownSecrets(text).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, ""); }
-function conversationPrompt(input: AcceptedRun): string {
+function conversationHistory(input: AcceptedRun): string {
   const history = input.session.messages.filter((message) => message.runId !== input.run.id && message.role !== "system").map((message) => ({ role: message.role === "user" ? "user" as const : "assistant" as const, content: message.text, at: message.createdAt }));
-  const context = compactHistory(history, HISTORY_CHAR_BUDGET).kept.map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`).join("\n\n");
+  return compactHistory(history, HISTORY_CHAR_BUDGET).kept.map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`).join("\n\n");
+}
+function conversationPrompt(input: AcceptedRun): string {
+  const context = conversationHistory(input);
   return context ? `${context}\n\nUser: ${input.text}` : input.text;
 }
 function userEvent(event: RuntimeEvent, roles: Map<string, string>, commandRoles: Map<string, string>): EngineUserEvent | undefined {
@@ -73,6 +78,12 @@ function matchesExecutedCommand(validation: string, executed: string): boolean {
   if (validation === executed) return true;
   try { return parseRepositoryCommand(validation).join(" ") === executed; }
   catch { return false; }
+}
+/** First meaningful line of a council handoff, without markdown markers. */
+function stageHeadline(output: string): string {
+  const prose = output.split("```").filter((_, index) => index % 2 === 0).join("\n");
+  const line = prose.split("\n").map((entry) => entry.replace(/^[\s#>*_`-]+|[*_`]+$/g, "").trim()).find(Boolean) ?? "Proposal recorded";
+  return clean(line.length > 160 ? `${line.slice(0, 159)}…` : line);
 }
 export function checksFromCodingRecord(record: CodingSessionRecord): RunCheck[] {
   const workspace = record.repository.worktreePath ?? record.repository.root;
@@ -141,6 +152,29 @@ export function createProductionSessionEngine(options: ProductionSessionEngineOp
           const response = await engine.complete({ role: normalizeChatRole(role) ?? "coding", prompt: conversationPrompt(input), systemPrompt: CHAT_ROLE_META[role].systemPrompt, providerId: input.run.settings.providerId, model: input.run.settings.model, signal: controller.signal, onChunk: (chunk) => { cumulative += chunk; publish({ type: "text", text: cumulative }); } });
           publish({ type: "activity", role: "HIVE", kind: "receipt", text: `${response.receipt.providerId} / ${response.receipt.model}` }); publish({ type: "text", text: response.output }); await drain();
           return { status: controller.signal.aborted ? "cancelled" : "completed", summary: controller.signal.aborted ? "Cancelled after provider acknowledgment" : "Live response complete", text: response.output };
+        }
+        if (input.run.settings.mode === "council") {
+          assertCouncilExecutionContext(input.run.executionContext);
+          const router = new ProviderRouter({ projectRoot: input.run.workspace, sessionId: input.session.id, projectRegistry: options.providerRegistries?.project, globalRegistry: options.providerRegistries?.global });
+          const engine = options.createChat?.(input.run.workspace, input.session.id) ?? createChatEngine(input.run.workspace, input.session.id, { router });
+          publish({ type: "activity", role: "Queen", kind: "status", text: "Convening the HIVE council" }); await drain();
+          const result = await runHivebot(input.text, {
+            cwd: input.run.workspace, providerId: input.run.settings.providerId, model: input.run.settings.model, signal: controller.signal, createEngine: () => engine,
+            conversationContext: conversationHistory(input),
+            onStage: (stage) => publish(stage.type === "stage-started"
+              ? { type: "activity", role: stage.agent, kind: "running", text: `${AGENT_LABEL[stage.agent] ?? "Working"}${stage.attempt > 1 ? ` · repair attempt ${stage.attempt}` : ""}` }
+              : { type: "activity", role: stage.agent, kind: "completed", text: `${stageHeadline(stage.output ?? "")}${stage.receipt ? ` · ${stage.receipt.providerId}/${stage.receipt.model}` : ""}` }),
+          });
+          await drain();
+          const cancelled = controller.signal.aborted;
+          const forger = [...result.stages].reverse().find((stage) => stage.agent === "Forger");
+          const review = cancelled ? result.review.replace(/^## HIVE Review — [^\r\n]+/, "## HIVE Review — Cancelled").replace(/^\*\*Final status:\*\* [^\r\n]+$/m, "**Final status:** Cancelled") : result.review;
+          const lastHandoff = result.stages.at(-1);
+          const partial = cancelled ? `${lastHandoff ? `\n\n### Last completed handoff (excerpt) — ${lastHandoff.agent}\n\n${lastHandoff.output.slice(0, 8_000)}` : ""}\n\nFull council report: ${result.reportPath}` : "";
+          const text = clean(!cancelled && forger && result.status === "COMPLETE" ? `${review}\n\n### Proposed change (Forger, not applied)\n\n${forger.output.trim()}` : review + partial);
+          publish({ type: "text", text }); await drain();
+          const verdict = result.verdict ? ` · Sentinel ${result.verdict.replace(/_/g, " ")}` : "";
+          return { status: cancelled ? "cancelled" : result.status === "COMPLETE" ? "completed" : "failed", summary: cancelled ? "Council cancelled; partial review and completed handoffs saved" : `Council ${result.status.replace(/_/g, " ").toLowerCase()} · ${result.preset} preset${verdict}`, text };
         }
         const root = await findRepositoryRoot(input.run.workspace, controller.signal); const store = new CodingSessionStore(root);
         const roles = new Map<string, string>(); const commandRoles = new Map<string, string>();

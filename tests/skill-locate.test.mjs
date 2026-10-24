@@ -6,7 +6,7 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { findRepoRoot, locateSkillRoot } from '../dist/chat/skill-locate.js';
-import { loadAgentPrompt, loadProtocolDigest } from '../dist/chat/skill-protocol.js';
+import { loadAgentPrompt, loadProtocolDigest, PERSONA_MAX_CHARS } from '../dist/chat/skill-protocol.js';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const nestedSkillPath = path.join('skills', 'hive-mind-council', 'skills', 'hive-mind-council');
@@ -39,7 +39,9 @@ async function assertCouncilAssets(skillRoot) {
   assert.ok(skillRoot, 'the bundled council skill must be found');
   for (const agent of agents) {
     const text = await fs.readFile(path.join(builtinSkillRoot, 'agents', `${agent}.md`), 'utf8');
-    assert.equal(await loadAgentPrompt(skillRoot, agent), text.slice(0, 4000));
+    // Every bundled persona fits the cap, so each loads intact.
+    assert.ok(text.length <= PERSONA_MAX_CHARS, `${agent}.md exceeds the persona cap`);
+    assert.equal(await loadAgentPrompt(skillRoot, agent), text);
   }
   assert.match(await loadAgentPrompt(skillRoot, 'Queen'), /^# Queen Role — Orchestrator and Final Authority/);
 

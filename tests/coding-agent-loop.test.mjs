@@ -145,6 +145,26 @@ test("structured agent loop executes bounded tools and accumulates usage", async
   assert.ok(events.some((event) => event.type === "subagent.tool_call"));
 });
 
+test("each subagent role carries its hive-mind-council role contract", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "hive-role-contract-"));
+  const expected = { scout: /council Scout:.*unverified/, planner: /council Architect:/, builder: /council Forger:.*disclose failed commands/, fixer: /council Forger in a repair cycle:.*environment failure/, validator: /council Sentinel:.*never imply a pass.*environment limitations/, reviewer: /council Sentinel's adversarial review:/ };
+  try {
+    for (const [role, pattern] of Object.entries(expected)) {
+      let system = "";
+      await new StructuredAgentLoop().run({
+        task: { ...contractTask, id: `contract-${role}`, role, fileScope: ["builder", "fixer"].includes(role) ? contractTask.fileScope : [] },
+        cwd: root, sharedContext: "Role contract check.",
+        tools: new RepositoryToolService({ repositoryRoot: root, sessionId: contractTask.sessionId, approvalPolicy: "safe" }),
+        signal: new AbortController().signal,
+        completionClient: { async complete(request) { system = request.systemPrompt; return { output: JSON.stringify({ done: true, summary: "checked" }) }; } },
+      });
+      assert.match(system, pattern, `${role} prompt names its council role`);
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("structured agents receive executable built-in file tool schemas", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "hive-tool-contract-"));
   const content = `Tool contract ${Date.now()}\n`;

@@ -31,6 +31,8 @@ export interface DesktopCouncilStageRecord {
 export interface DesktopCouncilSummary {
   status: "COMPLETE" | "FAILED" | "BLOCKED" | "BUDGET_EXCEEDED";
   reason: string;
+  verdict?: "PASS" | "PASS_WITH_LIMITATIONS" | "FAIL" | "BLOCKED";
+  review: string;
   preset: "quick" | "standard" | "deep" | "audit";
   runId: string;
   stages: DesktopCouncilStageRecord[];

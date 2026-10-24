@@ -4,11 +4,14 @@ import { randomBytes } from "node:crypto";
 import type { ChatReceipt } from "./types.js";
 import { createChatEngine, type ChatEngine, type ChatEngineRole } from "./engine.js";
 import type { ChatOptions } from "./chat-cli.js";
+import { HISTORY_CHAR_BUDGET } from "./history.js";
+import { buildScoutGrounding } from "./grounding.js";
 import { locateSkillRoot } from "./skill-locate.js";
 import {
   COUNCIL_PRESETS,
   loadAgentPrompt,
   loadProtocolDigest,
+  runtimeContract,
   type HivebotPreset,
   type HivebotPresetName,
 } from "./skill-protocol.js";
@@ -42,6 +45,8 @@ export interface HivebotOptions extends ChatOptions {
   runId?: string;
   /** Optional stage observer; `undefined` keeps CLI behavior byte-identical. */
   onStage?: (event: HivebotStageEvent) => void;
+  /** Recent shared conversation, kept separate from the current task and report goal. */
+  conversationContext?: string;
 }
 
 /**
@@ -62,9 +67,16 @@ export interface StageRecord extends StageResult {
   attempt: number;
 }
 
+/** Sentinel completion-gate verdict, as defined by the skill's verification policy. */
+export type HivebotVerdict = "PASS" | "PASS_WITH_LIMITATIONS" | "FAIL" | "BLOCKED";
+
 export interface HivebotRunSummary {
   status: HivebotStatus;
   reason: string;
+  /** Last parsed Sentinel verdict; absent when no Sentinel ran or none was parsed. */
+  verdict?: HivebotVerdict;
+  /** Final HIVE Review in the skill's response format. */
+  review: string;
   preset: HivebotPresetName;
   runId: string;
   stages: StageRecord[];
@@ -81,7 +93,7 @@ export type HivebotResult = { exitCode: number; output: string } & HivebotRunSum
 // ---------------------------------------------------------------------------
 
 /** Human phase label per agent, mirroring the previous council definitions. */
-const AGENT_LABEL: Record<string, string> = {
+export const AGENT_LABEL: Record<string, string> = {
   Queen: "Orchestrate & classify",
   Scout: "Map context & impact",
   Architect: "Design executable plan",
@@ -116,8 +128,12 @@ function agentRole(agent: string): ChatEngineRole {
 // Markers and parsing
 // ---------------------------------------------------------------------------
 
-/** Bounded summary length of prior stages included in any stage prompt. */
-const MAX_HANDOFF_CONTEXT_CHARS = 4_000;
+/** Bounded length of prior handoffs included in any stage prompt. */
+const MAX_HANDOFF_CONTEXT_CHARS = 8_000;
+/** The Queen's run contract stays pinned in every handoff, at most this long. */
+const MAX_RUN_CONTRACT_CHARS = 1_500;
+/** Bounded Sentinel findings injected into a repair prompt. */
+const MAX_REPAIR_DIRECTIVE_CHARS = 4_000;
 
 /** Parses a `PRESET: <name>` marker emitted by the Queen. */
 function parsePreset(text: string): HivebotPresetName | null {
@@ -126,13 +142,16 @@ function parsePreset(text: string): HivebotPresetName | null {
   return m[1].toLowerCase() as HivebotPresetName;
 }
 
-type Verdict = "PASS" | "FAIL" | "BLOCKED";
-
-/** Extracts the first line matching `VERDICT: PASS|FAIL|BLOCKED`. */
-function parseVerdict(text: string): Verdict | null {
+/**
+ * Extracts the first line that starts with `VERDICT:` (markdown emphasis
+ * allowed). Lines containing `|` are echoed templates such as
+ * `verdict: pass | fail`, never a decision.
+ */
+export function parseVerdict(text: string): HivebotVerdict | null {
   for (const line of text.split("\n")) {
-    const m = line.match(/VERDICT\s*:\s*(PASS|FAIL|BLOCKED)/i);
-    if (m) return m[1].toUpperCase() as Verdict;
+    if (line.includes("|")) continue;
+    const m = line.match(/^[\s>*_`#-]*(?:final\s+)?verdict[\s*_`]*:[\s*_`]*(pass[\s_]+with[\s_]+limitations|pass|fail|blocked)\b/i);
+    if (m) return m[1].toUpperCase().replace(/[\s_]+/g, "_") as HivebotVerdict;
   }
   return null;
 }
@@ -158,7 +177,9 @@ function buildPrompt(
   task: string,
   stages: readonly StageResult[],
   agent: string,
+  preset: HivebotPreset,
   extraContext?: string,
+  conversationContext?: string,
 ): string {
   const parts: string[] = [
     `[HIVE] role: ${agent}`,
@@ -166,45 +187,58 @@ function buildPrompt(
     "",
     `Task: ${task}`,
   ];
+  if (conversationContext) parts.push("\n## Previous conversation (context only; the current task is above)\n" + conversationContext);
   if (extraContext) parts.push("\n" + extraContext);
-  const summary = summarizeStages(stages);
+  const summary = summarizeStages(stages, preset.maxOutputCharsPerStage);
   if (summary) parts.push("\n## Prior handoffs\n" + summary);
   return parts.join("\n");
 }
 
-/** Joins prior stage outputs, bounded to `MAX_HANDOFF_CONTEXT_CHARS` total. */
-function summarizeStages(stages: readonly StageResult[]): string {
-  const out: string[] = [];
-  let remaining = MAX_HANDOFF_CONTEXT_CHARS;
-  for (const s of stages) {
-    const block = `## ${s.agent}\n${s.output.trim()}`;
-    if (block.length >= remaining) {
-      if (remaining > 0) out.push(block.slice(0, remaining));
-      break;
-    }
-    out.push(block);
-    remaining -= block.length;
-  }
-  return out.join("\n\n");
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}\n…[truncated]` : text;
 }
 
-/** Truncates a raw string to `MAX_HANDOFF_CONTEXT_CHARS` so a stage prompt never
- * carries an unbounded transcript (e.g. Sentinel findings on a repair round). */
+/**
+ * Selects prior handoffs within `MAX_HANDOFF_CONTEXT_CHARS`. The Queen's run
+ * contract is always kept; the remaining budget goes to the newest stages
+ * first, so a Sentinel always sees the Forger proposal it audits and a repair
+ * round sees the findings it must address. Output stays chronological.
+ */
+function summarizeStages(stages: readonly StageResult[], perStage: number): string {
+  if (!stages.length) return "";
+  const [first, ...rest] = stages;
+  const pinned = `## ${first.agent}\n${clip(first.output.trim(), MAX_RUN_CONTRACT_CHARS)}`;
+  let remaining = MAX_HANDOFF_CONTEXT_CHARS - pinned.length;
+  const kept: string[] = [];
+  const omitted: string[] = [];
+  for (let i = rest.length - 1; i >= 0; i -= 1) {
+    const block = `## ${rest[i].agent}\n${clip(rest[i].output.trim(), perStage)}`;
+    if (block.length <= remaining) {
+      kept.unshift(block);
+      remaining -= block.length;
+    } else if (remaining > 400) {
+      kept.unshift(clip(block, remaining - 20));
+      remaining = 0;
+    } else {
+      omitted.unshift(rest[i].agent);
+    }
+  }
+  const note = omitted.length ? [`[Earlier handoffs omitted for budget: ${omitted.join(", ")}]`] : [];
+  return [pinned, ...note, ...kept].join("\n\n");
+}
+
+/** Bounds Sentinel findings so a repair prompt never carries an unbounded transcript. */
 function boundContext(text: string): string {
-  return text.length > MAX_HANDOFF_CONTEXT_CHARS
-    ? text.slice(0, MAX_HANDOFF_CONTEXT_CHARS)
+  return text.length > MAX_REPAIR_DIRECTIVE_CHARS
+    ? text.slice(0, MAX_REPAIR_DIRECTIVE_CHARS)
     : text;
 }
 
-/** Appends the shared protocol digest to the agent's own persona prompt. */
-async function buildSystemPrompt(
-  skillRoot: string | null,
-  agent: string,
-  preset: HivebotPreset,
-): Promise<string> {
-  const persona = await loadAgentPrompt(skillRoot, agent, preset.maxOutputCharsPerStage);
+/** Persona, then the HIVE runtime contract, then the shared protocol digest. */
+async function buildSystemPrompt(skillRoot: string | null, agent: string): Promise<string> {
+  const persona = await loadAgentPrompt(skillRoot, agent);
   const digest = await loadProtocolDigest(skillRoot);
-  return `${persona}\n\n# Protocol Digest\n${digest}`;
+  return `${persona}\n\n${runtimeContract(agent)}\n\n# Protocol Digest\n${digest}`;
 }
 
 function toRecord(r: StageResult, attempt: number): StageRecord {
@@ -222,13 +256,74 @@ function toRecord(r: StageResult, attempt: number): StageRecord {
 // Artifacts
 // ---------------------------------------------------------------------------
 
+const REVIEW_TITLE: Record<HivebotStatus, string> = {
+  COMPLETE: "Complete",
+  BLOCKED: "Blocked",
+  FAILED: "Failed",
+  // The skill's PARTIAL stop: work happened but the run stopped before its gate.
+  BUDGET_EXCEEDED: "Partial",
+};
+
+const NEXT_ACTION: Record<Exclude<HivebotStatus, "COMPLETE">, string> = {
+  BLOCKED: "Provide what the Sentinel reported as missing, then rerun the council.",
+  FAILED: "Read the Sentinel findings in the run report, then rerun with a narrower task or the deep preset.",
+  BUDGET_EXCEEDED: "Rerun with a narrower task, or a preset with a larger token budget.",
+};
+
+/**
+ * Final response in the skill's HIVE Review format. A completed run uses the
+ * Scribe's review when one ran; every other outcome is stated from the run
+ * record so a stop never reads as success.
+ */
+function buildReview(
+  task: string,
+  status: HivebotStatus,
+  reason: string,
+  verdict: HivebotVerdict | undefined,
+  records: readonly StageRecord[],
+  roster: readonly string[],
+): string {
+  const title = `## HIVE Review — ${REVIEW_TITLE[status]}`;
+  const scribe = [...records].reverse().find((s) => s.agent === "Scribe");
+  if (status === "COMPLETE" && scribe?.output.trim()) {
+    const text = clip(scribe.output.trim(), 8_000);
+    return /HIVE Review/i.test(text) ? text : `${title}\n\n${text}`;
+  }
+  if (status === "COMPLETE") {
+    return [
+      title,
+      "",
+      `**Goal:** ${task}`,
+      `**Result:** Sentinel ${verdict === "PASS_WITH_LIMITATIONS" ? "passed with limitations" : "passed"} after ${records.length} stage(s).`,
+      "**Verification:** Council review only; no commands were executed.",
+      `**Limitations:** ${verdict === "PASS_WITH_LIMITATIONS" ? "Listed in the Sentinel handoff." : "None recorded beyond council-only verification."}`,
+      "**Final status:** Complete",
+    ].join("\n");
+  }
+  const ran = new Set(records.map((s) => s.agent));
+  const remaining = roster.filter((agent) => !ran.has(agent));
+  return [
+    title,
+    "",
+    `**Goal:** ${task}`,
+    `**Completed:** ${records.length ? records.map((s) => (s.attempt > 1 ? `${s.agent} (attempt ${s.attempt})` : s.agent)).join(", ") : "No stages"}`,
+    `**Remaining:** ${remaining.length ? remaining.join(", ") : "Nothing beyond the failed gate"}`,
+    `**Blocker:** ${reason}`,
+    `**Next action:** ${NEXT_ACTION[status]}`,
+    `**Final status:** ${REVIEW_TITLE[status]}`,
+  ].join("\n");
+}
+
 function buildReport(summary: HivebotRunSummary, task: string): string {
   const L: string[] = [];
   L.push(`# HIVE Run Report — ${summary.runId}`);
   L.push(`Status: ${summary.status}`);
   L.push(`Reason: ${summary.reason}`);
+  if (summary.verdict) L.push(`Verdict: ${summary.verdict}`);
   L.push(`Preset: ${summary.preset}`);
   L.push(`Total tokens: ${summary.totalTokens}`);
+  L.push("");
+  L.push(summary.review);
   L.push("");
   L.push("## Task");
   L.push(task);
@@ -260,6 +355,7 @@ async function writeArtifacts(
     preset: summary.preset,
     status: summary.status,
     reason: summary.reason,
+    ...(summary.verdict ? { verdict: summary.verdict } : {}),
     createdAt: new Date().toISOString(),
     totalTokens: summary.totalTokens,
     stages: summary.stages.map((s) => ({
@@ -295,6 +391,7 @@ export async function runHivebot(
       output: 'Usage: hive hivebot "<task>"',
       status: "FAILED",
       reason: "empty task",
+      review: "",
       preset: options.preset ?? "standard",
       runId: options.runId ?? makeRunId(),
       stages: [],
@@ -320,23 +417,27 @@ export async function runHivebot(
   const forced = Boolean(options.preset);
   const runId = options.runId ?? makeRunId();
   const onStage = options.onStage;
+  const conversationContext = options.conversationContext?.slice(-HISTORY_CHAR_BUDGET);
+  // An observer owns rendering (desktop, TUI); writing to a shared TTY would corrupt its screen.
+  const echo = process.stdout.isTTY && !onStage;
 
   const streamLines: string[] = [];
   const emitStageStart = (agent: string, attempt: number): void => {
     const line = `──────── ${agent} · attempt ${attempt} ────────`;
     streamLines.push(line);
-    if (process.stdout.isTTY) console.log(line);
+    if (echo) console.log(line);
     onStage?.({ type: "stage-started", agent, attempt });
   };
   const emitReceipt = (agent: string, receipt: ChatReceipt): void => {
     const line = `[${agent} → ${receipt.providerId}/${receipt.model} · ${receiptTokens(receipt)} tok]`;
     streamLines.push(line);
-    if (process.stdout.isTTY) console.log(line);
+    if (echo) console.log(line);
   };
 
   const stages: StageResult[] = [];
   const records: StageRecord[] = [];
   let totalTokens = 0;
+  let lastVerdict: HivebotVerdict | undefined;
 
   const pushStage = (r: StageResult, attempt: number) => {
     stages.push(r);
@@ -378,6 +479,8 @@ export async function runHivebot(
     const base: Omit<HivebotRunSummary, "artifactDir" | "runPath" | "reportPath"> = {
       status,
       reason,
+      ...(lastVerdict ? { verdict: lastVerdict } : {}),
+      review: buildReview(task, status, reason, lastVerdict, records, preset.agents),
       preset: presetName,
       runId,
       stages: records,
@@ -399,6 +502,8 @@ export async function runHivebot(
       ...streamLines,
       "",
       `[hivemind] ${status} · preset ${presetName} · ${records.length} stage(s) · ${totalTokens} tokens · run ${runId}`,
+      "",
+      summary.review,
     ].join("\n");
     return {
       exitCode: status === "COMPLETE" ? 0 : 1,
@@ -408,13 +513,14 @@ export async function runHivebot(
   }
 
   try {
-    // ---- a. Queen classifies and (unless forced) selects the preset ----
-    const queenSystem = await buildSystemPrompt(skillRoot, "Queen", preset);
-    const queen = await completeStage(
+    const runStage = async (agent: string, attempt = 1, extraContext?: string): Promise<StageResult> =>
+      completeStage(agent, buildPrompt(task, stages, agent, preset, extraContext, conversationContext), await buildSystemPrompt(skillRoot, agent), attempt);
+
+    // ---- a. Queen writes the run contract and (unless forced) selects the preset ----
+    const queen = await runStage(
       "Queen",
-      buildPrompt(task, stages, "Queen"),
-      queenSystem,
       1,
+      forced ? `Preset fixed by the user: ${presetName}. Still write the run contract; your PRESET line is ignored.` : undefined,
     );
     pushStage(queen, 1);
 
@@ -435,43 +541,26 @@ export async function runHivebot(
 
     // ---- b. Scout + Architect (concurrently when the roster has both) ----
     // Safe to run concurrently: Scout maps context/impact and Architect designs
-    // the plan — independent concerns. Neither consumes the other's output;
-    // each only needs the Queen's handoff.
+    // the plan — independent concerns. Neither consumes the other's output, so
+    // both receive the same bounded Scout pack as their repository evidence.
     if (hasScout || hasArchitect) {
       if (budgetHit()) return await finalize("BUDGET_EXCEEDED", budgetReason());
+      const grounding = await buildScoutGrounding(cwd, task);
+      const repoContext = grounding
+        ? `## Repository context (read-only Scout pack)\n${grounding}`
+        : "## Repository context\nUnavailable for this run. Mark every repository claim as unverified.";
       if (hasScout && hasArchitect && preset.parallel) {
-        const scoutSystem = await buildSystemPrompt(skillRoot, "Scout", preset);
-        const archSystem = await buildSystemPrompt(skillRoot, "Architect", preset);
         const [scout, architect] = await Promise.all([
-          completeStage("Scout", buildPrompt(task, stages, "Scout"), scoutSystem, 1),
-          completeStage("Architect", buildPrompt(task, stages, "Architect"), archSystem, 1),
+          runStage("Scout", 1, repoContext),
+          runStage("Architect", 1, repoContext),
         ]);
         pushStage(scout, 1);
         pushStage(architect, 1);
       } else {
-        if (hasScout) {
-          if (budgetHit()) return await finalize("BUDGET_EXCEEDED", budgetReason());
-          pushStage(
-            await completeStage(
-              "Scout",
-              buildPrompt(task, stages, "Scout"),
-              await buildSystemPrompt(skillRoot, "Scout", preset),
-              1,
-            ),
-            1,
-          );
-        }
+        if (hasScout) pushStage(await runStage("Scout", 1, repoContext), 1);
         if (hasArchitect) {
           if (budgetHit()) return await finalize("BUDGET_EXCEEDED", budgetReason());
-          pushStage(
-            await completeStage(
-              "Architect",
-              buildPrompt(task, stages, "Architect"),
-              await buildSystemPrompt(skillRoot, "Architect", preset),
-              1,
-            ),
-            1,
-          );
+          pushStage(await runStage("Architect", 1, repoContext), 1);
         }
       }
     }
@@ -479,71 +568,46 @@ export async function runHivebot(
     // ---- c. Forger receives the plan + context map ----
     if (hasForger) {
       if (budgetHit()) return await finalize("BUDGET_EXCEEDED", budgetReason());
-      pushStage(
-        await completeStage(
-          "Forger",
-          buildPrompt(task, stages, "Forger"),
-          await buildSystemPrompt(skillRoot, "Forger", preset),
-          1,
-        ),
-        1,
-      );
+      pushStage(await runStage("Forger"), 1);
     }
 
     // ---- Sentinel verdict + bounded repair ----
     if (hasSentinel) {
       if (budgetHit()) return await finalize("BUDGET_EXCEEDED", budgetReason());
-      let sentinel = await completeStage(
-        "Sentinel",
-        buildPrompt(task, stages, "Sentinel"),
-        await buildSystemPrompt(skillRoot, "Sentinel", preset),
-        1,
-      );
+      let sentinel = await runStage("Sentinel");
       pushStage(sentinel, 1);
-
       let verdict = parseVerdict(sentinel.output);
-      let verdictLabel: Verdict = verdict ?? "FAIL";
+      lastVerdict = verdict ?? undefined;
 
-      if (verdictLabel === "BLOCKED") {
+      if (verdict === "BLOCKED") {
         return await finalize("BLOCKED", "Sentinel reported BLOCKED; validation could not complete.");
       }
 
+      // A missing marker counts as FAIL: the gate never passes by default.
       let repairCount = 0;
-      while (verdictLabel === "FAIL" && hasForger && repairCount < preset.repairRounds) {
+      while ((verdict === null || verdict === "FAIL") && hasForger && repairCount < preset.repairRounds) {
         if (budgetHit()) return await finalize("BUDGET_EXCEEDED", budgetReason());
         repairCount += 1;
         const findings = boundContext(
           `# Repair directive\nSentinel returned FAIL. Address these findings:\n${sentinel.output.trim()}`,
         );
-        const forgerRepair = await completeStage(
-          "Forger",
-          buildPrompt(task, stages, "Forger", findings),
-          await buildSystemPrompt(skillRoot, "Forger", preset),
-          repairCount + 1,
-        );
-        pushStage(forgerRepair, repairCount + 1);
+        pushStage(await runStage("Forger", repairCount + 1, findings), repairCount + 1);
 
         if (budgetHit()) return await finalize("BUDGET_EXCEEDED", budgetReason());
-        sentinel = await completeStage(
-          "Sentinel",
-          buildPrompt(task, stages, "Sentinel"),
-          await buildSystemPrompt(skillRoot, "Sentinel", preset),
-          repairCount + 1,
-        );
+        sentinel = await runStage("Sentinel", repairCount + 1);
         pushStage(sentinel, repairCount + 1);
-
         verdict = parseVerdict(sentinel.output);
-        verdictLabel = verdict ?? "FAIL";
+        lastVerdict = verdict ?? undefined;
       }
 
-      if (verdictLabel === "FAIL") {
+      if (verdict === null || verdict === "FAIL") {
         const reason =
           verdict === null
             ? "verdict marker missing; run terminated with FAIL"
             : `Sentinel FAIL after ${repairCount} repair round(s); repair budget exhausted`;
         return await finalize("FAILED", reason);
       }
-      if (verdictLabel === "BLOCKED") {
+      if (verdict === "BLOCKED") {
         return await finalize("BLOCKED", "Sentinel reported BLOCKED; validation could not complete.");
       }
     }
@@ -551,18 +615,15 @@ export async function runHivebot(
     // ---- Scribe runs last, only on completion ----
     if (hasScribe) {
       if (budgetHit()) return await finalize("BUDGET_EXCEEDED", budgetReason());
-      pushStage(
-        await completeStage(
-          "Scribe",
-          buildPrompt(task, stages, "Scribe"),
-          await buildSystemPrompt(skillRoot, "Scribe", preset),
-          1,
-        ),
-        1,
-      );
+      pushStage(await runStage("Scribe"), 1);
     }
 
-    return await finalize("COMPLETE", "All criteria satisfied; Sentinel PASS.");
+    return await finalize(
+      "COMPLETE",
+      lastVerdict === "PASS_WITH_LIMITATIONS"
+        ? "Sentinel PASS WITH LIMITATIONS; limitations are listed in the HIVE Review."
+        : "All criteria satisfied; Sentinel PASS.",
+    );
   } catch (error) {
     return await finalize(
       "FAILED",

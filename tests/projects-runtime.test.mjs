@@ -8,6 +8,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createProductionSessionEngine, checksFromCodingRecord } from "../dist/projects/runtime-adapter.js";
 import { CodingSessionStore } from "../dist/coding/session-store.js";
+import { ProjectSessionService } from "../dist/projects/service.js";
 
 const execute = promisify(execFile);
 const now = "2026-10-18T00:00:00.000Z";
@@ -24,6 +25,30 @@ async function fixture(t) {
   return { directory, input: { project, session, run, text: "Inspect source" }, record };
 }
 const event = (sequence, type, payload) => ({ schemaVersion: 1, id: `event-${sequence}`, sequence, sessionId: "coding-fixture", timestamp: now, type, payload });
+
+async function sharedCouncil(t, engine) {
+  const directory = path.join(os.tmpdir(), `hive-project-council-${randomUUID()}`);
+  if (process.env.HIVE_TASK_MANIFEST) await fs.appendFile(process.env.HIVE_TASK_MANIFEST, directory + "\n");
+  const workspace = path.join(directory, "workspace");
+  await fs.mkdir(workspace, { recursive: true });
+  const service = new ProjectSessionService({ catalogPath: path.join(directory, "catalog.json"), engine, pollMs: 20 });
+  t.after(() => service.close());
+  const action = (type, fields) => service.action({ type, requestId: randomUUID(), ...fields });
+  const attached = await action("project.attach", { path: workspace });
+  const created = await action("session.create", { projectId: attached.result.projectId, settings: { mode: "council", permissions: "guarded" } });
+  // Catalogs and reports are intentionally retained under this manifested fixture root.
+  return { service, action, workspace, sessionId: created.result.sessionId };
+}
+
+async function waitForSharedSession(service, sessionId, predicate) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const session = (await service.snapshot()).sessions.find((entry) => entry.id === sessionId);
+    if (session && predicate(session)) return session;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("Shared council fixture did not settle.");
+}
 test("role activity follows the engine task rather than labelling every tool as Builder", async (t) => {
   const { input, record } = await fixture(t);
   const published = [];
@@ -91,6 +116,93 @@ test("linked coding attempts are passed to Queen's existing continuity verificat
   const adapter = createProductionSessionEngine({ runCoding: async (options) => { received = options; return record; } }); await (await adapter.start(input, { async persist() {}, async requestApproval() { return false; } })).completion;
   assert.equal(received.continuationId, record.id); assert.equal(received.resumeId, undefined);
 });
+test("council mode runs the hive skill roles, publishes their activity and returns the HIVE Review", async (t) => {
+  const { input, directory } = await fixture(t); input.run.settings.mode = "council"; const published = [];
+  const outputs = { Queen: "Run contract: inspect source.\nPRESET: quick", Forger: "--- a/source.txt\n+++ b/source.txt", Sentinel: "**Verdict:** PASS WITH LIMITATIONS\n- not executed" };
+  const adapter = createProductionSessionEngine({ createChat: () => ({ async complete(request) { const agent = String(request.prompt).match(/\[HIVE\] role: (\w+)/)[1]; return { output: outputs[agent], receipt: { role: request.role, providerId: "fixture-provider", model: "fixture-model", totalTokens: 10 } }; } }) });
+  const outcome = await (await adapter.start(input, { async persist(value) { published.push(value); }, async requestApproval() { throw new Error("Council must not request write permissions"); } })).completion;
+  assert.equal(outcome.status, "completed");
+  assert.match(outcome.summary, /Council complete · quick preset · Sentinel PASS WITH LIMITATIONS/);
+  assert.match(outcome.text, /^## HIVE Review — Complete/);
+  assert.match(outcome.text, /Proposed change \(Forger, not applied\)[\s\S]*\+\+\+ b\/source\.txt/);
+  const roles = [...new Set(published.filter((event) => event.type === "activity").map((event) => event.role))];
+  assert.deepEqual(roles, ["Queen", "Forger", "Sentinel"]);
+  assert.ok(published.some((event) => event.type === "activity" && event.role === "Queen" && event.kind === "completed" && event.text.startsWith("Run contract: inspect source.")));
+  assert.equal(await fs.readFile(path.join(directory, "source.txt"), "utf8"), "first\n", "council never writes the workspace");
+  assert.equal(outcome.patches, undefined);
+});
+
+test("council mode refuses extension capabilities instead of silently dropping them", async (t) => {
+  const { input } = await fixture(t); input.run.settings.mode = "council"; input.run.executionContext = { skillIds: ["some-skill"] };
+  const adapter = createProductionSessionEngine({ createChat: () => { throw new Error("must not reach the engine"); } });
+  await assert.rejects((await adapter.start(input, { async persist() {}, async requestApproval() { return false; } })).completion, /Council mode runs only the built-in HIVE council/);
+});
+
+test("persisted Council follow-ups retain user and assistant context without changing the current report goal", async (t) => {
+  const calls = [];
+  let turn = 0;
+  const adapter = createProductionSessionEngine({ createChat: () => {
+    const current = ++turn;
+    return { async complete(request) {
+      calls.push({ turn: current, prompt: request.prompt });
+      const agent = request.prompt.match(/\[HIVE\] role: (\w+)/)?.[1];
+      const outputs = { Queen: "Run contract: answer the current task.\nPRESET: quick", Forger: current === 1 ? "PRIOR_ASSISTANT_COUNCIL_CONTEXT" : "Updated proposal", Sentinel: "VERDICT: PASS_WITH_LIMITATIONS" };
+      return { output: agent ? outputs[agent] : "Chat control response", receipt: { role: request.role, providerId: "fixture-provider", model: "fixture-model", totalTokens: 10 } };
+    } };
+  } });
+  const { service, action, workspace, sessionId } = await sharedCouncil(t, adapter);
+  const firstText = "Review the design while preserving PRIOR_USER_COUNCIL_CONSTRAINT.";
+  await action("session.send", { sessionId, text: firstText });
+  await waitForSharedSession(service, sessionId, (session) => session.runs.at(-1)?.status === "completed");
+  const nextText = "Does the next recommendation preserve my previous constraint?";
+  await action("session.send", { sessionId, text: nextText });
+  const followup = await waitForSharedSession(service, sessionId, (session) => session.runs.length === 2 && session.runs.at(-1)?.status === "completed");
+  const followupCalls = calls.filter((call) => call.turn === 2);
+  assert.equal(followupCalls.length, 3);
+  for (const call of followupCalls) {
+    assert.match(call.prompt, /PRIOR_USER_COUNCIL_CONSTRAINT/);
+    assert.match(call.prompt, /PRIOR_ASSISTANT_COUNCIL_CONTEXT/);
+    assert.ok(call.prompt.includes(`Task: ${nextText}`));
+  }
+  const artifacts = path.join(workspace, ".hivemind", "hivebot-runs");
+  const records = await Promise.all((await fs.readdir(artifacts)).map(async (name) => JSON.parse(await fs.readFile(path.join(artifacts, name, "run.json"), "utf8"))));
+  assert.ok(records.some((record) => record.task === nextText), "report goal stays the current task");
+  assert.match(followup.messages.filter((message) => message.role === "assistant").at(-1).text, /\*\*Goal:\*\* Does the next recommendation preserve my previous constraint\?/);
+  await action("session.settings", { sessionId, settings: { mode: "chat" } });
+  await action("session.send", { sessionId, text: "Chat control: recall the previous constraint." });
+  await waitForSharedSession(service, sessionId, (session) => session.runs.length === 3 && session.runs.at(-1)?.status === "completed");
+  const chatCall = calls.find((call) => call.turn === 3);
+  assert.match(chatCall.prompt, /PRIOR_USER_COUNCIL_CONSTRAINT/);
+  assert.match(chatCall.prompt, /PRIOR_ASSISTANT_COUNCIL_CONTEXT/);
+});
+
+test("cancelled Council runs retain a bounded completed handoff and partial review in shared history", async (t) => {
+  let forgerStarted;
+  const started = new Promise((resolve) => { forgerStarted = resolve; });
+  const adapter = createProductionSessionEngine({ createChat: () => ({ async complete(request) {
+    const agent = request.prompt.match(/\[HIVE\] role: (\w+)/)?.[1];
+    if (agent === "Queen") return { output: `CANCELLED_QUEEN_HANDOFF\nPRESET: quick\n${"q".repeat(10_000)}`, receipt: { role: request.role, providerId: "fixture-provider", model: "fixture-model", totalTokens: 10 } };
+    if (agent === "Forger") return new Promise((_resolve, reject) => { request.signal.addEventListener("abort", () => reject(new Error("Fixture provider cancelled")), { once: true }); forgerStarted(); });
+    throw new Error("Sentinel must not run after cancellation");
+  } }) });
+  const { service, action, sessionId } = await sharedCouncil(t, adapter);
+  const accepted = await action("session.send", { sessionId, text: "Review the design and wait at Forger." });
+  await Promise.race([started, new Promise((_resolve, reject) => { const timeout = setTimeout(() => reject(new Error("Forger did not start")), 10_000); timeout.unref(); started.finally(() => clearTimeout(timeout)); })]);
+  await action("run.cancel", { sessionId, runId: accepted.result.runId });
+  const session = await waitForSharedSession(service, sessionId, (value) => value.runs.at(-1)?.status === "cancelled");
+  const run = session.runs.at(-1);
+  assert.ok(run.events.some((event) => event.role === "Queen" && event.kind === "completed"));
+  const messages = session.messages.filter((message) => message.role === "assistant");
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].text, /^## HIVE Review — Cancelled/);
+  assert.match(messages[0].text, /\*\*Final status:\*\* Cancelled/);
+  assert.match(messages[0].text, /CANCELLED_QUEEN_HANDOFF/);
+  assert.match(messages[0].text, /Full council report: .*report\.md/);
+  assert.ok(messages[0].text.length < 12_000, "the shared partial handoff stays bounded");
+  assert.equal(run.patches.length, 0);
+  assert.equal(run.checks.length, 0);
+});
+
 test("chat accumulates real chunks, persists them before completion, and forwards conversation context", async (t) => {
   const { input } = await fixture(t); input.run.settings.mode = "chat"; input.session.messages.unshift({ id: "prior", role: "assistant", text: "Prior actual response", createdAt: now }); const published = []; let prompt;
   const adapter = createProductionSessionEngine({ createChat: () => ({ async complete(request) { prompt = request.prompt; request.onChunk("Hello"); request.onChunk(" world"); return { output: "Hello world", receipt: { role: "coding", providerId: "fixture-provider", model: "fixture-model" } }; } }) });
