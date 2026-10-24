@@ -1,6 +1,6 @@
 # Shared Desktop and terminal sessions
 
-Last updated: 2026-10-19 +08:00 by Codex; implementation started 2026-10-18.
+Last updated: 2026-10-24 +08:00 by Codex; implementation started 2026-10-18.
 
 This guide describes HIVE's shared Desktop and terminal implementation, introduced
 on `codex/gui-tui-integration` from main `75a08e252f86c9c48681f2d941c714d05a22cc2a`.
@@ -109,6 +109,11 @@ Runs progress through `queued`, `running`, `awaiting_approval` and `stopping`, t
 engine and remain **stopping** until acknowledgment or verified process exit.
 An exited owner leaves an interrupted attempt, never an inferred completion.
 Shutdown failure keeps ownership and reports the unresolved runtime.
+If saving a terminal result fails, the owning client retains the original outcome
+in memory and retries through normal polling. The workspace remains owned until
+the result is durably saved; shutdown also retries and stays open if saving still
+fails. A storage error never replaces the actual engine result. Forced process
+termination while storage is unavailable can still lose this in-memory outcome.
 
 A continuation creates a new linked attempt, retaining earlier output and partial
 changes. The coding runtime loads saved provenance and verifies its workspace/
@@ -137,6 +142,17 @@ shared session contract. Existing CLI environment/keyring mechanisms remain in
 use. See [extension compatibility](CLI_EXTENSIONS.md) and
 [protocol limits](CLI_PROTOCOLS.md) for MCP, skills, hooks, plugins and LSP support.
 
+Desktop OpenAI-compatible model discovery requires HTTPS or loopback HTTP
+(`localhost`, `127/8`, or `::1`). Base URLs cannot embed credentials, query strings
+or fragments. Discovery does not follow redirects; configure the final API base
+URL directly. Local loopback HTTP endpoints remain supported.
+Provider metadata is validated before it is saved, so rejected settings cannot
+break later provider lists. Desktop worker adapters preserve incremental streaming
+with credential redaction and cancellation. Native Anthropic and Google discovery
+follows pagination with one eight-second deadline, repeated-cursor detection and
+a 100-page bound; successful pages survive a later request failure. Google live
+catalogs include only models advertising `generateContent` support.
+
 Activity consists of structured role summaries, not private reasoning. Chat calls
 the configured live provider; coding calls the existing Queen runtime and tools.
 Selected extension capabilities requiring tools need Code/Plan/Review; Chat reports
@@ -148,9 +164,19 @@ diff and binary/truncation flags; command, workspace, timestamps, output and exi
 code. A check is **passed** only with successful execution evidence. Empty evidence
 means no checks or changes were recorded. Saved diffs describe the recorded
 attempt, and are not an assertion that later workspace edits are unchanged.
+Temporary files created and deleted within a run produce no patch. Validation
+results retain their command execution ID; older records use normalized command
+text, task/workspace and timing to avoid counting one execution twice. The final
+report takes precedence over intermediate prose for the saved assistant answer
+and subsequent conversation context.
 Guarded Git actions perform their own current-state verification and confirmation.
 **Mark reviewed** only records inspection of a completed run; it grants no tool
 permission and does not commit, merge, push or deploy.
+
+Workspace previews check canonical containment for reads and directory listings,
+including parent junctions. Protected paths such as `.git` and `.env` are checked
+without case sensitivity in the filesystem and IPC boundaries. A repository
+selected through its own junction remains usable.
 
 ## Import existing history and roll back
 

@@ -1,4 +1,5 @@
 import { getAdapterForKind } from "../../providers/health.js";
+import { createDesktopCredentialRedactor, streamDesktopProviderCompletion } from "../chat-provider-registry.js";
 import type { ProviderAdapter, ProviderConfig, ProviderRoles } from "../../providers/types.js";
 import type { ProviderRegistryLike } from "../../coding/provider-router.js";
 import type { DesktopCredentialKind, DesktopProviderMetadata } from "../types.js";
@@ -26,39 +27,45 @@ function ephemeralConfig(credential: DesktopWorkerCredential): ProviderConfig {
 
 function secretSafeError(error: unknown, secret?: string): Error {
   const raw = error instanceof Error ? error.message : String(error);
-  const message = secret ? raw.replaceAll(secret, "[REDACTED]") : raw;
-  const safe = new Error(message);
-  safe.name = error instanceof Error ? error.name : "Error";
+  const redact = createDesktopCredentialRedactor(secret);
+  const safe = new Error(redact(raw));
+  safe.name = error instanceof Error ? redact(error.name) : "Error";
   return safe;
 }
 
 function safeAdapter(adapter: ProviderAdapter, secret?: string, kind?: DesktopCredentialKind): ProviderAdapter {
   const requestCredential = secret && kind ? { secret, kind } : undefined;
-  return {
+  const redact = createDesktopCredentialRedactor(secret);
+  const wrapped: ProviderAdapter = {
     kind: adapter.kind,
-    async healthCheck(config) {
+    async healthCheck(config, _credential, signal) {
       try {
-        const result = await adapter.healthCheck(config, requestCredential);
-        return secret ? { ...result, message: result.message.replaceAll(secret, "[REDACTED]"), ...(result.redactedError ? { redactedError: result.redactedError.replaceAll(secret, "[REDACTED]") } : {}) } : result;
+        const result = await adapter.healthCheck(config, requestCredential, signal);
+        return { ...result, message: redact(result.message), ...(result.redactedError ? { redactedError: redact(result.redactedError) } : {}) };
       } catch (error) { throw secretSafeError(error, secret); }
     },
     async complete(config, input) {
       try {
         const result = await adapter.complete(config, input, requestCredential);
-        return secret ? { ...result, output: result.output.replaceAll(secret, "[REDACTED]") } : result;
+        return { ...result, output: redact(result.output) };
       }
       catch (error) { throw secretSafeError(error, secret); }
     },
   };
+  if (adapter.streamComplete) {
+    wrapped.streamComplete = (config, input, onChunk) =>
+      streamDesktopProviderCompletion(adapter, config, input, onChunk, requestCredential);
+  }
+  return wrapped;
 }
 
 function registryFor(config: ProviderConfig, secret: string | undefined, credentialKind: DesktopCredentialKind | undefined, adapterFactory: (kind: ProviderConfig["kind"]) => ProviderAdapter): ProviderRegistryLike {
   return {
     async get(id) { return id === config.id ? { ...config } : undefined; },
     async getRoles(): Promise<ProviderRoles> { return {}; },
-    async test(id) {
+    async test(id, signal) {
       if (id !== config.id) throw new Error(`Provider ${id} not found.`);
-      return safeAdapter(adapterFactory(config.kind), secret, credentialKind).healthCheck(config);
+      return safeAdapter(adapterFactory(config.kind), secret, credentialKind).healthCheck(config, undefined, signal);
     },
     async getAdapter(id) {
       if (id !== config.id) throw new Error(`Provider ${id} not found.`);

@@ -119,3 +119,91 @@ test("chat accumulates real chunks, persists them before completion, and forward
   const outcome = await (await adapter.start(input, { async persist(value) { await new Promise((resolve) => setTimeout(resolve, 2)); published.push(value); }, async requestApproval() { throw new Error("Chat must not request write permissions"); } })).completion;
   assert.equal(outcome.status, "completed"); assert.equal(outcome.text, "Hello world"); assert.match(prompt, /Prior actual response/); assert.equal(published.filter((event) => event.type === "text").at(-1).text, "Hello world"); assert.equal(outcome.checks, undefined);
 });
+
+test("creating then deleting a temporary file completes with no projected patch", async (t) => {
+  const { input, record, directory } = await fixture(t);
+  const adapter = createProductionSessionEngine({ runCoding: async () => {
+    const temporary = path.join(directory, "temporary.txt");
+    await fs.writeFile(temporary, "temporary\n");
+    await fs.unlink(temporary);
+    return { ...record, files: [
+      { path: "temporary.txt", operation: "created", recordedAt: now },
+      { path: "temporary.txt", operation: "deleted", recordedAt: now },
+    ] };
+  } });
+  const outcome = await adapter.start(input, { async persist() {}, async requestApproval() { return false; } }).completion;
+  assert.equal(outcome.status, "completed");
+  assert.deepEqual(outcome.patches, []);
+});
+
+test("patches retain a new file's final content after modification and recreation", async (t) => {
+  const { input, record, directory } = await fixture(t);
+  await fs.writeFile(path.join(directory, "new.txt"), "final content\n");
+  const adapter = createProductionSessionEngine({ runCoding: async () => ({ ...record, files: [
+    { path: "new.txt", operation: "created", recordedAt: now },
+    { path: "new.txt", operation: "modified", recordedAt: now },
+    { path: "recreated.txt", operation: "created", recordedAt: now },
+    { path: "recreated.txt", operation: "deleted", recordedAt: now },
+    { path: "recreated.txt", operation: "created", recordedAt: now },
+  ] }) });
+  await fs.writeFile(path.join(directory, "recreated.txt"), "replacement\n");
+  const outcome = await adapter.start(input, { async persist() {}, async requestApproval() { return false; } }).completion;
+  assert.equal(outcome.patches.length, 2);
+  assert.match(outcome.patches.find((patch) => patch.path === "new.txt").diff, /\+final content/);
+  assert.match(outcome.patches.find((patch) => patch.path === "recreated.txt").diff, /\+replacement/);
+});
+
+test("the authoritative styled final report replaces intermediate prose and supplies follow-up history", async (t) => {
+  const { input, record } = await fixture(t);
+  const published = [];
+  const finalText = "## Final answer\n\n**Verified result.**";
+  let calls = 0;
+  const adapter = createProductionSessionEngine({ runCoding: async (options) => {
+    if (calls++ === 0) options.onText("Intermediate planner prose");
+    else { assert.match(options.context, /\*\*Verified result\.\*\*/); assert.doesNotMatch(options.context, /Intermediate planner prose/); }
+    return { ...record, finalReport: { result: finalText } };
+  } });
+  const hooks = { async persist(value) { published.push(value); }, async requestApproval() { return false; } };
+  const outcome = await adapter.start(input, hooks).completion;
+  assert.equal(outcome.text, finalText);
+  assert.equal(outcome.summary, finalText);
+  input.session.messages.push({ id: "final-message", role: "assistant", runId: input.run.id, text: outcome.text, createdAt: now });
+  await adapter.start({ ...input, run: { ...input.run, id: "follow-up-run" }, text: "Continue" }, hooks).completion;
+});
+
+test("check projection deduplicates new and legacy validation despite normalized command text and timing", async (t) => {
+  const { record, directory } = await fixture(t);
+  const startedAt = "2026-10-18T00:00:00.005Z";
+  const completedAt = "2026-10-18T00:00:00.100Z";
+  for (const commandId of ["command-one", undefined]) {
+    const result = { id: "validation-one", commandId, taskId: "validator", command: 'node --test "tests/check.test.mjs"', status: "passed", startedAt: now, completedAt, exitCode: 0 };
+    const checks = checksFromCodingRecord({ ...record, events: [
+    { ...event(1, "command.started", { commandId: "command-one", taskId: "validator", command: "node --test tests/check.test.mjs", cwd: directory }), timestamp: startedAt },
+    { ...event(2, "command.completed", { commandId: "command-one", exitCode: 0, durationMs: 90 }), timestamp: completedAt },
+    ], validationResults: [result] });
+    assert.equal(checks.length, 1);
+    assert.equal(checks[0].id, "command-one");
+    assert.equal(checks[0].status, "passed");
+  }
+});
+
+test("legacy validation timing deduplicates one execution while retaining repeats and unexecuted checks", async (t) => {
+  const { record, directory } = await fixture(t);
+  const at = (milliseconds) => new Date(Date.parse(now) + milliseconds).toISOString();
+  const checks = checksFromCodingRecord({ ...record, events: [
+    { ...event(1, "command.started", { commandId: "first", taskId: "validator", command: "node --test", cwd: directory }), timestamp: at(5) },
+    { ...event(2, "command.completed", { commandId: "first", exitCode: 0, durationMs: 5 }), timestamp: at(10) },
+    { ...event(3, "command.started", { commandId: "second", taskId: "validator", command: "node --test", cwd: directory }), timestamp: at(25) },
+    { ...event(4, "command.completed", { commandId: "second", exitCode: 1, durationMs: 5 }), timestamp: at(30) },
+    { ...event(5, "command.started", { commandId: "other-workspace", taskId: "builder", command: "node --test", cwd: path.join(directory, "other") }), timestamp: at(5) },
+    { ...event(6, "command.completed", { commandId: "other-workspace", exitCode: 0, durationMs: 5 }), timestamp: at(10) },
+  ], validationResults: [
+    { id: "validation-first", taskId: "validator", command: "node --test", status: "passed", startedAt: at(0), completedAt: at(12), exitCode: 0 },
+    { id: "validation-second", taskId: "validator", command: "node --test", status: "failed", startedAt: at(20), completedAt: at(32), exitCode: 1 },
+    { id: "unexecuted", command: "npm run missing", status: "failed", startedAt: at(40), completedAt: at(42) },
+  ] });
+  assert.deepEqual(checks.map(({ id, status }) => ({ id, status })), [
+    { id: "first", status: "passed" }, { id: "second", status: "failed" },
+    { id: "other-workspace", status: "passed" }, { id: "unexecuted", status: "failed" },
+  ]);
+});

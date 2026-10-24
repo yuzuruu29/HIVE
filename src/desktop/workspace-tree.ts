@@ -10,7 +10,7 @@ const DENYLIST = [".git", "node_modules", ".hivemind", "dist"] as const;
 
 export function isDeniedWorkspacePath(relative: string): boolean {
   if (!relative) return false;
-  const segments = relative.replaceAll("\\", "/").split("/").filter(Boolean);
+  const segments = relative.replaceAll("\\", "/").toLowerCase().split("/").filter(Boolean);
   return segments.some((segment) => {
     if ((DENYLIST as readonly string[]).includes(segment)) return true;
     if (segment.startsWith(".env")) return true;
@@ -27,6 +27,16 @@ export function resolveWorkspacePath(repositoryRoot: string, relative: string): 
   const joined = path.resolve(root, clean);
   if (joined !== root && !joined.startsWith(root + path.sep)) return null;
   return joined;
+}
+
+async function canonicalWorkspaceTarget(repositoryRoot: string, target: string): Promise<string> {
+  const [root, canonical] = await Promise.all([fs.realpath(repositoryRoot), fs.realpath(target)]);
+  const relative = path.relative(root, canonical);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error("Workspace path is outside the repository.");
+  }
+  if (isDeniedWorkspacePath(relative)) throw new Error("Workspace path is deny-listed.");
+  return canonical;
 }
 
 export function languageHintForPath(relative: string): string {
@@ -47,16 +57,17 @@ export async function listWorkspaceEntries(
 
   let stat;
   try {
-    stat = await fs.lstat(target);
+    stat = target === root ? await fs.stat(target) : await fs.lstat(target);
   } catch {
     throw new Error("Workspace path was not found.");
   }
   if (stat.isSymbolicLink()) throw new Error("Workspace path must not be a symlink.");
   if (!stat.isDirectory()) throw new Error("Workspace list target must be a directory.");
+  const canonical = await canonicalWorkspaceTarget(root, target);
 
   let children;
   try {
-    children = await fs.readdir(target, { withFileTypes: true });
+    children = await fs.readdir(canonical, { withFileTypes: true });
   } catch {
     throw new Error("Workspace directory could not be read.");
   }
@@ -108,8 +119,9 @@ export async function readWorkspaceFile(
   }
   if (stat.isSymbolicLink()) throw new Error("Workspace path must not be a symlink.");
   if (!stat.isFile()) throw new Error("Workspace read target must be a file.");
+  const canonical = await canonicalWorkspaceTarget(root, target);
 
-  const handle = await fs.open(target, "r");
+  const handle = await fs.open(canonical, "r");
   try {
     const probe = Buffer.alloc(Math.min(8192, MAX_WORKSPACE_READ_BYTES));
     const { bytesRead } = await handle.read(probe, 0, probe.length, 0);

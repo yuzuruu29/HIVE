@@ -1,7 +1,7 @@
 import { createChatEngine, type ChatEngine } from "../chat/engine.js";
 import { ProviderRouter, type ProviderRegistryLike } from "../coding/provider-router.js";
 import { getAdapterForKind } from "../providers/health.js";
-import type { ProviderAdapter, ProviderCompletionResult, ProviderConfig, ProviderHealthResult, ProviderRequestCredential } from "../providers/types.js";
+import type { ProviderAdapter, ProviderChunkHandler, ProviderCompletionInput, ProviderCompletionResult, ProviderConfig, ProviderHealthResult, ProviderRequestCredential } from "../providers/types.js";
 import { redactKnownSecrets } from "../security/secrets.js";
 import type { DesktopCredentialVaultService } from "./credential-vault.js";
 import type { JsonDesktopAppStateStore } from "./electron/app-state.js";
@@ -76,6 +76,49 @@ function publicCompletion(result: ProviderCompletionResult, literals: readonly s
     output: redactParts(result.output, literals).output,
     ...(safeUsage ? { usage: safeUsage } : {}),
   };
+}
+
+/** Keeps desktop credentials private across stream chunks, completion tails and failures. */
+export async function streamDesktopProviderCompletion(
+  adapter: ProviderAdapter,
+  config: ProviderConfig,
+  input: ProviderCompletionInput,
+  onChunk: ProviderChunkHandler,
+  credential?: ProviderRequestCredential,
+): Promise<ProviderCompletionResult> {
+  const literals = credential ? credentialLiterals(credential.secret) : [];
+  let pending = "";
+  let delivered = "";
+  let accepting = true;
+  const emit = (chunk: string): void => {
+    if (!chunk) return;
+    delivered += chunk;
+    onChunk(chunk);
+  };
+  const handleChunk = (chunk: string): void => {
+    if (!accepting || input.signal?.aborted) return;
+    const next = redactParts(pending + chunk, literals, true);
+    pending = next.pending;
+    emit(next.output);
+  };
+  try {
+    input.signal?.throwIfAborted();
+    const result = adapter.streamComplete
+      ? await adapter.streamComplete(config, input, handleChunk, credential)
+      : await adapter.complete(config, input, credential);
+    input.signal?.throwIfAborted();
+    const completion = publicCompletion(result, literals);
+    if (completion.output.startsWith(delivered)) emit(completion.output.slice(delivered.length));
+    return completion;
+  } catch (error) {
+    throw publicError(error, literals, input.signal);
+  } finally {
+    // Failed/cancelled streams discard held prefixes, and late callbacks cannot flush them.
+    accepting = false;
+    pending = "";
+    literals.fill("");
+    literals.length = 0;
+  }
 }
 
 /** Desktop-only routing with credentials resolved inside each adapter call, never in cached adapters/configs. */
@@ -161,36 +204,8 @@ export function createDesktopChatProviderRegistry(options: DesktopChatProviderOp
         });
       },
       streamComplete(_config, input, onChunk) {
-        return withRequest(id, input.signal, async ({ config, credential, literals }) => {
-          const adapter = adapterFactory(config.kind);
-          let pending = "";
-          let delivered = "";
-          let accepting = true;
-          const emit = (chunk: string): void => {
-            if (!chunk) return;
-            delivered += chunk;
-            onChunk(chunk);
-          };
-          const handleChunk = (chunk: string): void => {
-            if (!accepting || input.signal?.aborted) return;
-            const next = redactParts(pending + chunk, literals, true);
-            pending = next.pending;
-            emit(next.output);
-          };
-          try {
-            const result = adapter.streamComplete
-              ? await adapter.streamComplete(config, input, handleChunk, credential)
-              : await adapter.complete(config, input, credential);
-            input.signal?.throwIfAborted();
-            const completion = publicCompletion(result, literals);
-            if (completion.output.startsWith(delivered)) emit(completion.output.slice(delivered.length));
-            return completion;
-          } finally {
-            // Failed/cancelled streams discard held prefixes, and late callbacks cannot flush them.
-            accepting = false;
-            pending = "";
-          }
-        });
+        return withRequest(id, input.signal, ({ config, credential }) =>
+          streamDesktopProviderCompletion(adapterFactory(config.kind), config, input, onChunk, credential));
       },
     };
   }

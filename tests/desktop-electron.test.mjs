@@ -900,6 +900,113 @@ test("repository command provenance is snapshotted before dispatch and cannot be
   await rm(rootA, { recursive: true, force: true }); await rm(rootB, { recursive: true, force: true }); await rm(appData, { recursive: true, force: true });
 });
 
+const providerMetadataMarker = "audit-only-marker";
+const rejectedProviderMetadata = [
+  ["base URL", { baseUrl: `https://gateway.invalid/v1?token=${providerMetadataMarker}` }],
+  ["name", { name: `Bearer ${providerMetadataMarker}` }],
+  ["default model", { defaultModel: `sk-${providerMetadataMarker}` }],
+];
+
+function providerConfigurationRouter(stateStore, onEvent = () => {}) {
+  return new DesktopCommandRouter({
+    stateStore,
+    credentialVault: { async list() { return []; }, async metadata() { return null; }, async set() {}, async replace() {}, async remove() {}, async test() {} },
+    workerSupervisor: { async dispatchAndWait() {}, async reconcileRepositoryRuns() {}, hasActiveRuns() { return false; }, hasActiveRepository() { return false; } },
+    guardedGitFactory: () => { throw new Error("unused"); },
+    onEvent,
+    clock: () => now,
+  });
+}
+
+for (const [label, fields] of rejectedProviderMetadata) {
+  test(`provider.configure rejects secret-shaped ${label} at the command boundary`, () => {
+    assert.throws(() => validateDesktopCommand({
+      requestId: "configure-rejected",
+      type: "provider.configure",
+      input: { id: "gateway", name: "Gateway", kind: "openai-compatible", authType: "none", approved: true, ...fields },
+    }), (error) => {
+      assert.match(error.message, /secret-shaped/i);
+      assert.equal(error.message.includes(providerMetadataMarker), false);
+      return true;
+    });
+  });
+
+  test(`provider.configure rejected ${label} cannot poison saved settings`, async (t) => {
+    for (const updating of [false, true]) {
+      await t.test(updating ? "update preserves the previous disk bytes" : "fresh rejection creates no state file or row", async (t) => {
+        const appData = await temporaryDirectory("hive-provider-configure-rejected-");
+        t.after(() => rm(appData, { recursive: true, force: true }));
+        const stateStore = new JsonDesktopAppStateStore(appData, { clock: () => now });
+        const stateFile = path.join(appData, "desktop-state.json");
+        const events = [];
+        const router = providerConfigurationRouter(stateStore, (event) => events.push(event));
+        const input = { id: "gateway", name: "Gateway", kind: "openai-compatible", authType: "none", approved: true, baseUrl: "https://gateway.invalid/v1", defaultModel: "vendor/model:latest" };
+        if (updating) {
+          assert.equal((await router.handle({ requestId: "configure-initial", type: "provider.configure", input })).type, "provider.changed");
+          events.length = 0;
+        }
+        const before = updating ? await readFile(stateFile) : null;
+        const failed = await router.handle({ requestId: "configure-rejected", type: "provider.configure", input: { ...input, ...fields } });
+        assert.equal(failed.type, "request.failed");
+        assert.equal(failed.recoverable, true);
+        assert.equal(JSON.stringify([failed, ...events]).includes(providerMetadataMarker), false);
+        assert.deepEqual(events, []);
+        if (updating) assert.deepEqual(await readFile(stateFile), before, "rejected metadata must not change saved bytes");
+        else await assert.rejects(readFile(stateFile), { code: "ENOENT" });
+        const expected = updating ? { ...input, configured: true } : undefined;
+        assert.deepEqual((await stateStore.load()).providers.find((provider) => provider.id === input.id), expected);
+        for (const reader of [router, providerConfigurationRouter(new JsonDesktopAppStateStore(appData, { clock: () => now }), (event) => events.push(event))]) {
+          const listed = await reader.handle({ requestId: "list-after-rejection", type: "provider.list" });
+          assert.equal(listed.type, "provider.listed");
+          assert.deepEqual(listed.providers.find((provider) => provider.id === input.id), expected);
+          assert.equal(JSON.stringify([listed, ...events]).includes(providerMetadataMarker), false);
+        }
+      });
+    }
+  });
+}
+
+test("provider.configure keeps metadata limits and exact fields at both boundaries", () => {
+  const input = { id: "gateway", name: "Gateway", kind: "openai-compatible", authType: "api-key", approved: true };
+  for (const fields of [{ name: "n".repeat(201) }, { defaultModel: "m".repeat(257) }, { baseUrl: `https://gateway.invalid/${"p".repeat(2_048)}` }, { baseUrl: "file:///gateway" }]) {
+    assert.throws(() => validateDesktopCommand({ requestId: "configure-invalid", type: "provider.configure", input: { ...input, ...fields } }));
+    assert.throws(() => validateDesktopEvent({ type: "provider.changed", timestamp: now, provider: { ...input, configured: false, ...fields } }));
+  }
+  for (const fields of [{ configured: true }, { secret: providerMetadataMarker }]) {
+    assert.throws(() => validateDesktopCommand({ requestId: "configure-extra", type: "provider.configure", input: { ...input, ...fields } }));
+  }
+});
+
+test("provider.configure preserves valid metadata, loopback URLs, and boundary lengths", async (t) => {
+  const appData = await temporaryDirectory("hive-provider-configure-valid-");
+  t.after(() => rm(appData, { recursive: true, force: true }));
+  const stateStore = new JsonDesktopAppStateStore(appData, { clock: () => now });
+  const events = [];
+  const router = providerConfigurationRouter(stateStore, (event) => events.push(event));
+  const cases = [
+    { id: "gateway", name: "Gateway", kind: "openai-compatible", authType: "api-key", approved: true, baseUrl: "https://Gateway.invalid:443/v1/?region=us%2Feast#models", defaultModel: "vendor/model:latest" },
+    { id: "gateway", name: "Updated gateway", kind: "openai-compatible", authType: "bearer", approved: true, baseUrl: "http://gateway.invalid:8080/v1", defaultModel: "vendor/next-model" },
+    { id: "ollama", name: "Ollama (local)", kind: "ollama", authType: "none", approved: true, baseUrl: "http://127.0.0.1:11434", defaultModel: "llama3.2:latest" },
+    { id: "local-host", name: "Local host", kind: "local", authType: "none", approved: true, baseUrl: "http://localhost:8080/v1" },
+    { id: "local-ipv6", name: "IPv6 local", kind: "local", authType: "none", approved: true, baseUrl: "http://[::1]:8080/v1?mode=local" },
+    { id: "oauth-provider", name: "Token usage", kind: "oauth", authType: "oauth", approved: false },
+    { id: "metadata-limits", name: "n".repeat(200), kind: "custom", authType: "none", approved: true, baseUrl: `https://gateway.invalid/${"p".repeat(2_048 - "https://gateway.invalid/".length)}`, defaultModel: "m".repeat(256) },
+  ];
+  for (const input of cases) {
+    const command = { requestId: "configure-valid", type: "provider.configure", input };
+    assert.deepEqual(validateDesktopCommand(command), command);
+    const changed = await router.handle(command);
+    assert.equal(changed.type, "provider.changed");
+    const expected = { ...input, configured: input.approved && input.authType === "none" };
+    assert.deepEqual(changed.provider, expected);
+    assert.deepEqual(JSON.parse(await readFile(path.join(appData, "desktop-state.json"), "utf8")).providers.find((provider) => provider.id === input.id), expected);
+    const listed = await providerConfigurationRouter(new JsonDesktopAppStateStore(appData, { clock: () => now })).handle({ requestId: "list-valid", type: "provider.list" });
+    assert.equal(listed.type, "provider.listed");
+    assert.deepEqual(listed.providers.find((provider) => provider.id === input.id), expected);
+    assert.deepEqual(events.at(-1), changed);
+  }
+});
+
 test("provider configured state is derived from vault across set, remove, list, and reopen", async () => {
   const appData = await temporaryDirectory("hive-provider-sync-");
   const stateStore = new JsonDesktopAppStateStore(appData, { clock: () => now });

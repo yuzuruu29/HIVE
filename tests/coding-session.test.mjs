@@ -133,7 +133,7 @@ function runtimeDependencies(root, options = {}) {
             return {
               ok: passed,
               output: passed ? "check passed" : "check failed",
-              metadata: { exitCode: passed ? 0 : 1 },
+              metadata: { commandId: `test-command-${validationRuns}`, exitCode: passed ? 0 : 1 },
             };
           }
           if (name === "inspect_diff") {
@@ -174,12 +174,14 @@ test("Queen executes Planner to parallel Builders to Validator and Reviewer", as
     assert.equal(record.status, "completed", JSON.stringify(record.finalReport?.outstanding));
     assert.equal(record.tasks.filter((task) => task.role === "builder" && task.status === "completed").length, 2);
     assert.equal(record.validationResults.at(-1).status, "passed");
+    assert.equal(record.validationResults.at(-1).commandId, "test-command-1");
     assert.equal(record.reviewResults.at(-1).status, "passed");
     assert.deepEqual(new Set(record.finalReport.filesChanged), new Set(["src/a.ts", "src/b.ts"]));
     assert.ok(events.some((event) => event.type === "plan.created"));
     assert.ok(events.some((event) => event.type === "session.completed"));
     const restored = await new CodingSessionStore(root).load("session-success");
     assert.equal(restored.status, "completed");
+    assert.equal(restored.validationResults.at(-1).commandId, "test-command-1");
     assert.equal(JSON.stringify(restored).includes("mock-secret"), false);
   } finally {
     await fs.rm(root, { recursive: true, force: true });

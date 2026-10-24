@@ -22,6 +22,8 @@ export class ProjectSessionService {
   readonly #options: ProjectSessionServiceOptions;
   readonly #instanceId = `client-${randomUUID()}`;
   readonly #handles = new Map<string, EngineHandle>();
+  readonly #pendingOutcomes = new Map<string, { sessionId: string; outcome: EngineOutcome }>();
+  readonly #outcomeWrites = new Map<string, Promise<void>>();
   readonly #starting = new Set<string>();
   readonly #cancelSent = new Set<string>();
   #timer?: ReturnType<typeof setInterval>;
@@ -43,7 +45,7 @@ export class ProjectSessionService {
   #notify(snapshot: ProjectSnapshot): void { try { void Promise.resolve(this.#options.onSnapshot?.(snapshot)).catch(() => undefined); } catch { /* A presentation observer cannot own or interrupt durable execution. */ } }
   #publish(state: StoredProjectState): void { if (state.revision === this.#revision) return; this.#revision = state.revision; this.#lastSnapshot = publicProjectSnapshot(state); this.#notify(structuredClone(this.#lastSnapshot)); }
   #report(error: unknown): void { const message = safe(error instanceof Error ? error.message : String(error)); this.#notify({ ...structuredClone(this.#lastSnapshot), warnings: [...this.#lastSnapshot.warnings, `Shared project refresh failed: ${message}`] }); }
-  hasOwnedRuns(): boolean { return this.#pendingSends > 0 || this.#launches.size > 0 || this.#starting.size > 0 || this.#handles.size > 0; }
+  hasOwnedRuns(): boolean { return this.#pendingSends > 0 || this.#launches.size > 0 || this.#starting.size > 0 || this.#handles.size > 0 || this.#pendingOutcomes.size > 0; }
   async snapshot(): Promise<ProjectSnapshot> { const state = await this.store.load(); this.#publish(state); return publicProjectSnapshot(state); }
   async previewImport(projectId: string, workspaceId?: string): Promise<HistoryImportPreview> { return new ProjectHistoryService(this).previewImport(projectId, workspaceId); }
   async importHistory(projectId: string, digest: string, workspaceId?: string): Promise<HistoryImportResult> {
@@ -122,9 +124,9 @@ export class ProjectSessionService {
     const runId = input.run.id;
     try {
       await this.#updateRun(input.session.id, runId, (run) => { if (run.status !== "stopping") { run.status = "running"; run.summary = "Starting live engine"; } });
-      if (this.#closed || this.#closing) { await this.#finish(input.session.id, runId, { status: "interrupted", summary: "Client closed before the live engine started." }); return; }
+      if (this.#closed || this.#closing) { await this.#complete(input.session.id, runId, { status: "interrupted", summary: "Client closed before the live engine started." }); return; }
       const current = await this.store.load();
-      if (current.owners[runId]?.cancelRequested) { await this.#finish(input.session.id, runId, { status: "cancelled", summary: "Cancelled before the live engine started." }); return; }
+      if (current.owners[runId]?.cancelRequested) { await this.#complete(input.session.id, runId, { status: "cancelled", summary: "Cancelled before the live engine started." }); return; }
       const project = current.projects.find((entry) => entry.id === input.project.id); const workspace = project?.workspaces.find((entry) => entry.id === input.run.workspaceId);
       if (!project || !workspace || !samePath(workspace.path, input.run.workspace)) throw new Error("Execution workspace changed after acceptance; the engine was not started.");
       await verifyWorkspace(project, workspace);
@@ -138,9 +140,27 @@ export class ProjectSessionService {
         // Control/storage failure does not establish that a running engine stopped.
         try { await handle.cancel("HIVE could not verify run control state."); } catch (cancelError) { this.#report(cancelError); }
       }
-      const outcome = validateEngineOutcome(await handle.completion); await this.#finish(input.session.id, runId, outcome);
-    } catch (error) { await this.#finish(input.session.id, runId, { status: "failed", summary: safe(error instanceof Error ? error.message : String(error)) }); }
+      const outcome = validateEngineOutcome(await handle.completion); await this.#complete(input.session.id, runId, outcome);
+    } catch (error) { await this.#complete(input.session.id, runId, { status: "failed", summary: safe(error instanceof Error ? error.message : String(error)) }); }
     finally { this.#starting.delete(runId); this.#handles.delete(runId); this.#cancelSent.delete(runId); }
+  }
+  async #complete(sessionId: string, runId: string, outcome: EngineOutcome): Promise<void> {
+    // A stopped engine still owns its durable result until the terminal write succeeds.
+    this.#pendingOutcomes.set(runId, { sessionId, outcome });
+    await this.#persistPendingOutcome(runId);
+  }
+  #persistPendingOutcome(runId: string): Promise<void> {
+    const writing = this.#outcomeWrites.get(runId); if (writing) return writing;
+    const pending = this.#pendingOutcomes.get(runId); if (!pending) return Promise.resolve();
+    const write = this.#finish(pending.sessionId, runId, pending.outcome)
+      .then(() => { this.#pendingOutcomes.delete(runId); })
+      .catch((error) => this.#report(new Error(`Run result could not be saved; HIVE is retaining it and will retry: ${error instanceof Error ? error.message : String(error)}`)))
+      .finally(() => { this.#outcomeWrites.delete(runId); });
+    this.#outcomeWrites.set(runId, write);
+    return write;
+  }
+  async #flushPendingOutcomes(): Promise<void> {
+    await Promise.all([...this.#pendingOutcomes.keys()].map((runId) => this.#persistPendingOutcome(runId)));
   }
   async #updateRun(sessionId: string, runId: string, update: (run: SharedRun, session: SharedSession, state: StoredProjectState) => void): Promise<void> {
     const { state } = await this.store.mutate((state) => { const session = requireSession(state, sessionId); update(requireRun(session, runId), session, state); session.updatedAt = this.#now(); }); this.#publish(state);
@@ -175,6 +195,7 @@ export class ProjectSessionService {
   async #poll(): Promise<void> {
     if (this.#closed || this.#closing || this.#polling) return; this.#polling = true;
     try {
+      await this.#flushPendingOutcomes();
       let state = await this.store.load();
       for (const [id, owner] of Object.entries(state.owners)) {
         const session = state.sessions.find((entry) => entry.runs.some((run) => run.id === id)); if (!session) continue;
@@ -195,9 +216,10 @@ export class ProjectSessionService {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const settle = async (): Promise<void> => {
       await Promise.allSettled(this.#actions);
-      const cancellations = await Promise.allSettled([...this.#handles].map(async ([id, handle]) => { this.#cancelSent.add(id); await handle.cancel("HIVE client is closing."); }));
+      const cancellations = await Promise.allSettled([...this.#handles].filter(([id]) => !this.#pendingOutcomes.has(id)).map(async ([id, handle]) => { this.#cancelSent.add(id); await handle.cancel("HIVE client is closing."); }));
       await Promise.allSettled(this.#launches.values());
       while (this.#polling) await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      await this.#flushPendingOutcomes();
       const state = await this.store.load();
       const remaining = Object.entries(state.owners).filter(([, owner]) => owner.instanceId === this.#instanceId);
       if (remaining.length) throw new Error(`Live run completion could not be verified during shutdown (${remaining.map(([id]) => id).join(", ")}); durable state and ownership were preserved.`);

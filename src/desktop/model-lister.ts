@@ -1,6 +1,9 @@
+import { isIP } from "node:net";
 import type { DesktopModelInfo, DesktopProviderMetadata, ResolvedDesktopCredential } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 8_000;
+const MAX_DISCOVERY_PAGES = 100;
+const UNSAFE_URL_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\uD800-\uDFFF]/u;
 
 const KNOWN_ANTHROPIC_MODELS: DesktopModelInfo[] = [
   { id: "claude-opus-4.7", name: "Claude Opus 4.7", contextWindow: 200_000, ownedBy: "Anthropic" },
@@ -87,48 +90,51 @@ export class DesktopModelLister {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
+    const models = new Map<string, DesktopModelInfo>();
     try {
-      const res = await fetchFn("https://api.anthropic.com/v1/models", {
-        method: "GET",
-        headers: {
-          "x-api-key": token,
-          "anthropic-version": "2023-06-01",
-          "Content-Type": "application/json",
-        },
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        return KNOWN_ANTHROPIC_MODELS;
-      }
-
-      const body = await res.json() as { data?: unknown } | null;
-      const list = body && typeof body === "object" && Array.isArray((body as { data?: unknown }).data)
-        ? (body as { data: unknown[] }).data
-        : [];
-
-      const models: DesktopModelInfo[] = [];
-      for (const item of list) {
-        if (!item || typeof item !== "object") continue;
-        const record = item as Record<string, unknown>;
-        const id = typeof record.id === "string" ? record.id : "";
-        if (!id) continue;
-        const displayName = typeof record.display_name === "string" && record.display_name
-          ? record.display_name
-          : typeof record.name === "string" && record.name
-            ? record.name
-            : id;
-        models.push({
-          id,
-          name: displayName,
-          contextWindow: 200_000,
-          ownedBy: "Anthropic",
+      const url = new URL("https://api.anthropic.com/v1/models");
+      const cursors = new Set<string>();
+      for (let page = 0; page < MAX_DISCOVERY_PAGES; page++) {
+        controller.signal.throwIfAborted();
+        const res = await fetchFn(url.href, {
+          method: "GET",
+          headers: {
+            "x-api-key": token,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+          },
+          signal: controller.signal,
+          redirect: "error",
         });
-      }
 
-      return models.length > 0 ? models : KNOWN_ANTHROPIC_MODELS;
+        if (!res.ok) throw new Error("Anthropic model discovery failed.");
+        const body: unknown = await res.json();
+        if (!body || typeof body !== "object" || !("data" in body) || !Array.isArray(body.data)) throw new Error("Invalid Anthropic model catalog.");
+        for (const item of body.data) {
+          if (!item || typeof item !== "object") continue;
+          const record = item as Record<string, unknown>;
+          const id = typeof record.id === "string" ? record.id : "";
+          if (!id) continue;
+          const displayName = typeof record.display_name === "string" && record.display_name
+            ? record.display_name
+            : typeof record.name === "string" && record.name
+              ? record.name
+              : id;
+          models.set(id, {
+            id,
+            name: displayName,
+            contextWindow: 200_000,
+            ownedBy: "Anthropic",
+          });
+        }
+        const next = "has_more" in body && body.has_more === true && "last_id" in body && typeof body.last_id === "string" ? body.last_id : "";
+        if (!next || cursors.has(next)) break;
+        cursors.add(next);
+        url.searchParams.set("after_id", next);
+      }
+      return models.size > 0 ? [...models.values()] : KNOWN_ANTHROPIC_MODELS;
     } catch {
-      return KNOWN_ANTHROPIC_MODELS;
+      return models.size > 0 ? [...models.values()] : KNOWN_ANTHROPIC_MODELS;
     } finally {
       clearTimeout(timer);
     }
@@ -147,54 +153,58 @@ export class DesktopModelLister {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
+    const models = new Map<string, DesktopModelInfo>();
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(token)}`;
-      const res = await fetchFn(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        return KNOWN_GOOGLE_MODELS;
-      }
-
-      const body = await res.json() as { models?: unknown } | null;
-      const list = body && typeof body === "object" && Array.isArray((body as { models?: unknown }).models)
-        ? (body as { models: unknown[] }).models
-        : [];
-
-      const models: DesktopModelInfo[] = [];
-      for (const item of list) {
-        if (!item || typeof item !== "object") continue;
-        const record = item as Record<string, unknown>;
-        const rawName = typeof record.name === "string" ? record.name : "";
-        if (!rawName) continue;
-        const id = rawName.replace(/^models\//, "");
-        const lowerId = id.toLowerCase();
-        if (lowerId.includes("embedding") || lowerId.includes("aqa")) {
-          continue;
-        }
-        const displayName = typeof record.displayName === "string" && record.displayName
-          ? record.displayName
-          : id;
-        const contextWindow = typeof record.inputTokenLimit === "number" && record.inputTokenLimit > 0
-          ? record.inputTokenLimit
-          : 1_000_000;
-
-        models.push({
-          id,
-          name: displayName,
-          contextWindow,
-          ownedBy: "Google",
+      const url = new URL("https://generativelanguage.googleapis.com/v1beta/models");
+      url.searchParams.set("key", token);
+      const cursors = new Set<string>();
+      for (let page = 0; page < MAX_DISCOVERY_PAGES; page++) {
+        controller.signal.throwIfAborted();
+        const res = await fetchFn(url.href, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          signal: controller.signal,
+          redirect: "error",
         });
-      }
 
-      return models.length > 0 ? models : KNOWN_GOOGLE_MODELS;
+        if (!res.ok) throw new Error("Google model discovery failed.");
+        const body: unknown = await res.json();
+        if (!body || typeof body !== "object" || !("models" in body) || !Array.isArray(body.models)) throw new Error("Invalid Google model catalog.");
+        for (const item of body.models) {
+          if (!item || typeof item !== "object") continue;
+          const record = item as Record<string, unknown>;
+          const rawName = typeof record.name === "string" ? record.name : "";
+          if (!rawName) continue;
+          const id = rawName.replace(/^models\//, "");
+          const lowerId = id.toLowerCase();
+          if (lowerId.includes("embedding") || lowerId.includes("aqa")
+            || !Array.isArray(record.supportedGenerationMethods) || !record.supportedGenerationMethods.includes("generateContent")) {
+            continue;
+          }
+          const displayName = typeof record.displayName === "string" && record.displayName
+            ? record.displayName
+            : id;
+          const contextWindow = typeof record.inputTokenLimit === "number" && record.inputTokenLimit > 0
+            ? record.inputTokenLimit
+            : 1_000_000;
+
+          models.set(id, {
+            id,
+            name: displayName,
+            contextWindow,
+            ownedBy: "Google",
+          });
+        }
+        const next = "nextPageToken" in body && typeof body.nextPageToken === "string" ? body.nextPageToken : "";
+        if (!next || cursors.has(next)) break;
+        cursors.add(next);
+        url.searchParams.set("pageToken", next);
+      }
+      return [...models.values()];
     } catch {
-      return KNOWN_GOOGLE_MODELS;
+      return models.size > 0 ? [...models.values()] : KNOWN_GOOGLE_MODELS;
     } finally {
       clearTimeout(timer);
     }
@@ -252,8 +262,26 @@ export class DesktopModelLister {
     if (!rawBaseUrl) {
       return defaultModelFallback(provider);
     }
-    const baseUrl = rawBaseUrl.replace(/\/+$/, "");
-    const url = `${baseUrl}/models`;
+    // Match the transport policy in providers/models.ts without its provider-specific endpoint rewrites.
+    if (typeof rawBaseUrl !== "string" || rawBaseUrl.length > 2048 || rawBaseUrl.trim() !== rawBaseUrl
+      || UNSAFE_URL_TEXT.test(rawBaseUrl) || /[?#\\]/.test(rawBaseUrl)) {
+      throw new Error("Provider base URL must be at most 2048 characters without surrounding whitespace, query strings, fragments, backslashes, or control characters.");
+    }
+    let url: URL;
+    try {
+      url = new URL(rawBaseUrl);
+    } catch {
+      throw new Error("Set a valid absolute provider base URL for model discovery.");
+    }
+    if (url.username || url.password) {
+      throw new Error("Remove embedded credentials from the provider base URL; use the configured credential instead.");
+    }
+    const host = url.hostname.replace(/^\[|\]$/g, "");
+    const loopback = host === "localhost" || host === "::1" || (isIP(host) === 4 && host.startsWith("127."));
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+      throw new Error("Provider base URL requires HTTPS or loopback HTTP (localhost, 127/8, or ::1) for model discovery.");
+    }
+    url.pathname = `${url.pathname.replace(/\/+$/, "")}/models`;
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -268,10 +296,11 @@ export class DesktopModelLister {
     const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
     try {
-      const res = await fetchFn(url, {
+      const res = await fetchFn(url.href, {
         method: "GET",
         headers,
         signal: controller.signal,
+        redirect: "error",
       });
 
       if (!res.ok) {

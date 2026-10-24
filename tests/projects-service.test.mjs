@@ -50,6 +50,208 @@ function controlledEngine() {
   return { engine: { start(_input, actualHooks) { hooks = actualHooks; started += 1; return { completion: new Promise((done) => { resolve = done; }), cancel() { cancelled += 1; resolve({ status: "cancelled", summary: "Cancelled with actual acknowledgment" }); } }; } }, get started() { return started; }, get cancelled() { return cancelled; }, get hooks() { return hooks; }, finish(value) { resolve(value); } };
 }
 
+function failTerminalWrites(t, service, runId, failures = Infinity) {
+  const mutate = service.store.mutate.bind(service.store);
+  let attempts = 0;
+  t.mock.method(service.store, "mutate", (update) => mutate(async (state) => {
+    const activeIds = new Set(state.sessions.flatMap((session) => session.runs.filter((run) => run.endedAt === null && (!runId || run.id === runId)).map((run) => run.id)));
+    const result = await update(state);
+    if (state.sessions.some((session) => session.runs.some((run) => activeIds.has(run.id) && run.endedAt !== null))) {
+      attempts += 1;
+      if (failures > 0) { failures -= 1; throw new Error("Injected terminal persistence failure"); }
+    }
+    return result;
+  }));
+  return { get attempts() { return attempts; }, release() { failures = 0; } };
+}
+
+test("terminal persistence retries a transient write without replacing a completed result", async (t) => {
+  const controlled = controlledEngine();
+  const { service, peer, sessionId } = await fixture(t, controlled.engine);
+  const send = await service.action(request("session.send", { sessionId, text: "Complete one turn" }));
+  await until(() => service.snapshot(), () => controlled.started === 1);
+  const fault = failTerminalWrites(t, service, send.result.runId, 1);
+  controlled.finish({ status: "completed", summary: "Original successful result", text: "Actual final answer" });
+  const saved = await until(() => peer.snapshot(), (snapshot) => snapshot.sessions[0].runs[0].endedAt !== null);
+  assert.equal(saved.sessions[0].runs[0].status, "completed");
+  assert.equal(saved.sessions[0].runs[0].summary, "Original successful result");
+  assert.equal(saved.sessions[0].messages.at(-1).text, "Actual final answer");
+  assert.equal(fault.attempts, 2);
+});
+
+test("terminal persistence stays single-flight across polling and shutdown", { timeout: 15_000 }, async (t) => {
+  const controlled = controlledEngine();
+  const { service, peer, sessionId, workspace } = await fixture(t, controlled.engine, { closeTimeoutMs: 5_000 });
+  const send = await service.action(request("session.send", { sessionId, text: "Hold the terminal write" }));
+  await until(() => service.snapshot(), () => controlled.started === 1);
+  let releaseWrite; let held = false; let writes = 0; let closing; let closeSettled = false;
+  const gate = new Promise((resolve) => { releaseWrite = resolve; });
+  const mutate = service.store.mutate.bind(service.store);
+  const fault = t.mock.method(service.store, "mutate", (update) => {
+    // Count calls before the store lock can serialize duplicate terminal writes.
+    writes += 1;
+    return mutate(async (state) => {
+      const run = state.sessions.find((session) => session.id === sessionId).runs.find((run) => run.id === send.result.runId);
+      const active = run.endedAt === null;
+      const result = await update(state);
+      if (active && run.endedAt !== null) { held = true; await gate; }
+      return result;
+    });
+  });
+  const outcome = { status: "completed", summary: "Original gated completion", text: "Exactly one gated answer", engineSessionId: "coding-single-flight", patches: [{ path: "result.txt", additions: 1, deletions: 0, state: "applied", workspace, diff: "+gated result" }], checks: [{ id: "gated-check", name: "Gated check", command: "node --version", workspace, status: "passed", exitCode: 0 }] };
+  try {
+    controlled.finish(outcome);
+    await until(async () => held, Boolean);
+    // Give the 50 ms poller time to join the held write before starting close.
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    assert.equal(writes, 1);
+    assert.equal(service.hasOwnedRuns(), true);
+    closing = service.close();
+    void closing.then(() => { closeSettled = true; }, () => { closeSettled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    assert.equal(closeSettled, false);
+    assert.equal(writes, 1);
+    assert.equal(service.hasOwnedRuns(), true);
+    assert.equal(controlled.cancelled, 0);
+    const retained = await peer.store.load();
+    assert.ok(retained.owners[send.result.runId]);
+    assert.equal(retained.sessions[0].runs[0].endedAt, null);
+    releaseWrite();
+    await closing;
+    const saved = await peer.snapshot();
+    const run = saved.sessions[0].runs[0];
+    for (const field of ["status", "summary", "engineSessionId", "patches", "checks"]) assert.deepEqual(run[field], outcome[field]);
+    assert.deepEqual(saved.sessions[0].messages.filter((message) => message.role === "assistant").map((message) => message.text), [outcome.text]);
+    assert.equal(writes, 1);
+    assert.equal(controlled.cancelled, 0);
+    assert.equal(service.hasOwnedRuns(), false);
+    assert.deepEqual((await service.store.load()).owners, {});
+  } finally { releaseWrite(); fault.mock.restore(); await closing?.catch(() => undefined); }
+});
+
+test("terminal persistence retries a post-commit error without replacing the outcome", { timeout: 15_000 }, async (t) => {
+  const controlled = controlledEngine();
+  const { service, peer, sessionId, workspace } = await fixture(t, controlled.engine, { closeTimeoutMs: 5_000 });
+  const send = await service.action(request("session.send", { sessionId, text: "Commit before reporting an error" }));
+  await until(() => service.snapshot(), () => controlled.started === 1);
+  const mutate = service.store.mutate.bind(service.store);
+  let injectFault = true; let committed; let writes = 0;
+  const fault = t.mock.method(service.store, "mutate", async (update) => {
+    writes += 1;
+    const result = await mutate(update);
+    if (injectFault && result.state.sessions.find((session) => session.id === sessionId).runs.some((run) => run.id === send.result.runId && run.endedAt !== null)) {
+      injectFault = false; committed = result.state;
+      throw new Error("Injected failure after successful atomic terminal commit");
+    }
+    return result;
+  });
+  const outcome = { status: "completed", summary: "Original committed completion", text: "Exactly one committed answer", engineSessionId: "coding-post-commit", patches: [{ path: "result.txt", additions: 1, deletions: 0, state: "applied", workspace, diff: "+committed result" }], checks: [{ id: "committed-check", name: "Committed check", command: "node --version", workspace, status: "passed", exitCode: 0 }] };
+  try {
+    controlled.finish(outcome);
+    await until(async () => committed, Boolean);
+    await until(async () => service.hasOwnedRuns(), (owned) => !owned);
+    const saved = await peer.snapshot();
+    const run = saved.sessions[0].runs[0];
+    for (const field of ["status", "summary", "engineSessionId", "patches", "checks"]) assert.deepEqual(run[field], outcome[field]);
+    assert.deepEqual(run, committed.sessions[0].runs[0]);
+    assert.deepEqual(saved.sessions[0].messages, committed.sessions[0].messages);
+    assert.deepEqual(saved.sessions[0].messages.filter((message) => message.role === "assistant").map((message) => message.text), [outcome.text]);
+    assert.equal(writes, 2);
+    assert.equal(controlled.started, 1);
+    assert.equal(controlled.cancelled, 0);
+    assert.deepEqual((await service.store.load()).owners, {});
+  } finally { injectFault = false; fault.mock.restore(); }
+});
+
+test("terminal persistence retains ownership and complete evidence until storage recovers", async (t) => {
+  const controlled = controlledEngine();
+  const { service, peer, sessionId, workspace } = await fixture(t, controlled.engine);
+  const send = await service.action(request("session.send", { sessionId, text: "Retain this completion" }));
+  await until(() => service.snapshot(), () => controlled.started === 1);
+  const fault = failTerminalWrites(t, service, send.result.runId);
+  const patches = [{ path: "result.txt", additions: 1, deletions: 0, state: "applied", workspace, diff: "+actual result" }];
+  const checks = [{ id: "actual-check", name: "Actual check", command: "node --version", workspace, status: "passed", exitCode: 0 }];
+  try {
+    controlled.finish({ status: "completed", summary: "Completed with evidence", text: "Retained final answer", engineSessionId: "coding-retained", patches, checks });
+    await until(async () => fault.attempts, (attempts) => attempts >= 2);
+    assert.equal(service.hasOwnedRuns(), true);
+    assert.equal(Object.keys((await service.store.load()).owners).length, 1);
+    await assert.rejects(peer.action(request("session.send", { sessionId, text: "Do not overlap the unsaved run" })), /active run/);
+    assert.equal(controlled.started, 1);
+    fault.release();
+    const saved = await until(() => peer.snapshot(), (snapshot) => snapshot.sessions[0].runs[0].status === "completed");
+    const run = saved.sessions[0].runs[0];
+    assert.equal(run.summary, "Completed with evidence");
+    assert.equal(run.engineSessionId, "coding-retained");
+    assert.deepEqual(run.patches, patches);
+    assert.deepEqual(run.checks, checks);
+    assert.deepEqual(saved.sessions[0].messages.filter((message) => message.role === "assistant").map((message) => message.text), ["Retained final answer"]);
+    await until(async () => service.hasOwnedRuns(), (owned) => !owned);
+    assert.equal(Object.keys((await service.store.load()).owners).length, 0);
+    await service.action(request("session.send", { sessionId, text: "Continue after durable completion" }));
+    await until(() => service.snapshot(), () => controlled.started === 2);
+    controlled.finish({ status: "completed", summary: "Next turn completed" });
+    await until(() => peer.snapshot(), (snapshot) => snapshot.sessions[0].runs[1]?.status === "completed");
+  } finally { fault.release(); }
+});
+
+test("terminal persistence fails shutdown closed and retries the original result before closing", async (t) => {
+  const controlled = controlledEngine();
+  const { service, peer, sessionId } = await fixture(t, controlled.engine, { closeTimeoutMs: 2_000 });
+  const send = await service.action(request("session.send", { sessionId, text: "Finish before closing" }));
+  await until(() => service.snapshot(), () => controlled.started === 1);
+  const fault = failTerminalWrites(t, service, send.result.runId);
+  try {
+    controlled.finish({ status: "completed", summary: "Original completed result", text: "Preserved through shutdown" });
+    await until(async () => fault.attempts, (attempts) => attempts >= 2);
+    await assert.rejects(service.close(), /durable state|completion could not be verified|acknowledge shutdown/);
+    assert.equal(service.hasOwnedRuns(), true);
+    assert.equal(controlled.cancelled, 0);
+    fault.release();
+    await service.close();
+    assert.equal(service.hasOwnedRuns(), false);
+    const saved = await peer.snapshot();
+    assert.equal(saved.sessions[0].runs[0].status, "completed");
+    assert.equal(saved.sessions[0].messages.at(-1).text, "Preserved through shutdown");
+    assert.equal(Object.keys((await service.store.load()).owners).length, 0);
+  } finally { fault.release(); }
+});
+
+for (const status of ["failed", "cancelled", "interrupted"]) {
+  test(`terminal persistence preserves the original ${status} outcome across repeated failures`, async (t) => {
+    const controlled = controlledEngine();
+    const { service, peer, sessionId } = await fixture(t, controlled.engine);
+    const send = await service.action(request("session.send", { sessionId, text: `Retain ${status} outcome` }));
+    await until(() => service.snapshot(), () => controlled.started === 1);
+    const fault = failTerminalWrites(t, service, send.result.runId);
+    try {
+      controlled.finish({ status, summary: `Original ${status} reason`, text: `Actual ${status} response` });
+      await until(async () => fault.attempts, (attempts) => attempts >= 2);
+      assert.equal(service.hasOwnedRuns(), true);
+      fault.release();
+      const saved = await until(() => peer.snapshot(), (snapshot) => snapshot.sessions[0].runs[0].endedAt !== null);
+      assert.equal(saved.sessions[0].runs[0].status, status);
+      assert.equal(saved.sessions[0].runs[0].summary, `Original ${status} reason`);
+      assert.equal(saved.sessions[0].messages.at(-1).text, `Actual ${status} response`);
+    } finally { fault.release(); }
+  });
+}
+
+test("terminal persistence retains an engine startup failure until it can be saved", async (t) => {
+  let starts = 0;
+  const { service, peer, sessionId } = await fixture(t, { start() { starts += 1; throw new Error("Original engine startup failure"); } });
+  const fault = failTerminalWrites(t, service);
+  try {
+    await service.action(request("session.send", { sessionId, text: "Fail to start the engine" }));
+    await until(async () => fault.attempts, (attempts) => attempts >= 2);
+    assert.equal(service.hasOwnedRuns(), true);
+    fault.release();
+    const saved = await until(() => peer.snapshot(), (snapshot) => snapshot.sessions[0].runs[0].status === "failed");
+    assert.equal(saved.sessions[0].runs[0].summary, "Original engine startup failure");
+    assert.equal(starts, 1);
+  } finally { fault.release(); }
+});
+
 test("two clients share stable project/session histories and selection is only an entry hint", async (t) => {
   const { service, peer, projectId, sessionId, directory, workspace } = await fixture(t);
   const other = await peer.action(request("session.create", { projectId, title: "Other client draft" }));

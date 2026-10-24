@@ -181,8 +181,10 @@ export class DesktopCommandRouter {
         return this.#credentialTransaction(async () => {
           const credential = await this.options.credentialVault.metadata(command.input.id);
           const provider: DesktopProviderMetadata = { ...command.input, configured: command.input.approved && (command.input.authType === "none" || (credential?.configured === true && credential.kind === command.input.authType)) };
+          // Future provider lists must be able to publish anything saved here.
+          const event = validateDesktopEvent({ type: "provider.changed", timestamp, provider });
           await this.options.stateStore.mutate((state) => ({ ...state, updatedAt: timestamp, providers: [...state.providers.filter((entry) => entry.id !== provider.id), provider].sort((a, b) => a.id.localeCompare(b.id)) }));
-          return { type: "provider.changed", timestamp, provider };
+          return event;
         });
       }
       case "models.list": {
