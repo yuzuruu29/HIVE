@@ -7,7 +7,7 @@
 
 import type { ComposerPicker } from "./picker.js";
 import { renderSubagentsPanel } from "./subagents.js";
-import type { TuiState } from "./state.js";
+import { hasProvider, type TuiState } from "./state.js";
 import { focusedToolCardPosition, parseToolCard, type ToolCard } from "./tool-card.js";
 import { sanitizeTerminalText, terminalCellWidth, truncateTerminalText, wrapDisplayLine } from "./display-text.js";
 import { graphemeCursor } from "./text.js";
@@ -487,7 +487,9 @@ function welcomeRows(state: TuiState, width: number, g: Glyphs, frame?: number):
   const text: Span[] = [
     { text: "HIVE", tone: "pale" },
     { text: "Hyper Intelligence for Verified Engineering", tone: "muted" },
-    { text: `${shown(state.provider)} ${g.dot} ${shown(state.model)} ${g.dot} ${state.sessionMode || "guarded"}`, tone: "text" },
+    hasProvider(state)
+      ? { text: `${shown(state.provider)} ${g.dot} ${shown(state.model)} ${g.dot} ${state.sessionMode || "guarded"}`, tone: "text" }
+      : { text: `No provider yet ${g.dot} /providers to connect one`, tone: "gold" },
     { text: place || "no workspace", tone: "muted" },
   ];
   const tips = `/help for commands ${g.dot} @ for files ${g.dot} shift+tab for modes`;

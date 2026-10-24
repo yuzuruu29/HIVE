@@ -1,5 +1,6 @@
 /** Shared client contract. UI selection, drafts and scroll never belong in this model. */
-export type SessionMode = "chat" | "code" | "plan" | "review";
+/** `council` runs the bundled hive-mind-council skill as a read-only deliberation. */
+export type SessionMode = "chat" | "code" | "plan" | "review" | "council";
 export type SessionPermissions = "guarded" | "standard" | "autonomous";
 export type SharedRunStatus = "queued" | "running" | "awaiting_approval" | "stopping" | "completed" | "cancelled" | "failed" | "interrupted";
 export interface SessionSettings {

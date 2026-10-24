@@ -111,10 +111,16 @@ describe("shared project conversation", () => {
     await screen.findByText(/Completed response/);
     expect(document.querySelector("script")).toBeNull();
     expect(screen.queryByRole("dialog", { name: "Changes and checks" })).not.toBeInTheDocument();
-    expect(screen.getByText(/Activity · 1 agent role/).closest("details")).not.toHaveAttribute("open");
+    // Roles moved to the rail; the log disclosure only counts events and stays collapsed.
+    expect(within(screen.getByRole("list", { name: "Agent roles" })).getByRole("listitem")).toHaveTextContent("Validator, done");
+    expect(screen.getByText("Activity · 1 event").closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByRole("button", { name: /1 file changed \+1 −1.*1 of 1 check passed.*Review changes/ })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "View changes" }));
     const changes = screen.getByRole("dialog", { name: "Changes and checks" });
-    expect(within(changes).getByText("Unit tests · passed · exit 0")).toBeInTheDocument();
+    expect(within(changes).getByRole("heading", { name: "Changes · 1 file" })).toBeInTheDocument();
+    expect(within(changes).getByRole("heading", { name: "Checks · 1 of 1 passed" })).toBeInTheDocument();
+    expect(within(changes).getByText("Unit tests · exit 0").closest("summary")).toHaveTextContent("passedUnit tests · exit 0");
+    expect(within(changes).getAllByText("C:\\Alpha")).toHaveLength(1);
     await user.click(within(changes).getByRole("button", { name: "Mark reviewed" }));
     await waitFor(() => expect(api.request.mock.calls.map(([command]) => command)).toContainEqual(expect.objectContaining({ type: "projects.action", action: expect.objectContaining({ type: "run.review", sessionId: "one", runId: "run-one" }) })));
     expect(api.request.mock.calls.some(([command]) => command.type === "projects.action" && command.action.type === "run.approve")).toBe(false);
@@ -124,6 +130,7 @@ describe("shared project conversation", () => {
     const initial = snapshot(); initial.sessions[0] = { ...baseSession, runs: [{ ...baseRun, status: "awaiting_approval", endedAt: null, approvals: [{ id: "approval-one", runId: "run-one", tool: "write_file", description: "Write src/app.ts", input: { path: "src/app.ts" }, workspace: "C:\\Alpha", external: false, createdAt: now, expiresAt: "2026-10-18T12:30:00.000Z", status: "pending" }] }] };
     const api = bridge(initial); const user = userEvent.setup(); render(<ProjectWorkspaceApp api={api} />);
     await screen.findByRole("button", { name: "Stop run" });
+    await user.click(screen.getByRole("button", { name: "Chat actions" }));
     expect(screen.getByRole("button", { name: "Archive" })).toBeDisabled();
     expect(screen.getByRole("combobox", { name: "Workflow" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Select model" })).toBeDisabled();
@@ -140,6 +147,37 @@ describe("shared project conversation", () => {
     await waitFor(() => expect(workflow).toHaveValue("plan"));
     await act(async () => api.emit(snapshot()));
     expect(workflow).toHaveValue("plan");
+  });
+
+  it("offers the Council workflow and shows council roles in skill order with live state", async () => {
+    const event = (sequence: number, role: string, kind: string, text: string) => ({ id: `council-${sequence}`, sequence, role, kind, text, createdAt: now });
+    const councilSettings = { ...baseSession.settings, mode: "council" as const };
+    const councilRun: SharedRun = { ...baseRun, status: "running", endedAt: null, settings: councilSettings, summary: "Running", patches: [], checks: [], approvals: [], events: [event(1, "Queen", "completed", "Run contract"), event(2, "Architect", "completed", "Plan ready"), event(3, "Scout", "completed", "Context map"), event(4, "Forger", "running", "Repair attempt 2")] };
+    const initial = snapshot(); initial.sessions[0] = { ...baseSession, settings: councilSettings, runs: [councilRun] };
+    const api = bridge(initial); render(<ProjectWorkspaceApp api={api} />);
+    const rail = await screen.findByRole("list", { name: "Agent roles" });
+    expect(within(rail).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Queen, done", "Scout, done", "Architect, done", "Forger, working"]);
+    expect(screen.getByText("HIVE council")).toBeInTheDocument();
+    expect(document.querySelector(".project-run-now")).toHaveTextContent("ForgerRepair attempt 2");
+    expect(screen.getByRole("combobox", { name: "Workflow" })).toHaveValue("council");
+    expect(screen.getByRole("textbox", { name: "Message HIVE" })).toHaveAttribute("placeholder", "Describe the goal for the HIVE council");
+  });
+
+  it("disables Council image attachments while allowing a text-only Council draft", async () => {
+    const initial = snapshot(); initial.sessions[0] = { ...baseSession, settings: { ...baseSession.settings, mode: "council" } };
+    const api = bridge(initial); const user = userEvent.setup(); render(<ProjectWorkspaceApp api={api} />);
+    const composer = await screen.findByRole("textbox", { name: "Message HIVE" });
+    const attach = screen.getByRole("button", { name: "Attach images" });
+    expect(attach).toBeDisabled();
+    expect(attach).toHaveAttribute("title", "Council accepts text only");
+    await user.click(attach);
+    expect(screen.queryByRole("dialog", { name: "Attach images" })).not.toBeInTheDocument();
+    await user.type(composer, "Review the design");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(api.request.mock.calls.map(([command]) => command)).toContainEqual(expect.objectContaining({ type: "projects.action", action: expect.objectContaining({ type: "session.send", text: "Review the design" }) })));
+    const sent = api.request.mock.calls.map(([command]) => command).find((command) => command.type === "projects.action" && command.action.type === "session.send");
+    if (sent?.type !== "projects.action" || sent.action.type !== "session.send") throw new Error("Missing Council send");
+    expect(sent.action.executionContext).toBeUndefined();
   });
 
   it("keeps drawer focus inside and returns it to the navigation trigger", async () => {
@@ -187,6 +225,44 @@ describe("shared project conversation", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "Remove image screenshot.png" })).not.toBeInTheDocument());
   });
 
+  for (const recovery of ["removing images", "switching workflow"]) {
+    it(`preserves an attached draft and blocks all Council submit paths until ${recovery}`, async () => {
+      const api = bridge(); const user = userEvent.setup(); render(<ProjectWorkspaceApp api={api} />);
+      const composer = await screen.findByRole("textbox", { name: "Message HIVE" });
+      await user.click(screen.getByRole("button", { name: "Attach images" }));
+      const dialog = screen.getByRole("dialog", { name: "Attach images" });
+      await user.type(within(dialog).getByLabelText("Local image paths"), "C:\\Images\\screenshot.png");
+      await user.click(within(dialog).getByRole("button", { name: "Save attachments" }));
+      await user.type(composer, "Review the diagram");
+      const workflow = screen.getByRole("combobox", { name: "Workflow" });
+      await user.selectOptions(workflow, "council");
+      await waitFor(() => expect(workflow).toHaveValue("council"));
+      const explanation = screen.getByText("Council accepts text only. Remove the attached images or switch workflow to send this draft.");
+      expect(explanation).toHaveAttribute("role", "status");
+      expect(composer).toHaveAttribute("aria-describedby", explanation.id);
+      expect(screen.getByRole("button", { name: "Attach images" })).toBeDisabled();
+      const send = screen.getByRole("button", { name: "Send message" });
+      expect(send).toBeDisabled();
+      await user.click(send);
+      await user.click(composer); await user.keyboard("{Enter}");
+      fireEvent.submit(screen.getByRole("form", { name: "Conversation composer" }));
+      const sent = () => api.request.mock.calls.map(([command]) => command).filter((command) => command.type === "projects.action" && command.action.type === "session.send");
+      expect(sent()).toHaveLength(0);
+      expect(composer).toHaveValue("Review the diagram");
+      expect(screen.getByRole("button", { name: "Remove image screenshot.png" })).toBeVisible();
+      if (recovery === "removing images") await user.click(screen.getByRole("button", { name: "Remove image screenshot.png" }));
+      else await user.selectOptions(workflow, "code");
+      await waitFor(() => expect(screen.queryByText(explanation.textContent ?? "")).not.toBeInTheDocument());
+      expect(send).toBeEnabled();
+      expect(composer).toHaveValue("Review the diagram");
+      await user.click(send);
+      await waitFor(() => expect(sent()).toHaveLength(1));
+      const action = sent()[0];
+      if (action.type !== "projects.action" || action.action.type !== "session.send") throw new Error("Missing recovered send");
+      expect(action.action.executionContext).toEqual(recovery === "removing images" ? undefined : { imagePaths: ["C:\\Images\\screenshot.png"] });
+    });
+  }
+
   it("previews legacy history before explicit backup/import and keeps the current selection and draft", async () => {
     const imported = snapshot(); imported.revision = 10; imported.projects[0].lastSessionId = "legacy-one"; imported.sessions.push({ ...baseSession, id: "legacy-one", title: "Imported CLI history" });
     const api = bridge(snapshot(), async (command) => {
@@ -197,7 +273,11 @@ describe("shared project conversation", () => {
     const user = userEvent.setup(); render(<ProjectWorkspaceApp api={api} />);
     const composer = await screen.findByRole("textbox", { name: "Message HIVE" });
     await user.type(composer, "Keep this local draft");
+    expect(within(screen.getByRole("navigation", { name: "Workspace controls" })).queryByRole("button", { name: "Import legacy history" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "History" }));
     await user.click(screen.getByRole("button", { name: "Import legacy history" }));
+    expect(screen.queryByRole("dialog", { name: "Preferences & Accessibility" })).not.toBeInTheDocument();
     const dialog = await screen.findByRole("dialog", { name: "Import legacy history" });
     expect(within(dialog).getByText("Imported CLI history · 2 messages")).toBeVisible();
     expect(api.request.mock.calls.some(([command]) => command.type === "projects.import.confirm")).toBe(false);
@@ -232,7 +312,9 @@ describe("shared project conversation", () => {
     Object.defineProperty(transcript, "scrollHeight", { value: 2000 });
     Object.defineProperty(transcript, "clientHeight", { value: 400 });
     transcript.scrollTop = 270; fireEvent.scroll(transcript);
-    await user.click(screen.getByRole("button", { name: "Legacy history & tools" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "History" }));
+    await user.click(screen.getByRole("button", { name: "Open legacy workspace" }));
     await user.click(screen.getByRole("button", { name: /Projects and conversations/ }));
     expect(container.querySelector<HTMLDivElement>(".project-transcript")?.scrollTop).toBe(270);
     expect(screen.getByRole("textbox", { name: "Message HIVE" })).toHaveValue("Draft survives the legacy view");
@@ -263,7 +345,48 @@ describe("shared project conversation", () => {
     });
     const user = userEvent.setup(); render(<ProjectWorkspaceApp api={api} />);
     await user.click(await screen.findByRole("button", { name: "View changes" }));
+    await user.click(screen.getByText("Git actions"));
     await user.click(screen.getByRole("button", { name: "Preview commit" }));
     await waitFor(() => expect(seen).toEqual([workspace, workspace]));
+  });
+
+  it("marks running and unreviewed sessions with labelled dots and counts changed files in the header", async () => {
+    const initial = snapshot();
+    initial.sessions[0] = { ...baseSession, runs: [baseRun] };
+    initial.sessions[1] = { ...initial.sessions[1], runs: [{ ...baseRun, id: "run-two", sessionId: "two", status: "running", endedAt: null }] };
+    initial.sessions.push({ ...baseSession, id: "four", title: "Reviewed chat", runs: [{ ...baseRun, id: "run-four", sessionId: "four", reviewedAt: now }] }, { ...baseSession, id: "five", title: "Imported chat", runs: [{ ...baseRun, id: "run-five", sessionId: "five", engine: "imported" }] });
+    render(<ProjectWorkspaceApp api={bridge(initial)} />);
+    const tree = await screen.findByRole("navigation", { name: "Project sessions" });
+    await within(tree).findByRole("button", { name: /First conversation/ });
+    expect(within(within(tree).getByRole("button", { name: /First conversation/ })).getByRole("img", { name: "Needs review" })).toBeInTheDocument();
+    expect(within(within(tree).getByRole("button", { name: /Second conversation/ })).getByRole("img", { name: "Run active" })).toBeInTheDocument();
+    expect(within(within(tree).getByRole("button", { name: /Reviewed chat/ })).queryByRole("img")).not.toBeInTheDocument();
+    expect(within(within(tree).getByRole("button", { name: /Imported chat/ })).queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View changes" })).toHaveTextContent("View changes1");
+    expect(screen.getByRole("button", { name: "View changes" })).toHaveAttribute("title", "1 file changed in the latest run");
+  });
+
+  it("keeps rename and archive in a chat actions menu that Escape closes back to its trigger", async () => {
+    const api = bridge(); const user = userEvent.setup(); render(<ProjectWorkspaceApp api={api} />);
+    const trigger = await screen.findByRole("button", { name: "Chat actions" });
+    expect(screen.queryByRole("button", { name: "Rename chat" })).not.toBeInTheDocument();
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Rename chat" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "Rename chat" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    await user.click(trigger);
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(api.request.mock.calls.map(([command]) => command)).toContainEqual(expect.objectContaining({ type: "projects.action", action: expect.objectContaining({ type: "session.archive", sessionId: "one" }) })));
+  });
+
+  it("states the permission once, in the composer, behind a shield", async () => {
+    render(<ProjectWorkspaceApp api={bridge()} />);
+    const permissions = await screen.findByRole("combobox", { name: "Permissions" });
+    expect(permissions.closest("label")?.querySelector("svg")).not.toBeNull();
+    expect(screen.getByText("Enter to send · Shift+Enter for a new line")).toBeInTheDocument();
+    expect(screen.queryByText(/Guarded ·/)).not.toBeInTheDocument();
   });
 });

@@ -223,6 +223,11 @@ function runtimeEventSubagentId(event: RuntimeEvent): string | undefined {
   return typeof payload.taskId === "string" ? payload.taskId : undefined;
 }
 
+/** The state starts with the literal "none" until a route is chosen. */
+export function hasProvider(state: { provider?: string }): boolean {
+  return Boolean(state.provider) && state.provider !== "none";
+}
+
 export function initialState(): TuiState {
   const cols =
     process.stdout.columns && process.stdout.columns > 0

@@ -129,7 +129,8 @@ test("TUI Renderer - renderTuiScreen", async (t) => {
     const frame = renderTuiScreen({ ...baseState, width: 160, provider: null, model: undefined });
     assert.ok(!frame.includes("undefined"));
     assert.ok(!frame.includes("null"));
-    assert.ok(frame.includes("none"));
+    assert.ok(frame.includes("No provider yet"));
+    assert.ok(frame.includes("no provider"));
   });
 
   await t.test("compact renderer does not wrap title", () => {

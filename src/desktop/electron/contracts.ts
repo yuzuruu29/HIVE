@@ -5,6 +5,7 @@ import { CHAT_SESSION_ID_PATTERN } from "../../chat/session-store.js";
 import { normalizeChatRole } from "../../chat/roles.js";
 import { DESKTOP_COMMAND_TYPE_SET } from "./command-manifest.js";
 import { parseProjectAction, validateProjectSnapshot } from "../../projects/store.js";
+import { isDeniedWorkspacePath } from "../workspace-tree.js";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
@@ -92,6 +93,12 @@ function relativePath(value: unknown, label: string): string {
   return clean;
 }
 
+function workspacePath(value: unknown, label: string): string {
+  const clean = relativePath(value, label);
+  if (isDeniedWorkspacePath(clean)) throw new Error(`${label} is deny-listed.`);
+  return clean;
+}
+
 function validateRunOptions(value: unknown): void {
   const candidate = optionalExact(value, ["mode", "approvalPolicy"], ["maxAgents", "maxRetries", "providerId", "model"], "run options");
   if (!MODES.has(String(candidate.mode))) throw new Error("run mode is invalid.");
@@ -161,16 +168,7 @@ function validateCredentialWrite(value: unknown): void {
 
 function validateProviderConfiguration(value: unknown): void {
   const input = optionalExact(value, ["id", "name", "kind", "authType", "approved"], ["baseUrl", "defaultModel"], "provider configuration");
-  if (!PROVIDER_ID.test(string(input.id, "provider id", 96))) throw new Error("provider id is invalid.");
-  string(input.name, "provider name", 200);
-  if (!PROVIDER_KINDS.has(String(input.kind))) throw new Error("provider kind is invalid.");
-  if (!AUTH_TYPES.has(String(input.authType))) throw new Error("provider auth type is invalid.");
-  boolean(input.approved, "provider approval");
-  if (input.baseUrl !== undefined) {
-    const url = new URL(string(input.baseUrl, "provider base URL", 2_048));
-    if (!new Set(["https:", "http:"]).has(url.protocol)) throw new Error("provider base URL is invalid.");
-  }
-  if (input.defaultModel !== undefined) string(input.defaultModel, "default model", 256);
+  validateEventProvider({ ...input, configured: false });
 }
 
 function validateDiff(value: unknown): void {
@@ -292,9 +290,11 @@ function validateCouncilStage(value: unknown): void {
 }
 
 function validateCouncilSummary(value: unknown): void {
-  const summary = exact(value, ["status", "reason", "preset", "runId", "stages", "totalTokens", "artifactDir", "runPath", "reportPath"], "council summary");
+  const summary = optionalExact(value, ["status", "reason", "review", "preset", "runId", "stages", "totalTokens", "artifactDir", "runPath", "reportPath"], ["verdict"], "council summary");
   if (!COUNCIL_STATUSES.has(String(summary.status))) throw new Error("Council summary status is invalid.");
   boundaryString(summary.reason, "council summary reason", 2_000);
+  boundaryText(summary.review, "council summary review", 100_000);
+  if (summary.verdict !== undefined && (typeof summary.verdict !== "string" || !["PASS", "PASS_WITH_LIMITATIONS", "FAIL", "BLOCKED"].includes(summary.verdict))) throw new Error("Council summary verdict is invalid.");
   if (!COUNCIL_PRESETS.has(String(summary.preset))) throw new Error("Council summary preset is invalid.");
   id(summary.runId, "council summary run id");
   if (!Array.isArray(summary.stages) || summary.stages.length > 128) throw new Error("Council summary stages are invalid.");
@@ -406,14 +406,14 @@ export function validateDesktopCommand(value: unknown): DesktopCommand {
       exact(root, ["requestId", "type", "input"], "desktop command");
       const input = optionalExact(root.input, ["repositoryRoot"], ["path"], "workspace list input");
       absolutePath(input.repositoryRoot, "repository root");
-      if (input.path !== undefined && input.path !== "") relativePath(input.path, "workspace list path");
+      if (input.path !== undefined && input.path !== "") workspacePath(input.path, "workspace list path");
       break;
     }
     case "workspace.read": {
       exact(root, ["requestId", "type", "input"], "desktop command");
       const input = exact(root.input, ["repositoryRoot", "path"], "workspace read input");
       absolutePath(input.repositoryRoot, "repository root");
-      relativePath(input.path, "workspace read path");
+      workspacePath(input.path, "workspace read path");
       break;
     }
     case "workspace.pick": exact(root, ["requestId", "type"], "desktop command"); break;
@@ -714,13 +714,13 @@ function validateGitStatus(value: unknown): void {
 function validateWorkspaceListing(value: unknown): void {
   const listing = exact(value, ["repositoryRoot", "path", "truncated", "entries"], "workspace listing");
   absolutePath(listing.repositoryRoot, "repository root");
-  if (listing.path !== "") relativePath(listing.path, "workspace listing path");
+  if (listing.path !== "") workspacePath(listing.path, "workspace listing path");
   boolean(listing.truncated, "workspace listing truncated flag");
   if (!Array.isArray(listing.entries) || listing.entries.length > 400) throw new Error("Workspace listing entries are invalid.");
   for (const entry of listing.entries) {
     const item = exact(entry, ["name", "path", "kind"], "workspace listing entry");
     boundaryString(item.name, "workspace entry name", 512);
-    relativePath(item.path, "workspace entry path");
+    workspacePath(item.path, "workspace entry path");
     if (item.kind !== "file" && item.kind !== "dir") throw new Error("Workspace entry kind is invalid.");
   }
 }
@@ -728,7 +728,7 @@ function validateWorkspaceListing(value: unknown): void {
 function validateWorkspaceFile(value: unknown): void {
   const file = exact(value, ["repositoryRoot", "path", "content", "truncated", "languageHint"], "workspace file");
   absolutePath(file.repositoryRoot, "repository root");
-  relativePath(file.path, "workspace file path");
+  workspacePath(file.path, "workspace file path");
   boundaryText(file.content, "workspace file content", 256 * 1024);
   boolean(file.truncated, "workspace file truncated flag");
   boundaryString(file.languageHint, "workspace language hint", 16);

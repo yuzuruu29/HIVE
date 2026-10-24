@@ -5,9 +5,9 @@
  */
 
 import { redactKnownSecrets } from "../security/secrets.js";
-import { TuiState } from "./state.js";
+import { hasProvider, TuiState } from "./state.js";
 import { BRAND_COLORS } from "../ui/colors.js";
-import { fitStyledTerminalText, sanitizeTerminalText, terminalCellWidth, wrapDisplayLine } from "./display-text.js";
+import { fitStyledTerminalText, sanitizeTerminalText, terminalCellWidth, truncateMiddle, wrapDisplayLine } from "./display-text.js";
 import { glyphsFor, type Glyphs } from "./glyphs.js";
 import {
   boxPrompt,
@@ -274,7 +274,7 @@ export function renderStatusBar(state: TuiState, width: number): string {
   // Most useful first: narrow terminals truncate from the end.
   const parts = [
     agents > 0 ? `Subagents ${agents}` : "",
-    `${displayValue(state.provider)}/${displayValue(state.model)}`,
+    hasProvider(state) ? `${displayValue(state.provider)}/${displayValue(state.model)}` : "no provider",
     usage,
     place,
     session ? `session:${session}` : "",
@@ -499,7 +499,9 @@ export function renderTuiScreen(state: TuiState, now = Date.now()): string {
   const lines: string[] = [];
   if (state.sharedContext) {
     const reserved = Math.min(3, Math.max(0, height - plan.statusRows - plan.subagentRows - plan.pickerRows - plan.composerRows - plan.transcriptRows));
-    const header = [`HIVE · ${state.sharedContext.project} · ${state.sharedContext.status}${state.sharedContext.archived ? " · archived" : ""}`, `${state.sharedContext.path}${state.gitBranch ? ` · ${state.gitBranch}` : ""}`, `Session: ${state.sharedContext.session} · /sessions /projects`];
+    const g = glyphsFor(state);
+    const branch = state.gitBranch ? ` ${g.dot} ${state.gitBranch}` : "";
+    const header = [`HIVE ${g.dot} ${state.sharedContext.project} ${g.dot} ${state.sharedContext.status}${state.sharedContext.archived ? ` ${g.dot} archived` : ""}`, `${truncateMiddle(state.sharedContext.path, Math.max(8, width - terminalCellWidth(branch)), g.ellipsis)}${branch}`, `Session: ${state.sharedContext.session} ${g.dot} /sessions /projects`];
     lines.push(...header.slice(0, reserved).map((text, index) => paintRow([{ text: fitVisible(text, width), tone: index === 0 ? "accent" : "muted" }], paletteFor(state))));
   }
   const modalRows = state.mcpInput ? renderMcpInputRows(state, width) : undefined;

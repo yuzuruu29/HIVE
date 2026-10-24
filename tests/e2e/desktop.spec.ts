@@ -74,6 +74,7 @@ test.describe.serial("HIVE shared project desktop", () => {
     expect(run?.reviewedAt).toBeTruthy();
     const codingSessionId = run!.engineSessionId!;
     await page.evaluate(() => { window.hiveDesktop.subscribe((event) => { if (event.type === "git.previewed") window.hiveE2EGitPreview = event.preview; }); });
+    await changes.getByText("Git actions", { exact: true }).click();
     await changes.getByText("Git action settings", { exact: true }).click();
     await changes.getByLabel("Commit message", { exact: true }).fill("E2E verified exact fixture");
     await changes.getByRole("button", { name: "Preview commit", exact: true }).click();
@@ -116,6 +117,7 @@ test.describe.serial("HIVE shared project desktop", () => {
     await hive.expectPhase("awaiting_approval");
     const approval = page.getByRole("region", { name: "Tool approval" });
     await expect(approval).toContainText("This action only");
+    await page.getByRole("button", { name: "Chat actions", exact: true }).click();
     await expect(page.getByRole("button", { name: "Archive", exact: true })).toBeDisabled();
     await approval.getByRole("button", { name: "Decline", exact: true }).click();
     await hive.expectPhase("failed");
@@ -155,6 +157,69 @@ test.describe.serial("HIVE shared project desktop", () => {
     await expect(stat(worktree)).rejects.toThrow();
   });
 
+  test("runs the hive-mind-council as a read-only Council workflow with every role on the rail", async () => {
+    const hive = new HiveDesktopPage(page);
+    await hive.openRepository(repository);
+    const image = path.join(repository, "diagram.png");
+    await writeFile(image, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jDZkAAAAASUVORK5CYII=", "base64"));
+    await page.getByRole("button", { name: "Attach images", exact: true }).click();
+    const attachments = page.getByRole("dialog", { name: "Attach images" });
+    await attachments.getByLabel("Local image paths").fill(image);
+    await attachments.getByRole("button", { name: "Save attachments" }).click();
+    const draft = "Plan a council note for the fixture file.";
+    await page.getByLabel("Message HIVE").fill(draft);
+    await page.getByRole("combobox", { name: "Workflow" }).selectOption("council");
+    await expect(page.getByLabel("Message HIVE")).toHaveAttribute("placeholder", "Describe the goal for the HIVE council");
+    await expect(page.getByRole("button", { name: "Attach images", exact: true })).toBeDisabled();
+    await expect(page.locator("#project-council-images")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeDisabled();
+    await page.getByLabel("Message HIVE").press("Enter");
+    await expect(page.getByLabel("Message HIVE")).toHaveValue(draft);
+    expect((await hive.selectedSession())?.runs).toHaveLength(0);
+    const session = (await hive.selectedSession())!;
+    const requestId = crypto.randomUUID();
+    const rejected = await hive.request({ type: "projects.action", requestId, action: { type: "session.send", requestId, sessionId: session.id, text: draft, executionContext: { imagePaths: [image] } } });
+    expect(rejected.type).toBe("request.failed");
+    if (rejected.type === "request.failed") expect(rejected.message).toMatch(/Council mode runs only/);
+    expect((await hive.selectedSession())?.runs).toHaveLength(0);
+    const originalViewport = page.viewportSize() ?? { width: 1280, height: 900 };
+    await page.setViewportSize({ width: 420, height: 900 });
+    await expect(page.locator("#project-council-images")).toBeVisible();
+    await page.screenshot({ path: path.join(root, "council-image-guard-420.png") });
+    await page.setViewportSize(originalViewport);
+    await page.getByRole("button", { name: "Remove image diagram.png", exact: true }).click();
+    await expect(page.getByLabel("Message HIVE")).toHaveValue(draft);
+    await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeEnabled();
+    await hive.send(draft);
+    await hive.expectPhase("completed");
+    const run = page.getByRole("region", { name: "Run completed" }).last();
+    await expect(run.getByRole("list", { name: "Agent roles" }).getByRole("listitem")).toHaveText(["Queen, done", "Scout, done", "Architect, done", "Forger, done", "Sentinel, done", "Scribe, done"]);
+    await expect(run).toContainText("Council complete · standard preset · Sentinel PASS WITH LIMITATIONS");
+    const answer = page.getByRole("article", { name: "assistant message" }).last();
+    await expect(answer).toContainText("HIVE Review — Complete");
+    await expect(answer).toContainText("Proposed change (Forger, not applied)");
+    expect(await readFile(path.join(repository, "hive-desktop-fixture.txt"), "utf8")).toBe("baseline\n");
+    const recorded = (await hive.selectedSession())?.runs.at(-1);
+    expect(recorded?.settings.mode).toBe("council");
+    expect(recorded?.effectivePolicy).toBe("safe");
+    expect(recorded?.patches).toEqual([]);
+  });
+
+  test("cancelled Council keeps its partial review and completed handoffs in the shared conversation", async () => {
+    const hive = new HiveDesktopPage(page);
+    await hive.openRepository(repository);
+    await page.getByRole("combobox", { name: "Workflow" }).selectOption("council");
+    await hive.send("[hold-after-queen] Review the fixture and keep completed work if stopped.");
+    await expect.poll(async () => (await hive.selectedSession())?.runs.at(-1)?.events.some((event) => event.role === "Queen" && event.kind === "completed")).toBe(true);
+    await page.getByRole("button", { name: "Stop run", exact: true }).click();
+    await hive.expectPhase("cancelled");
+    const answer = page.getByRole("article", { name: "assistant message" }).last();
+    await expect(answer).toContainText("HIVE Review");
+    await expect(answer).toContainText(/cancelled|canceled/i);
+    await expect(answer).toContainText("Run contract: append a council note");
+    expect(await readFile(path.join(repository, "hive-desktop-fixture.txt"), "utf8")).toBe("baseline\n");
+  });
+
   test("updates two native windows without moving local focus or drafts and survives archive/restore", async () => {
     const first = new HiveDesktopPage(page);
     await first.openRepository(repository);
@@ -171,6 +236,7 @@ test.describe.serial("HIVE shared project desktop", () => {
     await secondPage.getByLabel("Message HIVE").fill("Secondary unsent draft");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Primary local selection");
     await expect(page.getByLabel("Message HIVE")).toHaveValue("Primary unsent draft");
+    await secondPage.getByRole("button", { name: "Chat actions", exact: true }).click();
     await secondPage.getByRole("button", { name: "Archive", exact: true }).click();
     await expect(secondPage.getByText("This chat is archived.")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Primary local selection");

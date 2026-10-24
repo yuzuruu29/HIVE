@@ -1497,7 +1497,7 @@ export class TuiApp {
         if (this.state.input.trim() === raw && raw.startsWith("/")) this.setState(withPicker(withInput(this.state, ""), undefined));
       } else {
         if (this.projectClient.busy()) throw new Error("Stop the active run and wait for it to settle before running a separate local command.");
-        if (["plan", "review"].includes(this.state.workflowMode ?? "") && /^(?:!|\/shell\b|\/mcp\s+(?:call|task-call|task-cancel|task-continue)\b)/i.test(raw)) throw new Error("Direct shell and external mutations are disabled in Plan and Review workflows.");
+        if (["plan", "review", "council"].includes(this.state.workflowMode ?? "") && /^(?:!|\/shell\b|\/mcp\s+(?:call|task-call|task-cancel|task-continue)\b)/i.test(raw)) throw new Error("Direct shell and external mutations are disabled in Plan, Review and Council workflows.");
         // Provider setup and existing trusted extension forms retain their mature input path.
         this.launchLegacySharedCommand(raw);
       }

@@ -1279,6 +1279,7 @@ export class QueenOrchestrator {
       const completedAt = this.#clock();
       const result: ValidationResult = {
         id: validationId,
+        ...(typeof toolResult.metadata?.commandId === "string" ? { commandId: toolResult.metadata.commandId } : {}),
         taskId: task.id,
         command,
         status: toolResult.ok ? "passed" : signal.aborted ? "cancelled" : "failed",

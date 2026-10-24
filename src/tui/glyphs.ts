@@ -1,7 +1,7 @@
 /**
  * glyphs.ts
- * One table of drawing characters for the cockpit. Every glyph is a single
- * terminal cell in both sets, so layout math never depends on which set is active.
+ * One table of drawing characters for the cockpit. Layout math measures cells,
+ * so a glyph may be wider in the ASCII set (ellipsis, mode, pass) without breaking rows.
  */
 
 export interface Glyphs {
@@ -18,6 +18,9 @@ export interface Glyphs {
   bee: { open: readonly [string, string]; folded: readonly [string, string]; body: string; trail: string };
   /** Marks where streamed text is arriving. */
   caret: string;
+  /** Recorded check outcomes; the word always follows, so color is never the only signal. */
+  pass: string;
+  fail: string;
 }
 
 export const UNICODE_GLYPHS: Glyphs = {
@@ -32,11 +35,13 @@ export const UNICODE_GLYPHS: Glyphs = {
   box: { tl: "╭", tr: "╮", bl: "╰", br: "╯", h: "─", v: "│" },
   bee: { open: ["ʚ", "ɞ"], folded: ["ε", "з"], body: "●", trail: "·" },
   caret: "▍",
+  pass: "✓",
+  fail: "✗",
 };
 
 export const ASCII_GLYPHS: Glyphs = {
   bullet: "*",
-  result: "`",
+  result: "|",
   user: ">",
   focus: ">",
   bar: "|",
@@ -46,6 +51,8 @@ export const ASCII_GLYPHS: Glyphs = {
   box: { tl: "+", tr: "+", bl: "+", br: "+", h: "-", v: "|" },
   bee: { open: ["{", "}"], folded: ["-", "-"], body: "o", trail: "." },
   caret: "_",
+  pass: "ok",
+  fail: "x",
 };
 
 /**

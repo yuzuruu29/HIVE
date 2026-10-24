@@ -112,9 +112,15 @@ export function parseExecutionContext(value: unknown): SharedExecutionContext {
   if (value.invokedSkills !== undefined) { if (!Array.isArray(value.invokedSkills) || value.invokedSkills.length > 16) throw new Error("Too many invoked skills."); for (const entry of value.invokedSkills) { record(entry); exact(entry, ["id", "arguments"]); text(entry.id, 1_024, "invoked skill id"); if (typeof entry.arguments !== "string" || entry.arguments.length > 8_000 || entry.arguments.includes("\0")) throw new Error("Invalid skill arguments."); } }
   return structuredClone(value) as SharedExecutionContext;
 }
+export function assertCouncilExecutionContext(context: SharedExecutionContext | undefined): void {
+  if (context && [context.skillIds, context.enabledMcpServers, context.enabledLspServers, context.invokedSkills, context.imagePaths].some((values) => values?.length)
+    || context?.pluginAgentId || context?.outputStyleId) {
+    throw new Error("Council mode runs only the built-in HIVE council; switch to Code, Plan, or Review for extensions and images.");
+  }
+}
 export function parseSessionSettings(value: unknown, partial = false): Partial<SessionSettings> {
   record(value); exact(value, ["mode", "permissions", "providerId", "model"]);
-  if ((!partial || value.mode !== undefined) && !["chat", "code", "plan", "review"].includes(String(value.mode))) throw new Error("Invalid session mode.");
+  if ((!partial || value.mode !== undefined) && !["chat", "code", "plan", "review", "council"].includes(String(value.mode))) throw new Error("Invalid session mode.");
   if ((!partial || value.permissions !== undefined) && !["guarded", "standard", "autonomous"].includes(String(value.permissions))) throw new Error("Invalid session permissions.");
   if (value.providerId !== undefined && !(partial && value.providerId === "")) { assertProjectId(value.providerId); }
   if (value.model !== undefined && !(partial && value.model === "")) text(value.model, 256, "model");

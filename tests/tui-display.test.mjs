@@ -223,3 +223,34 @@ test("narrow welcome cards wrap their full tagline, runtime, workspace and comma
     }
   }
 });
+
+test("no-provider runtime reads as a next step in the welcome card and footer", async () => {
+  const { renderTranscriptRows, plainRow } = await import("../dist/tui/transcript-view.js");
+  const { renderStatusBar } = await import("../dist/tui/renderer.js");
+  const { initialState } = await import("../dist/tui/state.js");
+  for (const asciiGlyphs of [false, true]) {
+    const state = { ...initialState(), width: 80, asciiGlyphs, colorEnabled: false, transcript: [], outputLines: [] };
+    const card = renderTranscriptRows(state, 80).map(plainRow).join("\n");
+    assert.match(card, /No provider yet . \/providers to connect one/);
+    assert.doesNotMatch(card, /none/);
+    const footer = renderStatusBar(state, 120);
+    assert.match(footer, /no provider/);
+    assert.doesNotMatch(footer, /none\/none/);
+  }
+});
+
+test("ASCII glyphs keep the result connector printable and long paths keep both ends", async () => {
+  const { ASCII_GLYPHS } = await import("../dist/tui/glyphs.js");
+  const { truncateMiddle, terminalCellWidth } = await import("../dist/tui/display-text.js");
+  assert.equal(ASCII_GLYPHS.result, "|");
+  const long = "C:\Users\someone\Documents\projects\clients\acme\HIVE";
+  for (const width of [12, 20, 30]) {
+    const fitted = truncateMiddle(long, width);
+    assert.ok(terminalCellWidth(fitted) <= width, `${fitted} exceeds ${width}`);
+    assert.ok(fitted.startsWith("C:"), fitted);
+    assert.ok(fitted.endsWith("HIVE"), fitted);
+    assert.match(fitted, /…/);
+  }
+  assert.equal(truncateMiddle("short", 20), "short");
+  assert.equal(truncateMiddle(long, 20, "...").includes("..."), true);
+});

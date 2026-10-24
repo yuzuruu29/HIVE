@@ -8,9 +8,9 @@ export function createProjectWorkerHost(send: (message: ProjectWorkerOutbound) =
   let started = false;
   let cancelled: string | undefined;
   let handle: EngineHandle | undefined;
-  const acknowledgements = new Map<string, { resolve(value: boolean): void; reject(error: Error): void }>();
+  const acknowledgements = new Map<string, { approval: boolean; resolve(value: boolean): void; reject(error: Error): void }>();
   const request = (message: Extract<ProjectWorkerOutbound, { id: string }>): Promise<boolean> => new Promise((resolve, reject) => {
-    acknowledgements.set(message.id, { resolve, reject });
+    acknowledgements.set(message.id, { approval: message.type === "project.approval", resolve, reject });
     send(message);
   });
   return (untrusted) => {
@@ -28,8 +28,11 @@ export function createProjectWorkerHost(send: (message: ProjectWorkerOutbound) =
     if (message.type === "project.cancel") {
       cancelled = typeof message.reason === "string" ? message.reason : "Cancelled";
       void Promise.resolve(handle?.cancel(cancelled)).catch((error) => send({ type: "project.failed", message: redactDesktopFailure(error) }));
-      for (const pending of acknowledgements.values()) pending.reject(new Error("Run cancelled"));
-      acknowledgements.clear();
+      // Cancellation declines approvals; durable event writes must still acknowledge or fail honestly.
+      for (const [id, pending] of acknowledgements) if (pending.approval) {
+        acknowledgements.delete(id);
+        pending.resolve(false);
+      }
       return true;
     }
     if (message.type !== "project.start") return false;

@@ -7,10 +7,10 @@ import { Dialog } from "../Dialog";
 import { CommandPalette } from "../components/CommandPalette";
 import { ConfiguredModelPicker } from "../components/ConfiguredModelPicker";
 import { ProviderDialog } from "../components/ProviderDialog";
-import { SettingsDialog } from "../components/SettingsDialog";
+import { SettingsDialog, type SettingsTab } from "../components/SettingsDialog";
 import { renderMarkdown } from "../markdown";
 import { usePrefs } from "../prefs";
-import { ArrowUpIcon, ChatIcon, ChevronDownIcon, CloseIcon, CodeIcon, DiffIcon, FolderIcon, GearIcon, HiveMark, PenIcon, SearchIcon, SidebarIcon, StopIcon } from "../shell/icons";
+import { ArchiveIcon, ArrowUpIcon, ChatIcon, ChevronDownIcon, CloseIcon, DiffIcon, FolderIcon, GearIcon, HiveMark, MoreIcon, PenIcon, PulseIcon, SearchIcon, ShieldIcon, SidebarIcon, StopIcon } from "../shell/icons";
 import { ChangesDialog, RunSummary } from "./RunEvidence";
 import { activeRunStates, useProjectWorkspace, type ActionInput } from "./useProjectWorkspace";
 import "../styles.css";
@@ -19,6 +19,13 @@ import "../styles/projects.css";
 type EditState = { kind: "attach" | "project.rename" | "session.rename"; id?: string; value: string; path?: string };
 type Panel = "search" | "archive" | "usage" | null;
 type ImportPreview = Extract<DesktopEvent, { type: "projects.import.previewed" }>["preview"];
+
+/** Running wins over review; imported history and change-free runs never ask for review. */
+function sessionMarker(session: SharedSession): { state: "running" | "review"; label: string } | null {
+  if (session.runs.some((run) => activeRunStates.has(run.status))) return { state: "running", label: "Run active" };
+  const last = session.runs.at(-1);
+  return last && last.status === "completed" && !last.reviewedAt && last.engine !== "imported" && last.patches.length > 0 ? { state: "review", label: "Needs review" } : null;
+}
 
 export function ProjectWorkspaceApp({ api: suppliedApi }: { api?: HiveDesktopBridge }) {
   const api = suppliedApi ?? installedBridge();
@@ -34,7 +41,9 @@ export function ProjectWorkspaceApp({ api: suppliedApi }: { api?: HiveDesktopBri
   const [edit, setEdit] = useState<EditState | null>(null);
   const [changesId, setChangesId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"general" | "models" | "catalog">("general");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  const [chatActionsOpen, setChatActionsOpen] = useState(false);
+  const chatActionsRef = useRef<HTMLDivElement>(null);
   const [provider, setProvider] = useState<DesktopProviderMetadata | null>(null);
   const [credential, setCredential] = useState("");
   const [providerBusy, setProviderBusy] = useState(false);
@@ -60,6 +69,7 @@ export function ProjectWorkspaceApp({ api: suppliedApi }: { api?: HiveDesktopBri
   const changedRun = selected?.runs.find((run) => run.id === changesId);
   const draft = selected ? store.drafts[selected.id] ?? "" : "";
   const imagePaths = selected ? imageDrafts[selected.id] ?? [] : [];
+  const councilImagesBlocked = selected?.settings.mode === "council" && imagePaths.length > 0;
   const sending = selected ? store.sendingIds.has(selected.id) : false;
   const modelOptions = store.providers.filter((entry) => entry.configured).flatMap((entry) => {
     const choices = store.models[entry.id]?.map((model) => model.id) ?? [];
@@ -88,7 +98,13 @@ export function ProjectWorkspaceApp({ api: suppliedApi }: { api?: HiveDesktopBri
     const saved = scrollPositions.current.get(selected.id);
     transcriptRef.current.scrollTop = saved?.follow === false ? saved.top : transcriptRef.current.scrollHeight;
   }, [selected?.id, advanced]);
-  useEffect(() => { setResumeId(null); }, [selected?.id]);
+  useEffect(() => { setResumeId(null); setChatActionsOpen(false); }, [selected?.id]);
+  useEffect(() => {
+    if (!chatActionsOpen) return;
+    const dismiss = (event: PointerEvent) => { if (!chatActionsRef.current?.contains(event.target as Node)) setChatActionsOpen(false); };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [chatActionsOpen]);
   useLayoutEffect(() => {
     if (advanced || !selected || !transcriptRef.current) return;
     if (scrollPositions.current.get(selected.id)?.follow !== false) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
@@ -119,9 +135,9 @@ export function ProjectWorkspaceApp({ api: suppliedApi }: { api?: HiveDesktopBri
       requestAnimationFrame(() => { if (navigationEpoch.current === epoch) composerRef.current?.focus(); });
     }
   }
-  function openSettings(tab: "general" | "models" | "catalog" = "general") { void store.refreshProviders(); setSettingsTab(tab); setSettingsOpen(true); }
+  function openSettings(tab: SettingsTab = "general") { void store.refreshProviders(); setSettingsTab(tab); setSettingsOpen(true); }
   async function sendMessage() {
-    if (!selected || running || sending || busy || !store.online) return;
+    if (!selected || running || sending || busy || !store.online || councilImagesBlocked) return;
     const continuation = resumeId;
     const sentImages = imagePaths;
     if (await store.sendSession(selected, continuation ?? undefined, sentImages.length ? { imagePaths: sentImages } : undefined)) {
@@ -211,17 +227,15 @@ export function ProjectWorkspaceApp({ api: suppliedApi }: { api?: HiveDesktopBri
         const sessions = store.snapshot!.sessions.filter((session) => session.projectId === entry.id && !session.archived);
         return <section key={entry.id} className="project-group">
           <div className="project-row"><button aria-expanded={expanded} onClick={() => { setProjectChoice(entry.id); setExpandedProjects((current) => { const next = new Set(current ?? (project ? [project.id] : [])); if (expanded) next.delete(entry.id); else next.add(entry.id); return next; }); }}><FolderIcon /><span>{entry.name}</span><ChevronDownIcon /></button><button className="project-icon" aria-label={`New chat in ${entry.name}`} disabled={busy} onClick={() => void newSession(entry.id)}>+</button></div>
-          {expanded && <ul>{sessions.map((session) => <li key={session.id}><button className={selected?.id === session.id ? "is-selected" : ""} aria-current={selected?.id === session.id ? "page" : undefined} onClick={() => choose(session)}><span>{session.title}</span>{session.runs.some((run) => activeRunStates.has(run.status)) && <span className="project-running-dot" aria-label="Run active" />}</button></li>)}{!sessions.length && <li className="project-nav-empty">No chats yet</li>}</ul>}
+          {expanded && <ul>{sessions.map((session) => <li key={session.id}><button className={selected?.id === session.id ? "is-selected" : ""} aria-current={selected?.id === session.id ? "page" : undefined} onClick={() => choose(session)}><span>{session.title}</span>{(() => { const marker = sessionMarker(session); return marker && <span className="project-session-dot" data-state={marker.state} role="img" aria-label={marker.label} title={marker.label} />; })()}</button></li>)}{!sessions.length && <li className="project-nav-empty">No chats yet</li>}</ul>}
         </section>;
       })}
     </nav>
     <nav className="project-footer" aria-label="Workspace controls">
-      <button onClick={() => setPanel("archive")}><ChatIcon />Archived chats</button>
-      <button disabled={!project || busy} onClick={() => void previewHistory()}><FolderIcon />Import legacy history</button>
-      <button onClick={() => setPanel("usage")}><CodeIcon />Usage</button>
+      <button onClick={() => setPanel("archive")}><ArchiveIcon />Archived chats</button>
+      <button onClick={() => setPanel("usage")}><PulseIcon />Usage</button>
       <button onClick={() => openSettings()}><GearIcon />Settings</button>
-      <button onClick={() => { navigationEpoch.current++; setAdvanced(true); }}><SidebarIcon />Legacy history &amp; tools</button>
-      <p>Local workspace <span>{store.online ? "Connected" : "Offline"}</span></p>
+      <p>Local workspace <span className="project-connection" data-online={store.online}>{store.online ? "Connected" : "Offline"}</span></p>
     </nav>
   </aside>;
 
@@ -234,7 +248,16 @@ export function ProjectWorkspaceApp({ api: suppliedApi }: { api?: HiveDesktopBri
       <header className="project-header">
         {compact && <button className="project-icon" aria-label="Open navigation" onClick={() => setDrawerOpen(true)}><SidebarIcon size={20} /></button>}
         <div className="project-context"><button title={project?.repositoryPath} disabled={!project} onClick={() => project && setEdit({ kind: "project.rename", id: project.id, value: project.name })}>{project?.name ?? "HIVE workspace"}</button><span>/</span><h1>{selected?.title ?? "New conversation"}</h1></div>
-        <div className="project-header-actions">{selected && <><button className="project-icon" aria-label="Rename chat" onClick={() => setEdit({ kind: "session.rename", id: selected.id, value: selected.title })}><PenIcon /></button><button className="project-changes-button" onClick={() => setChangesId(latest?.id ?? "empty")}><DiffIcon /><span>View changes</span></button><button className="project-quiet-button" disabled={busy || !!running || sending} onClick={() => void perform({ type: selected.archived ? "session.restore" : "session.archive", sessionId: selected.id })}>{selected.archived ? "Restore" : "Archive"}</button></>}</div>
+        <div className="project-header-actions">{selected && <>
+          <button className="project-changes-button" aria-label="View changes" title={latest?.patches.length ? `${latest.patches.length} ${latest.patches.length === 1 ? "file" : "files"} changed in the latest run` : undefined} onClick={() => setChangesId(latest?.id ?? "empty")}><DiffIcon /><span>View changes</span>{!!latest?.patches.length && <span className="project-count" aria-hidden="true">{latest.patches.length}</span>}</button>
+          <div className="project-chat-actions" ref={chatActionsRef} onKeyDown={(event) => { if (event.key === "Escape" && chatActionsOpen) { event.stopPropagation(); setChatActionsOpen(false); chatActionsRef.current?.querySelector<HTMLButtonElement>("button")?.focus(); } }}>
+            <button className="project-icon" aria-label="Chat actions" aria-expanded={chatActionsOpen} aria-controls="project-chat-menu" onClick={() => setChatActionsOpen((open) => !open)}><MoreIcon /></button>
+            {chatActionsOpen && <div id="project-chat-menu" className="project-chat-menu">
+              <button onClick={() => { setChatActionsOpen(false); setEdit({ kind: "session.rename", id: selected.id, value: selected.title }); }}><PenIcon />Rename chat</button>
+              <button disabled={busy || !!running || sending} title={running ? "Stop the active run before archiving" : undefined} onClick={() => { setChatActionsOpen(false); void perform({ type: selected.archived ? "session.restore" : "session.archive", sessionId: selected.id }); }}><ArchiveIcon />{selected.archived ? "Restore" : "Archive"}</button>
+            </div>}
+          </div>
+        </>}</div>
       </header>
       {!store.online && store.connectionError && <div className="project-banner" role="status">History is offline. Your conversation and draft are preserved.<button onClick={() => void store.reconnect()}>Reconnect</button></div>}
       {store.error && <div className="project-banner is-error" role="alert"><span>{store.error}</span><button aria-label="Dismiss error" onClick={() => store.setError(null)}><CloseIcon /></button></div>}
@@ -251,24 +274,25 @@ export function ProjectWorkspaceApp({ api: suppliedApi }: { api?: HiveDesktopBri
             </article>{lastForRun && <RunSummary run={run} showSummary={message.role !== "assistant" || message.text.trim() !== run.summary.trim()} busy={busy} onChanges={() => setChangesId(run.id)} onApprove={(approvalId, approved) => void perform({ type: "run.approve", sessionId: selected.id, runId: run.id, approvalId, approved })} />}</Fragment>;
           })}
           {selected?.runs.filter((run) => !selected.messages.some((message) => message.runId === run.id)).map((run) => <RunSummary key={run.id} run={run} busy={busy} onChanges={() => setChangesId(run.id)} onApprove={(approvalId, approved) => void perform({ type: "run.approve", sessionId: selected.id, runId: run.id, approvalId, approved })} />)}
-          {latest && ["interrupted", "failed", "cancelled"].includes(latest.status) && !running && <div className="project-recovery"><p>This attempt {latest.status}. Changes remain in the workspace. A continuation starts a new linked attempt after the engine checks its state.</p><button disabled={selected?.archived} onClick={() => { setResumeId(latest.id); composerRef.current?.focus(); }}>Continue in a new attempt</button></div>}
+          {latest && ["interrupted", "failed", "cancelled"].includes(latest.status) && latest.settings.mode !== "council" && !running && <div className="project-recovery"><p>This attempt {latest.status}. Changes remain in the workspace. A continuation starts a new linked attempt after the engine checks its state.</p><button disabled={selected?.archived} onClick={() => { setResumeId(latest.id); composerRef.current?.focus(); }}>Continue in a new attempt</button></div>}
         </div>
       </div>
       {selected && <div className="project-composer-dock">
         {selected.archived ? <div className="project-archived">This chat is archived.<button disabled={busy} onClick={() => void perform({ type: "session.restore", sessionId: selected.id })}>Restore chat</button></div> : <form className="project-composer" aria-label="Conversation composer" onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
           {resumeId && <div className="project-resume-label">New attempt linked to the previous run<button type="button" aria-label="Cancel continuation" onClick={() => setResumeId(null)}><CloseIcon /></button></div>}
           {imagePaths.length > 0 && <ul className="project-attachments">{imagePaths.map((image) => <li key={image} title={image}><span>{image.split(/[\\/]/).at(-1)}</span><button type="button" aria-label={`Remove image ${image.split(/[\\/]/).at(-1)}`} onClick={() => setImageDrafts((current) => ({ ...current, [selected.id]: (current[selected.id] ?? []).filter((path) => path !== image) }))}><CloseIcon size={12} /></button></li>)}</ul>}
-          <textarea ref={composerRef} aria-label="Message HIVE" placeholder="Message HIVE" value={draft} rows={2} onChange={(event) => store.setDraft(selected.id, event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.key !== "Enter" || event.shiftKey) return; const sendWithEnter = prefs.composerSendWithEnter !== false; if ((sendWithEnter && !event.ctrlKey && !event.metaKey) || (!sendWithEnter && (event.ctrlKey || event.metaKey))) { event.preventDefault(); void sendMessage(); } }} />
+          {councilImagesBlocked && <p id="project-council-images" className="project-composer-note" role="status">Council accepts text only. Remove the attached images or switch workflow to send this draft.</p>}
+          <textarea ref={composerRef} aria-label="Message HIVE" aria-describedby={councilImagesBlocked ? "project-council-images" : undefined} placeholder={selected.settings.mode === "council" ? "Describe the goal for the HIVE council" : "Message HIVE"} value={draft} rows={2} onChange={(event) => store.setDraft(selected.id, event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing || event.key !== "Enter" || event.shiftKey) return; const sendWithEnter = prefs.composerSendWithEnter !== false; if ((sendWithEnter && !event.ctrlKey && !event.metaKey) || (!sendWithEnter && (event.ctrlKey || event.metaKey))) { event.preventDefault(); void sendMessage(); } }} />
           <div className="project-composer-controls">
-            <button type="button" className="project-icon project-attach" aria-label="Attach images" title="Attach local image paths" onClick={() => setAttachment({ sessionId: selected.id, paths: imagePaths.join("\n") })}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7L13 2" /><path d="m7 14 8-8" /></svg></button>
-            <label className="project-mode"><span className="sr-only">Workflow</span><select aria-label="Workflow" disabled={!!running || busy || sending} value={selected.settings.mode} onChange={(event) => void perform({ type: "session.settings", sessionId: selected.id, settings: { mode: event.target.value as SessionMode } })}><option value="code">Code</option><option value="plan">Plan</option><option value="chat">Chat</option>{selected.settings.mode === "review" && <option value="review">Review</option>}</select></label>
+            <button type="button" className="project-icon project-attach" aria-label="Attach images" title={selected.settings.mode === "council" ? "Council accepts text only" : "Attach local image paths"} disabled={selected.settings.mode === "council"} onClick={() => setAttachment({ sessionId: selected.id, paths: imagePaths.join("\n") })}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7L13 2" /><path d="m7 14 8-8" /></svg></button>
+            <label className="project-mode"><span className="sr-only">Workflow</span><select aria-label="Workflow" disabled={!!running || busy || sending} value={selected.settings.mode} onChange={(event) => void perform({ type: "session.settings", sessionId: selected.id, settings: { mode: event.target.value as SessionMode } })}><option value="code">Code</option><option value="plan">Plan</option><option value="chat">Chat</option><option value="council">Council</option>{selected.settings.mode === "review" && <option value="review">Review</option>}</select></label>
             <fieldset className="project-model-control" disabled={!!running || busy || sending}><ConfiguredModelPicker showSavedRoute options={modelOptions} selectedModel={selected.settings.providerId && selected.settings.model ? { providerId: selected.settings.providerId, model: selected.settings.model } : null} placeholder="Configured default" onSelectModel={(choice) => void perform({ type: "session.settings", sessionId: selected.id, settings: { providerId: choice.providerId, model: choice.model } })} onOpenSettings={() => openSettings("models")} label="Select model" resetKey={`${selected.id}:${running?.id ?? "idle"}`} /></fieldset>
-            <label className="project-permissions"><span className="sr-only">Permissions</span><select aria-label="Permissions" disabled={!!running || busy || sending} value={selected.settings.permissions} onChange={(event) => void perform({ type: "session.settings", sessionId: selected.id, settings: { permissions: event.target.value as SessionPermissions } })}><option value="guarded">Guarded</option><option value="standard">Standard</option><option value="autonomous">Autonomous</option></select></label>
-            {running ? <button type="button" className="project-send" aria-label={running.status === "stopping" ? "Stopping run" : "Stop run"} disabled={busy || running.status === "stopping"} onClick={() => void perform({ type: "run.cancel", sessionId: selected.id, runId: running.id })}><StopIcon size={18} /></button> : <button type="submit" className="project-send" aria-label="Send message" disabled={!draft.trim() || sending || busy || !store.online}><ArrowUpIcon size={21} /></button>}
+            <label className="project-permissions"><ShieldIcon size={15} /><span className="sr-only">Permissions</span><select aria-label="Permissions" disabled={!!running || busy || sending} value={selected.settings.permissions} onChange={(event) => void perform({ type: "session.settings", sessionId: selected.id, settings: { permissions: event.target.value as SessionPermissions } })}><option value="guarded">Guarded</option><option value="standard">Standard</option><option value="autonomous">Autonomous</option></select></label>
+            {running ? <button type="button" className="project-send" aria-label={running.status === "stopping" ? "Stopping run" : "Stop run"} disabled={busy || running.status === "stopping"} onClick={() => void perform({ type: "run.cancel", sessionId: selected.id, runId: running.id })}><StopIcon size={18} /></button> : <button type="submit" className="project-send" aria-label="Send message" aria-describedby={councilImagesBlocked ? "project-council-images" : undefined} disabled={!draft.trim() || sending || busy || !store.online || councilImagesBlocked}><ArrowUpIcon size={21} /></button>}
           </div>
           {!modelOptions.length && <button type="button" className="project-provider-hint" onClick={() => openSettings("models")}>Using the configured HIVE route · Manage desktop providers</button>}
         </form>}
-        <p className="project-composer-note">{running ? `Effective policy: ${running.effectivePolicy} · ${running.status.replace(/_/g, " ")}` : `${selected.settings.permissions[0].toUpperCase()}${selected.settings.permissions.slice(1)} · ${prefs.composerSendWithEnter === false ? "Ctrl+Enter" : "Enter"} to send · Shift+Enter for a new line`}</p>
+        <p className="project-composer-note">{running ? `Effective policy: ${running.effectivePolicy} · ${running.status.replace(/_/g, " ")}` : selected.settings.mode === "council" ? "Council: Queen, Scout, Architect, Forger, Sentinel and Scribe deliberate read-only. Nothing is applied." : `${prefs.composerSendWithEnter === false ? "Ctrl+Enter" : "Enter"} to send · Shift+Enter for a new line`}</p>
       </div>}
     </main>
     {changesId && <ChangesDialog run={changedRun} busy={busy} repositoryRoot={changedRun?.workspace} sessionTitle={selected?.title} request={store.request} onClose={() => setChangesId(null)} onReview={() => { if (selected && changedRun) void perform({ type: "run.review", sessionId: selected.id, runId: changedRun.id }); }} />}
@@ -289,7 +313,7 @@ export function ProjectWorkspaceApp({ api: suppliedApi }: { api?: HiveDesktopBri
         {!store.snapshot?.sessions.some((session) => panel === "archive" ? session.archived : (includeArchived || !session.archived) && session.title.toLowerCase().includes(query.toLowerCase().trim())) && <p className="project-search-empty">{panel === "archive" ? "No archived chats." : "No matching chats."}</p>}
       </>}
     </Dialog>}
-    {settingsOpen && <SettingsDialog initialTab={settingsTab} onClose={() => setSettingsOpen(false)} providers={store.providers} modelsByProvider={store.models} modelsLoading={store.loadingModels} onFetchModels={store.fetchModels} onConfigureProvider={(providerId) => { const entry = store.providers.find((item) => item.id === providerId); if (entry) configureProvider(entry); }} onAddCompatibleProvider={async (input) => { const event = await store.request({ type: "provider.configure", input: { ...input, kind: "openai-compatible", authType: "api-key", approved: true } }); if (event.type !== "provider.changed") throw new Error("Configuration not saved."); configureProvider(event.provider); }} />}
+    {settingsOpen && <SettingsDialog initialTab={settingsTab} onClose={() => setSettingsOpen(false)} history={{ importDisabled: !project || busy, onImport: () => void previewHistory(), onOpenLegacy: () => { navigationEpoch.current++; setAdvanced(true); } }} providers={store.providers} modelsByProvider={store.models} modelsLoading={store.loadingModels} onFetchModels={store.fetchModels} onConfigureProvider={(providerId) => { const entry = store.providers.find((item) => item.id === providerId); if (entry) configureProvider(entry); }} onAddCompatibleProvider={async (input) => { const event = await store.request({ type: "provider.configure", input: { ...input, kind: "openai-compatible", authType: "api-key", approved: true } }); if (event.type !== "provider.changed") throw new Error("Configuration not saved."); configureProvider(event.provider); }} />}
     {provider && <ProviderDialog provider={provider} credential={credential} busy={providerBusy} error={providerError} onCredential={setCredential} onClose={closeProvider} onSubmit={async (event, kind, configuration) => { event.preventDefault(); await saveProvider(kind, configuration); }} onApprove={async (entry) => { await saveProvider(null, { id: entry.id, name: entry.name, kind: entry.kind, authType: entry.authType, ...(entry.baseUrl ? { baseUrl: entry.baseUrl } : {}), ...(entry.defaultModel ? { defaultModel: entry.defaultModel } : {}), approved: true }); }} />}
     <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={[{ id: "new", label: "New chat", hint: "Ctrl+N", run: () => void newSession() }, { id: "search", label: "Search chats", run: () => { setPanel("search"); setQuery(""); } }, { id: "attach", label: "Attach a project", run: () => setEdit({ kind: "attach", value: "", path: "" }) }, { id: "settings", label: "Settings", run: () => openSettings() }, { id: "changes", label: "View changes and checks", run: () => setChangesId(latest?.id ?? "empty") }]} />
   </div>;

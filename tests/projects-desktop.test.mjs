@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test } from "node:test";
 import { ProjectWorkerEngine } from "../dist/desktop/electron/project-worker.js";
+import { createProjectWorkerHost } from "../dist/desktop/electron/project-worker-host.js";
 import { validateDesktopCommand, validateDesktopEvent } from "../dist/desktop/electron/contracts.js";
 import { DesktopShutdownGate } from "../dist/desktop/electron/shutdown.js";
 import { promises as fs } from "node:fs";
@@ -15,6 +16,53 @@ import { fileURLToPath } from "node:url";
 const requestId = "request-desktop-shared";
 const input = { project: { id: "project-fixture" }, session: { id: "session-fixture" }, run: { id: "run-fixture", settings: { mode: "code", permissions: "guarded" } }, text: "Fixture only" };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+for (const acknowledgementError of [undefined, "Injected durable write failure"]) {
+  test(`Council cancellation ${acknowledgementError ? "preserves event persistence failures" : "waits for event persistence before saving its partial review"}`, async (t) => {
+    const directory = path.join(os.tmpdir(), `hive-council-ack-${randomUUID()}`);
+    if (process.env.HIVE_TASK_MANIFEST) await fs.appendFile(process.env.HIVE_TASK_MANIFEST, directory + "\n");
+    await fs.mkdir(directory);
+    t.after(async () => {
+      const relative = path.relative(await fs.realpath(os.tmpdir()), await fs.realpath(directory));
+      assert.ok(relative && !relative.startsWith("..") && !path.isAbsolute(relative));
+      await fs.rm(directory, { recursive: true });
+    });
+    const sent = []; let held; let exited = false; let receive;
+    const waitUntil = async (predicate) => { const deadline = Date.now() + 5_000; while (!predicate()) { if (Date.now() > deadline) assert.fail("Timed out waiting for worker persistence"); await tick(); } };
+    receive = createProjectWorkerHost((message) => {
+      sent.push(message);
+      if (message.type === "project.event") {
+        if (message.event.type === "activity" && message.event.role === "Queen" && message.event.kind === "completed") held = message;
+        else queueMicrotask(() => receive({ type: "project.ack", id: message.id }));
+      }
+    }, () => { exited = true; }, { createChat: () => ({ async complete(request) {
+      const agent = request.prompt.match(/\[HIVE\] role: (\w+)/)?.[1];
+      if (agent === "Queen") return { output: "Completed Queen contract\nPRESET: quick", receipt: { role: request.role, providerId: "fixture-provider", model: "fixture-model", totalTokens: 1 } };
+      if (request.signal.aborted) throw new Error("Fixture stopped");
+      return new Promise((_resolve, reject) => request.signal.addEventListener("abort", () => reject(new Error("Fixture stopped")), { once: true }));
+    } }) });
+    const accepted = { ...input, session: { ...input.session, messages: [], runs: [] }, run: { ...input.run, workspace: directory, settings: { mode: "council", permissions: "guarded" } }, text: "Review without applying changes" };
+    receive({ type: "project.start", input: accepted });
+    await waitUntil(() => held !== undefined);
+    receive({ type: "project.cancel", reason: "User stopped the Council" });
+    await tick(); await tick();
+    assert.equal(sent.some((message) => message.type === "project.completed" || message.type === "project.failed"), false, "the pending durable write still owns completion");
+    assert.equal(exited, false);
+    receive({ type: "project.ack", id: held.id, ...(acknowledgementError ? { error: acknowledgementError } : {}) });
+    await waitUntil(() => exited);
+    const terminal = sent.filter((message) => message.type === "project.completed" || message.type === "project.failed");
+    assert.equal(terminal.length, 1);
+    if (acknowledgementError) {
+      assert.equal(terminal[0].type, "project.failed");
+      assert.match(terminal[0].message, /Injected durable write failure/);
+    } else {
+      assert.equal(terminal[0].type, "project.completed");
+      assert.equal(terminal[0].outcome.status, "cancelled");
+      assert.match(terminal[0].outcome.text, /HIVE Review — Cancelled/);
+      assert.match(terminal[0].outcome.text, /Completed Queen contract/);
+    }
+  });
+}
 class Child extends EventEmitter {
   sent = [];
   killed = false;

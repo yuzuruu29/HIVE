@@ -5,8 +5,10 @@ import { promisify } from "node:util";
 import { createChatEngine, type ChatEngine } from "../chat/engine.js";
 import { CHAT_ROLE_META, classifyTask, normalizeChatRole } from "../chat/roles.js";
 import { compactHistory, HISTORY_CHAR_BUDGET } from "../chat/history.js";
+import { AGENT_LABEL, runHivebot } from "../chat/hivebot.js";
 import { ProviderRouter } from "../coding/provider-router.js";
 import { CodingSessionStore } from "../coding/session-store.js";
+import { parseRepositoryCommand } from "../coding/tools.js";
 import { findRepositoryRoot } from "../coding/repository.js";
 import type { QueenSessionOptions } from "../coding/queen.js";
 import type { CodingSessionRecord, RuntimeEvent, ToolPermissionRequest } from "../coding/types.js";
@@ -15,6 +17,7 @@ import { WorktreeManager } from "../worktree.js";
 import { redactKnownSecrets } from "../security/secrets.js";
 import { runQueenTuiSession, type TuiSessionRunner, type TuiSessionRunnerOptions } from "../tui/runtime-adapter.js";
 import { ProjectSessionService, type ProjectSessionServiceOptions } from "./service.js";
+import { assertCouncilExecutionContext } from "./store.js";
 import type { AcceptedRun, EngineHooks, EngineOutcome, EngineUserEvent, RunCheck, RunPatch, SessionEngineAdapter } from "./types.js";
 
 const execute = promisify(execFile);
@@ -27,9 +30,12 @@ export interface ProductionSessionEngineOptions {
   extensionOptions?: TuiSessionRunnerOptions["extensionOptions"];
 }
 function clean(text: string): string { return redactKnownSecrets(text).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, ""); }
-function conversationPrompt(input: AcceptedRun): string {
+function conversationHistory(input: AcceptedRun): string {
   const history = input.session.messages.filter((message) => message.runId !== input.run.id && message.role !== "system").map((message) => ({ role: message.role === "user" ? "user" as const : "assistant" as const, content: message.text, at: message.createdAt }));
-  const context = compactHistory(history, HISTORY_CHAR_BUDGET).kept.map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`).join("\n\n");
+  return compactHistory(history, HISTORY_CHAR_BUDGET).kept.map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`).join("\n\n");
+}
+function conversationPrompt(input: AcceptedRun): string {
+  const context = conversationHistory(input);
   return context ? `${context}\n\nUser: ${input.text}` : input.text;
 }
 function userEvent(event: RuntimeEvent, roles: Map<string, string>, commandRoles: Map<string, string>): EngineUserEvent | undefined {
@@ -68,16 +74,35 @@ function userEvent(event: RuntimeEvent, roles: Map<string, string>, commandRoles
   }
 }
 function roleName(role: string): string { return role.charAt(0).toUpperCase() + role.slice(1); }
+function matchesExecutedCommand(validation: string, executed: string): boolean {
+  if (validation === executed) return true;
+  try { return parseRepositoryCommand(validation).join(" ") === executed; }
+  catch { return false; }
+}
+/** First meaningful line of a council handoff, without markdown markers. */
+function stageHeadline(output: string): string {
+  const prose = output.split("```").filter((_, index) => index % 2 === 0).join("\n");
+  const line = prose.split("\n").map((entry) => entry.replace(/^[\s#>*_`-]+|[*_`]+$/g, "").trim()).find(Boolean) ?? "Proposal recorded";
+  return clean(line.length > 160 ? `${line.slice(0, 159)}…` : line);
+}
 export function checksFromCodingRecord(record: CodingSessionRecord): RunCheck[] {
   const workspace = record.repository.worktreePath ?? record.repository.root;
   const checks = new Map<string, RunCheck>();
+  const commandTasks = new Map<string, string | undefined>();
   for (const event of record.events.filter((event) => event.sequence >= (record.turnStartSequence ?? 1))) {
-    if (event.type === "command.started") checks.set(event.payload.commandId, { id: event.payload.commandId, name: event.payload.command, command: event.payload.command, workspace: event.payload.cwd, status: "not_run", exitCode: null, startedAt: event.timestamp });
+    if (event.type === "command.started") { commandTasks.set(event.payload.commandId, event.payload.taskId); checks.set(event.payload.commandId, { id: event.payload.commandId, name: event.payload.command, command: event.payload.command, workspace: event.payload.cwd, status: "not_run", exitCode: null, startedAt: event.timestamp }); }
     if (event.type === "command.output") { const check = checks.get(event.payload.commandId); if (check) check.output = ((check.output ?? "") + clean(event.payload.chunk)).slice(-32_000); }
     if (event.type === "command.completed") { const check = checks.get(event.payload.commandId); if (check) { check.endedAt = event.timestamp; check.exitCode = event.payload.exitCode; check.status = event.payload.signal ? "cancelled" : event.payload.exitCode === 0 ? "passed" : "failed"; } }
   }
+  const matched = new Set<string>();
   for (const result of record.validationResults) {
-    if ([...checks.values()].some((check) => check.command === result.command && check.startedAt === result.startedAt)) continue;
+    // New results carry execution identity; older records use the enclosing validation interval.
+    const existing = result.commandId ? checks.get(result.commandId) : [...checks.values()].find((check) => !matched.has(check.id)
+      && matchesExecutedCommand(result.command, check.command) && check.workspace === workspace
+      && (result.taskId === undefined || commandTasks.get(check.id) === result.taskId)
+      && check.startedAt !== undefined && (check.startedAt === result.startedAt || (result.completedAt !== undefined
+        && check.startedAt >= result.startedAt && check.endedAt !== undefined && check.endedAt <= result.completedAt)));
+    if (existing) { matched.add(existing.id); continue; }
     checks.set(result.id, { id: result.id, name: result.command, command: result.command, workspace, status: result.status === "passed" && result.exitCode === 0 ? "passed" : result.status === "failed" ? "failed" : result.status === "cancelled" ? "cancelled" : "not_run", exitCode: result.exitCode ?? null, startedAt: result.startedAt, ...(result.completedAt ? { endedAt: result.completedAt } : {}), ...(result.output ? { output: clean(result.output).slice(-32_000) } : {}) });
   }
   return [...checks.values()];
@@ -85,16 +110,18 @@ export function checksFromCodingRecord(record: CodingSessionRecord): RunCheck[] 
 async function patchesFromRecord(record: CodingSessionRecord): Promise<RunPatch[]> {
   const workspace = record.repository.worktreePath ?? record.repository.root;
   const root = await fs.realpath(workspace); const base = record.repository.worktreeBaseCommit ?? record.repository.baseCommit;
-  const patches: RunPatch[] = []; const seen = new Set<string>();
-  for (const file of record.files) {
-    if (seen.has(file.path)) continue; seen.add(file.path);
+  const patches: RunPatch[] = [];
+  const created = new Set(record.files.filter((file) => file.operation === "created").map((file) => file.path));
+  const latest = new Map<string, CodingSessionRecord["files"][number]>();
+  for (const file of record.files) latest.set(file.path, { ...latest.get(file.path), ...file });
+  for (const file of latest.values()) {
     const relative = file.path.replaceAll("\\", "/"); if (!relative || path.posix.isAbsolute(relative) || path.win32.isAbsolute(relative) || relative.split("/").some((part) => ["..", ".git", ".hivemind", ".hive"].includes(part))) throw new Error("Recorded patch path is unsafe.");
     const args = base ? [base] : [];
     const options = { cwd: root, encoding: "utf8" as const, windowsHide: true, timeout: 10_000, maxBuffer: 2 * 1024 * 1024 };
     const stats = String((await execute("git", ["diff", "--no-ext-diff", "--numstat", ...args, "--", relative], options)).stdout).trim();
     let diff = String((await execute("git", ["diff", "--no-ext-diff", "--unified=3", ...args, "--", relative], options)).stdout); let additions = 0; let deletions = 0; let binary = false;
     if (stats) { const [added, removed] = stats.split("\t"); binary = added === "-" || removed === "-"; additions = binary ? 0 : Number(added); deletions = binary ? 0 : Number(removed); }
-    else if (file.operation === "created") {
+    else if (created.has(file.path) && file.operation !== "deleted") {
       const target = path.join(root, relative); const real = await fs.realpath(target); const within = path.relative(root, real); if (within.startsWith("..") || path.isAbsolute(within)) throw new Error("Recorded file escapes the workspace.");
       const stat = await fs.lstat(target); if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 256 * 1024) { binary = true; diff = "Binary or large new file; inspect it in the workspace."; }
       else { const bytes = await fs.readFile(target); binary = bytes.includes(0); if (binary) diff = "Binary new file"; else { const content = bytes.toString("utf8"); const lines = content.split(/\r?\n/); if (lines.at(-1) === "") lines.pop(); additions = lines.length; diff = `--- /dev/null\n+++ b/${relative}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}`).join("\n")}`; } }
@@ -125,6 +152,29 @@ export function createProductionSessionEngine(options: ProductionSessionEngineOp
           const response = await engine.complete({ role: normalizeChatRole(role) ?? "coding", prompt: conversationPrompt(input), systemPrompt: CHAT_ROLE_META[role].systemPrompt, providerId: input.run.settings.providerId, model: input.run.settings.model, signal: controller.signal, onChunk: (chunk) => { cumulative += chunk; publish({ type: "text", text: cumulative }); } });
           publish({ type: "activity", role: "HIVE", kind: "receipt", text: `${response.receipt.providerId} / ${response.receipt.model}` }); publish({ type: "text", text: response.output }); await drain();
           return { status: controller.signal.aborted ? "cancelled" : "completed", summary: controller.signal.aborted ? "Cancelled after provider acknowledgment" : "Live response complete", text: response.output };
+        }
+        if (input.run.settings.mode === "council") {
+          assertCouncilExecutionContext(input.run.executionContext);
+          const router = new ProviderRouter({ projectRoot: input.run.workspace, sessionId: input.session.id, projectRegistry: options.providerRegistries?.project, globalRegistry: options.providerRegistries?.global });
+          const engine = options.createChat?.(input.run.workspace, input.session.id) ?? createChatEngine(input.run.workspace, input.session.id, { router });
+          publish({ type: "activity", role: "Queen", kind: "status", text: "Convening the HIVE council" }); await drain();
+          const result = await runHivebot(input.text, {
+            cwd: input.run.workspace, providerId: input.run.settings.providerId, model: input.run.settings.model, signal: controller.signal, createEngine: () => engine,
+            conversationContext: conversationHistory(input),
+            onStage: (stage) => publish(stage.type === "stage-started"
+              ? { type: "activity", role: stage.agent, kind: "running", text: `${AGENT_LABEL[stage.agent] ?? "Working"}${stage.attempt > 1 ? ` · repair attempt ${stage.attempt}` : ""}` }
+              : { type: "activity", role: stage.agent, kind: "completed", text: `${stageHeadline(stage.output ?? "")}${stage.receipt ? ` · ${stage.receipt.providerId}/${stage.receipt.model}` : ""}` }),
+          });
+          await drain();
+          const cancelled = controller.signal.aborted;
+          const forger = [...result.stages].reverse().find((stage) => stage.agent === "Forger");
+          const review = cancelled ? result.review.replace(/^## HIVE Review — [^\r\n]+/, "## HIVE Review — Cancelled").replace(/^\*\*Final status:\*\* [^\r\n]+$/m, "**Final status:** Cancelled") : result.review;
+          const lastHandoff = result.stages.at(-1);
+          const partial = cancelled ? `${lastHandoff ? `\n\n### Last completed handoff (excerpt) — ${lastHandoff.agent}\n\n${lastHandoff.output.slice(0, 8_000)}` : ""}\n\nFull council report: ${result.reportPath}` : "";
+          const text = clean(!cancelled && forger && result.status === "COMPLETE" ? `${review}\n\n### Proposed change (Forger, not applied)\n\n${forger.output.trim()}` : review + partial);
+          publish({ type: "text", text }); await drain();
+          const verdict = result.verdict ? ` · Sentinel ${result.verdict.replace(/_/g, " ")}` : "";
+          return { status: cancelled ? "cancelled" : result.status === "COMPLETE" ? "completed" : "failed", summary: cancelled ? "Council cancelled; partial review and completed handoffs saved" : `Council ${result.status.replace(/_/g, " ").toLowerCase()} · ${result.preset} preset${verdict}`, text };
         }
         const root = await findRepositoryRoot(input.run.workspace, controller.signal); const store = new CodingSessionStore(root);
         const roles = new Map<string, string>(); const commandRoles = new Map<string, string>();
@@ -161,7 +211,7 @@ export function createProductionSessionEngine(options: ProductionSessionEngineOp
         }
         const checks = checksFromCodingRecord(record); const patches = await patchesFromRecord(record);
         const status = controller.signal.aborted || record.status === "cancelled" ? "cancelled" : record.status === "completed" ? "completed" : record.status === "failed" ? "failed" : "interrupted";
-        const text = prose || record.finalReport?.result || record.plan?.summary;
+        const text = record.finalReport?.result || prose || record.plan?.summary;
         return { status, summary: record.finalReport?.result ?? (record.status === "paused" ? "Coding engine paused; saved state requires inspection before a new attempt" : `Coding engine ${record.status}`), ...(text ? { text } : {}), engineSessionId: record.id, patches, checks };
       } catch (error) { await drain(); if (controller.signal.aborted && !persistenceError) return { status: "cancelled", summary: "Cancellation acknowledged by the live engine" }; throw error; }
     })();

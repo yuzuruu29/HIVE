@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { ProjectAction, ProjectActionResponse, ProjectSnapshot, SharedExecutionContext, SharedSession, SessionMode, SessionPermissions } from "../projects/types.js";
 import { replaceTranscript, withHistory, type TuiState } from "./state.js";
 import { serializeToolCard } from "./tool-card.js";
+import { glyphsFor } from "./glyphs.js";
 import { providerCatalog, providerPublicText } from "../providers/commands.js";
 import { discoverExtensions, loadSkill } from "../extensions/index.js";
 import { loadPluginAgent } from "../extensions/catalog.js";
@@ -117,7 +118,7 @@ export class TuiProjectClient {
     this.project();
   }
   async cycleMode(): Promise<void> {
-    const modes: SessionMode[] = ["code", "plan", "chat"];
+    const modes: SessionMode[] = ["code", "plan", "chat", "council"];
     const current = this.current()?.settings.mode ?? "code";
     await this.settings({ mode: modes[(modes.indexOf(current) + 1) % modes.length] });
   }
@@ -238,10 +239,10 @@ export class TuiProjectClient {
         else throw new Error("Use /permissions guarded, standard, or autonomous.");
         return true;
       case "mode":
-        if (!args) this.notice(`Workflow: ${this.requireSession().settings.mode}. /mode code|plan|chat. Safety is separate: /permissions.`);
-        else if (args === "code" || args === "plan" || args === "chat" || args === "review") await this.settings({ mode: args });
+        if (!args) this.notice(`Workflow: ${this.requireSession().settings.mode}. /mode code|plan|chat|council. Safety is separate: /permissions.`);
+        else if (args === "code" || args === "plan" || args === "chat" || args === "review" || args === "council") await this.settings({ mode: args });
         else if (args === "guarded" || args === "standard" || args === "autonomous") { await this.settings({ permissions: args }); this.notice("Legacy /mode safety alias accepted. Use /permissions for safety; Shift+Tab changes workflow."); }
-        else throw new Error("Use /mode code, plan, or chat; /permissions changes tool policy.");
+        else throw new Error("Use /mode code, plan, chat, or council; /permissions changes tool policy.");
         return true;
       case "model": case "m": {
         if (!args) {
@@ -405,25 +406,30 @@ export class TuiProjectClient {
     const active = session.runs.find((run) => ACTIVE.has(run.status));
     const entries: string[] = [];
     const disclosedRuns = new Set<string>();
+    const g = glyphsFor(this.getState());
+    const activityCard = (run: SharedSession["runs"][number]) => {
+      const roles = new Set(run.events.map((event) => event.role)).size;
+      return serializeToolCard({ id: `shared-${run.id}`, kind: "other", tool: "Activity", summary: `${roles} ${roles === 1 ? "role" : "roles"} · ${run.events.length} ${run.events.length === 1 ? "event" : "events"}`, status: run.status, expanded: this.activity, mutating: false, prompt: false, body: run.events.map((event) => `${event.role}: ${event.text}`) });
+    };
     for (const item of session.messages) {
       entries.push(`${item.role === "user" ? "[User] " : item.role === "system" ? "  " : ""}${item.text}`);
       if (item.role !== "assistant" || !item.runId) continue;
       const run = session.runs.find((candidate) => candidate.id === item.runId);
       if (!run) continue;
       disclosedRuns.add(run.id);
-      if (run.events.length) entries.push(serializeToolCard({ id: `shared-${run.id}`, kind: "other", tool: "Activity", summary: `${new Set(run.events.map((event) => event.role)).size} roles · ${run.events.length} events`, status: run.status, expanded: this.activity, mutating: false, prompt: false, body: run.events.map((event) => `${event.role}: ${event.text}`) }));
+      if (run.events.length) entries.push(activityCard(run));
       if (run.patches.length || run.checks.length) entries.push(`  ${run.patches.length} recorded change${run.patches.length === 1 ? "" : "s"} · ${run.checks.filter((check) => check.status === "passed").length} passed / ${run.checks.length} recorded checks · /diff`);
       if (run.reviewedAt) entries.push("  Reviewed · review marker only");
       if (["cancelled", "interrupted", "failed"].includes(run.status)) entries.push(`  ${run.status}: ${run.summary}. A new request starts a linked attempt; files are not rolled back.`);
     }
     for (const run of session.runs) {
       if (disclosedRuns.has(run.id) || !run.events.length) continue;
-      entries.push(serializeToolCard({ id: `shared-${run.id}`, kind: "other", tool: "Activity", summary: `${new Set(run.events.map((event) => event.role)).size} roles · ${run.events.length} events`, status: run.status, expanded: this.activity, mutating: false, prompt: false, body: run.events.map((event) => `${event.role}: ${event.text}`) }));
+      entries.push(activityCard(run));
     }
     if (this.changes && lastRun) {
       entries.push(lastRun.patches.length ? "Recorded changes" : "No recorded changes for this run.");
       for (const patch of lastRun.patches) entries.push(`${patch.state}: ${patch.path} +${patch.additions} -${patch.deletions}${patch.stale ? " (stale)" : ""}\n${patch.diff ? ["```diff", patch.diff, "```"].join("\n") : patch.binary ? "Binary change" : "Diff unavailable"}`);
-      for (const check of lastRun.checks) entries.push(`  ${check.status}: ${check.command} · ${check.workspace} · exit ${check.exitCode ?? "not recorded"}`);
+      for (const check of lastRun.checks) entries.push(`  ${check.status === "passed" ? g.pass : check.status === "failed" ? g.fail : g.dot} ${check.status.replace(/_/g, " ")}: ${check.command} · ${check.workspace} · exit ${check.exitCode ?? "not recorded"}`);
     }
     entries.push(...this.notes);
     let current = this.getState();
